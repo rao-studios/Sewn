@@ -1,0 +1,90 @@
+// Discover Docker containers on the host
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// Extract service_name from structured log lines before sending to Cockpit.
+// SeerLogger.externallyLog prints JSON lines with a "service" field (e.g.
+// {"service":"Sinatra",...}). The pipeline below pulls that value into a
+// service_name Loki label so Cockpit's drilldown tabs (Seer, Sinatra, Gita,
+// GBT Training, Parking, Embedding, etc.) populate correctly.
+// Non-JSON lines (Vapor framework output) fall back to service_name="seer-server".
+loki.process "label_service" {
+  // Default for framework/untagged lines.
+  stage.static_labels {
+    values = { service_name = "seer-server" }
+  }
+
+  // Try to parse the log body as JSON. Extracts service, requestId, ownerId, and
+  // documentId into the extracted map. Lines that are not valid JSON pass through unchanged.
+  stage.json {
+    expressions = {
+      service     = "service",
+      request_id  = "requestId",
+      owner_id    = "ownerId",
+      document_id = "documentId",
+    }
+  }
+
+  // Promote service to a Loki stream label (low-cardinality — safe as label).
+  // When "service" was not found (non-JSON lines) this stage is a no-op
+  // and the static_labels fallback above is preserved.
+  stage.labels {
+    values = { service_name = "service" }
+  }
+
+  // Promote requestId and ownerId as structured metadata.
+  // Unlike labels, structured metadata is not indexed into the stream key, so
+  // there is no cardinality explosion. They appear as filterable fields in
+  // Grafana Explore's "Detected fields" panel and support LogQL queries like:
+  //   {service_name="Seer"} | request_id = "abc-123"
+  stage.structured_metadata {
+    values = { request_id = "request_id", owner_id = "owner_id", document_id = "document_id" }
+  }
+
+  forward_to = [loki.write.cockpit.receiver]
+}
+
+// Ship container logs through the service-labelling pipeline to Cockpit Loki
+loki.source.docker "seer_logs" {
+  host    = "unix:///var/run/docker.sock"
+  targets = discovery.docker.containers.targets
+
+  forward_to = [loki.process.label_service.receiver]
+}
+
+loki.write "cockpit" {
+  endpoint {
+    url = env("COCKPIT_LOGS_ENDPOINT")
+    basic_auth {
+      username = "seer"
+      password = env("COCKPIT_TOKEN")
+    }
+  }
+}
+
+// Scrape Prometheus metrics from seer-server /metrics endpoint
+prometheus.scrape "seer_app" {
+  targets         = [{"__address__" = "seer:8080", "__metrics_path__" = "/metrics"}]
+  scrape_interval = "30s"
+  bearer_token    = env("METRICS_TOKEN")
+  forward_to      = [prometheus.remote_write.cockpit.receiver]
+}
+
+// Ship host-level metrics (CPU, RAM, disk, network)
+prometheus.exporter.unix "host" {}
+
+prometheus.scrape "host_metrics" {
+  targets    = prometheus.exporter.unix.host.targets
+  forward_to = [prometheus.remote_write.cockpit.receiver]
+}
+
+prometheus.remote_write "cockpit" {
+  endpoint {
+    url = env("COCKPIT_METRICS_ENDPOINT")
+    basic_auth {
+      username = "seer"
+      password = env("COCKPIT_TOKEN")
+    }
+  }
+}

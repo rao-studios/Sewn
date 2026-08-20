@@ -1,0 +1,17 @@
+# Use the official Swift Docker image
+FROM swift:6.0.0-jammy
+
+# Set working directory
+WORKDIR /app
+
+# Copy project files
+COPY . .
+
+# Expose the port your server runs on
+EXPOSE 8080
+
+# Make the script executable
+RUN chmod +x /app/build-mistral.sh
+
+# Run the server
+CMD ["/app/build-mistral.sh", "seer-server-release"]

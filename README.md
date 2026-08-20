@@ -1,8 +1,10 @@
 # Seer
 
-A personalized AI assistant server built in Swift on [Vapor](https://vapor.codes). Seer is the **orchestration layer** of a distributed vector search architecture: it handles authentication, chat completions (with RAG and Sinatra sentiment tuning), royalty tracking (Gita), and fan-out to **[Totem](https://github.com/rao-studios/Totem)** nodes — independently deployed vector search nodes that hold all document and HNSW data. Seer coordinates it; Totem stores and searches it.
+A personalized AI assistant server built in Swift on [Vapor](https://vapor.codes). Seer is the **orchestration layer** of a distributed vector search architecture: it handles authentication, chat completions (with RAG and Sinatra sentiment tuning), royalty tracking (Gita), and fan-out to **Totem** nodes — independently deployed vector search nodes that hold all document and HNSW data. Seer coordinates it; Totem stores and searches it.
 
-Seer hopes to answer an important question: *"When does generative AI qualify for fair use?"*
+*"When does generative AI qualify for fair use?"*
+
+**Project started:** 2025-10-26
 
 ---
 
@@ -13,9 +15,9 @@ Seer hopes to answer an important question: *"When does generative AI qualify fo
 | **Seer** | Orchestration layer: auth, RAG search, chat completions, document lifecycle, Totem fan-out. |
 | **Sinatra** | Gradient Boosted Trees (GBT) sentiment analysis that dynamically adjusts generation parameters (temperature, top-p, repetition penalty) based on conversation tone. Also collects RLHF training data via user reactions. |
 | **Gita** | Royalty tracking system that calculates contribution percentages for each document owner whose data influenced an inference. |
-| ****[Totem](https://github.com/rao-studios/Totem)**** (external) | Distributed vector search nodes. Each **[Totem](https://github.com/rao-studios/Totem)** registers with Seer over gRPC, holds a persistent bidirectional session stream, and receives all search/index/remove/library fan-out through that session. HNSW graphs and PQ codebooks live on Totem nodes. |
+| **Totem** (external) | Distributed vector search nodes. Each Totem registers with Seer over gRPC, holds a persistent bidirectional session stream, and receives all search/index/remove/library fan-out through that session. HNSW graphs and PQ codebooks live on Totem nodes. |
 
-Seer has a sister iOS app, — [Open Source (Coming Soon)](https://github.com/riteshpakala/Sis).
+Seer has a companion iOS app, Sister — [Open Source](https://github.com/riteshpakala/Sis).
 
 ---
 
@@ -174,6 +176,8 @@ Fan-out to all active Totem nodes via gRPC. Results are merged, re-ranked, and d
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/v1/chat/completions` | Chat with Sinatra-tuned parameters and RAG context |
+| `GET` | `/v1/personalities` | List chat personas (voice, params, model override) |
+| `PUT` | `/v1/admin/personalities` | Replace the persona list (admin) |
 
 **`POST /v1/chat/completions`**
 ```json
@@ -181,6 +185,7 @@ Fan-out to all active Totem nodes via gRPC. Results are merged, re-ranked, and d
 {
   "messages": [{ "role": "user", "content": "Summarize my notes on HNSW." }],
   "model": "mistral-medium",
+  "personality": "scholar",
   "stream": false,
   "seer": { "owner_id": "uuid" }
 }
@@ -188,10 +193,17 @@ Fan-out to all active Totem nodes via gRPC. Results are merged, re-ranked, and d
 // Response (stream: false)
 {
   "choices": [{ "message": { "role": "assistant", "content": "..." }, "finishReason": "stop" }],
-  "usage": { "prompt_tokens": 120, "total_tokens": 350 }
+  "usage": { "prompt_tokens": 120, "total_tokens": 350 },
+  "personality": "scholar",
+  "contribution": { "owners": [{ "spans": [], "document_spans": { "did": [{ "lower": 0, "upper": 42 }] } }] }
 }
 // stream: true → Server-Sent Events with delta chunks
 ```
+
+Responses are attributed to their Totem source files: the model cites context
+sources with invisible `[[n]]` markers which the server strips and resolves to
+exact character-offset spans per document (`contribution.owners[].document_spans`),
+falling back to n-gram heuristic spans for unmarked sentences.
 
 Supports multi-modal input (images, video) when `--vlm` is enabled.
 
@@ -216,6 +228,49 @@ Supports multi-modal input (images, video) when `--vlm` is enabled.
 }
 // operation: "access" | "remove" | "group"
 // "remove" fans out to Totem nodes; "access" and "group" update Seer registry
+```
+
+---
+
+### Storage & Backup
+
+Supabase Storage bucket (`documents`) with path `{userId}/{groupId}/{documentId}`. RLS enforces per-user isolation.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/storage/backup` | Upload all document envelopes to Supabase Storage |
+| `POST` | `/v1/storage/manifest` | Return server-side document manifest |
+| `POST` | `/v1/storage/restore` | Download all stored document envelopes |
+| `POST` | `/v1/storage/purge` | Remove all documents from storage and server index |
+| `POST` | `/v1/storage/purge/documents` | Remove specific documents |
+| `POST` | `/v1/storage/purge/groups` | Remove specific groups and their documents |
+
+---
+
+### HNSW Graph
+
+HNSW is managed entirely by Totem nodes. Seer acts as a thin gRPC proxy. Graph routes require `seer.totem_ids[0]` to specify the target Totem node. Stats routes fan out to **all** active Totem nodes and aggregate.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/hnsw/stats` | Aggregate stats across all active Totem nodes |
+| `POST` | `/v1/hnsw/document/stats` | Stats filtered to one document across all nodes |
+| `POST` | `/v1/hnsw/personal/stats` | Stats for a specific Totem node (requires `totem_ids`) |
+| `POST` | `/v1/hnsw/personal` | Personal graph from a specific Totem node |
+| `POST` | `/v1/hnsw/personal/hubs` | Hub-only personal graph (nodes with level > 0) |
+| `POST` | `/v1/hnsw/personal/document` | Personal graph filtered to one document |
+| `POST` | `/v1/hnsw/personal/documents` | Personal graph filtered to a set of document IDs |
+| `POST` | `/v1/hnsw/global` | Global graph from a specific Totem node |
+| `POST` | `/v1/hnsw/global/hubs` | Hub-only global graph |
+| `POST` | `/v1/hnsw/documents` | Global graph filtered to a set of document IDs |
+| `POST` | `/v1/hnsw/documents/hubs` | Hub-only global graph for a document set |
+| `POST` | `/v1/hnsw/node` | Full single-node inspection (all layers + neighbors) |
+| `POST` | `/v1/hnsw/nodes/batch` | Batch fetch multiple nodes by partition ID |
+| `DELETE` | `/v1/hnsw/node` | Soft-delete a node on a specific Totem node |
+
+```json
+// Most graph routes require totem_ids to route to a specific node:
+{ "seer": { "owner_id": "uuid", "totem_ids": ["totem-node-uuid"] } }
 ```
 
 ---
@@ -451,4 +506,4 @@ Claude Code (Sonnet) focuses on tests, observability, & enhancements from:
 
 - https://paka.la
 
-> *“The ability to observe without evaluating is the highest form of intelligence.” - J. Krishnamurti*
+> *"The ability to observe without evaluating is the highest form of intelligence." — J. Krishnamurti*
