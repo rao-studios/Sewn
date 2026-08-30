@@ -97,6 +97,15 @@ enum ModelConfig {
             ?? "mistral-small-latest"
     }
 
+    /// Pair-coding synthesis for `/v1/code/complete`. Mary does not send a
+    /// model id; this is Seer's pin. Override with `SEER_CODING_MODEL`.
+    static let defaultCodingModel = "codestral-latest"
+    static var codingModel: String {
+        let override = ProcessInfo.processInfo.environment["SEER_CODING_MODEL"]
+        if let override, !override.isEmpty { return override }
+        return defaultCodingModel
+    }
+
     /// The opening is one-to-two sentences; a tight budget keeps a rambling
     /// generation from delaying the grounded continuation.
     static let openingMaxTokens = 80

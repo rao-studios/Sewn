@@ -39,6 +39,8 @@ func configureRoutes(
     )
     registerVisionLookRoute(protected)
     registerCompleteRoute(protected, modelProvider: modelProvider)
+    registerSkillsCompleteRoute(protected, modelProvider: modelProvider)
+    registerCodeCompleteRoute(protected, modelProvider: modelProvider)
     registerEmbeddingsRoute(
         protected,
         seer,

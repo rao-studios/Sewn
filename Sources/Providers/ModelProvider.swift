@@ -263,4 +263,81 @@ final class ModelProvider {
         let value = try JSONDecoder().decode(T.self, from: data)
         return (value, response.usage.asChatUsage)
     }
+
+    /// One non-streaming generation that may return native tool calls.
+    /// Used by `/v1/skills/complete` — not chat, not the annotator.
+    func runWithTools(
+        system: String?,
+        messages: [Requests.Chat.Get.Message],
+        tools: [Requests.Chat.Get.Tool]?,
+        maxTokens: Int,
+        temperature: Float,
+        model preferredModel: String? = nil,
+        logger: Logger
+    ) async throws -> (text: String, toolCalls: [(name: String, arguments: String)]) {
+        let resolvedModel = ModelConfig.resolveChatModel(requested: preferredModel)
+        let resolvedMaxTokens = ModelConfig.chatMaxTokens(
+            requested: maxTokens, model: resolvedModel)
+        let llmStart = Date()
+        defer {
+            SeerMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
+            Counter(label: "provider.llm_requests_total", dimensions: [("model", resolvedModel)]).increment()
+        }
+
+        if ModelConfig.isMistralModel(resolvedModel) {
+            var mistralMessages: [Requests.Chat.Get.Message] = []
+            if let system, !system.isEmpty {
+                mistralMessages.append(.init(
+                    role: ChatMessageRequestRole.system.rawValue, content: system))
+            }
+            mistralMessages.append(contentsOf: messages)
+            let response = try await mistralNetwork.request(
+                Requests.Chat.Get(
+                    model: resolvedModel,
+                    messages: mistralMessages,
+                    maxTokens: resolvedMaxTokens,
+                    temperature: temperature,
+                    tools: tools
+                )
+            )
+            let message = response.choices.first?.message
+            let text = message?.content ?? ""
+            let calls = (message?.toolCalls ?? []).compactMap { call -> (String, String)? in
+                guard let name = call.function?.name, !name.isEmpty else { return nil }
+                return (name, call.function?.arguments ?? "{}")
+            }
+            return (text, calls)
+        }
+
+        var anthropicMessages: [Requests.Messages.Create.Message] = []
+        for message in messages {
+            guard !message.content.isEmpty else { continue }
+            if message.role == ChatMessageRequestRole.system.rawValue { continue }
+            anthropicMessages.append(.init(role: message.role, content: message.content))
+        }
+        let anthropicTools = tools?.compactMap { tool -> Requests.Messages.Create.Tool? in
+            let name = tool.function.name
+            guard !name.isEmpty else { return nil }
+            return .init(
+                name: name,
+                description: tool.function.description,
+                inputSchema: tool.function.parameters ?? .object([:]))
+        }
+        let response = try await network.request(
+            Requests.Messages.Create(
+                model: resolvedModel,
+                system: system,
+                messages: anthropicMessages,
+                maxTokens: resolvedMaxTokens,
+                temperature: temperature,
+                tools: anthropicTools,
+                toolChoice: anthropicTools == nil ? nil : .auto
+            )
+        )
+        let calls = response.toolUses.compactMap { block -> (String, String)? in
+            guard let name = block.name, !name.isEmpty else { return nil }
+            return (name, block.input?.jsonString() ?? "{}")
+        }
+        return (response.text, calls)
+    }
 }

@@ -42,6 +42,16 @@ enum JSONValue: Codable {
         case .null:          try c.encodeNil()
         }
     }
+
+    /// Compact JSON for tool-call `arguments` when the provider sent an object.
+    func jsonString() -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = []
+        guard let data = try? encoder.encode(self),
+              let text = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return text
+    }
 }
 
 // Literal conformances so tool schemas read like JSON at the call site.
@@ -166,6 +176,11 @@ extension Requests.Messages {
             /// First tool_use block, if the model called a tool.
             var toolUse: ContentBlock? {
                 content.first { $0.type == "tool_use" }
+            }
+
+            /// Every tool_use block, in order — skill synthesis can emit several.
+            var toolUses: [ContentBlock] {
+                content.filter { $0.type == "tool_use" }
             }
         }
 
