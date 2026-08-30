@@ -25,6 +25,10 @@ struct ChatCompletionRequest: Codable {
     var instructions: String?
     /// Personality id serving this chat (see `PersonalityStore`).
     var personality: String?
+    /// Per-request identity. Lets a client (Mary) name herself and supply
+    /// the desired voice without looking up a stored personality. Empty
+    /// fields fall through to `personality`, then to "Seer".
+    var persona: ChatPersona? = nil
     // Toggles query expansion
     var resonate: Bool?
     var debug: Bool?
@@ -38,7 +42,7 @@ struct ChatCompletionRequest: Codable {
 
     enum CodingKeys: String, CodingKey {
         case messages, model, temperature, stream, stop, resize, seer, resonate, instructions, debug, client
-        case personality
+        case personality, persona
         case maxTokens = "max_tokens"
         case topP = "top_p"
         case repetitionPenalty = "repetition_penalty"
@@ -47,6 +51,16 @@ struct ChatCompletionRequest: Codable {
         case kvGroupSize = "kv_group_size"
         case quantizedKVStart = "quantized_kv_start"
     }
+}
+
+/// Inline name and desired voice for one chat turn. Orthogonal to the
+/// stored `personality` id: this is what the client calls herself, not a
+/// catalog lookup.
+struct ChatPersona: Codable, Equatable, Sendable {
+    var name: String?
+    /// The desired persona — injected where a stored personality's
+    /// `systemFragment` would go.
+    var voice: String?
 }
 
 enum ChatMessageRequestRole: String, Codable {

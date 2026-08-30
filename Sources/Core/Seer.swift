@@ -140,8 +140,11 @@ actor Seer {
         SeerMetrics.totemSearchDuration.recordNanoseconds(Int64(searchElapsedNs))
         logger.info("Timing", "[timing] search \(searchElapsedNs / 1_000_000)ms (\(result.partitions.count) partitions)", service: .seer, request: seerRequest, flow: .chat)
 
-        /* Personality (persona voice + params + optional model override) */
+        /* Personality (persona voice + params + optional model override).
+           An inline `persona` is the client's own name and voice — Mary
+           would otherwise inherit "Your name is Seer" from the default. */
         let personality = PersonalityStore.personality(id: request.personality)
+        let persona = resolveChatPersona(inline: request.persona, stored: personality)
 
         // A Bonnie client reframes retrieval as SUPPORT: background that helps
         // the current request, never material that redirects it — plus its own
@@ -189,7 +192,7 @@ actor Seer {
             var citationProtocol = """
             - The [n] tags label the sources in the context above; leave them there — do not copy [n] tags into your reply. Instead, when a sentence of yours draws on source [n], end that sentence with its doubled-bracket marker [[n]], placed after the closing punctuation (several in a row are fine, e.g. [[1]][[3]]). The markers are machine-read and stripped before the user sees your reply — never mention or explain them, and never use a number that does not appear in the context. This is a simple mechanical rule; apply it without deliberation.
             """
-            if personality?.citationEmphasis == true {
+            if persona.citationEmphasis {
                 citationProtocol += "\n            - Marker discipline is essential: every sentence that uses retrieved material must carry its [[n]] marker. Sentences that are purely your own reasoning carry none."
             }
 
@@ -207,14 +210,8 @@ actor Seer {
         let memoryInstruction = Self.memoryInstruction(
             contextEmpty: context.isEmpty, bonnieClient: isBonnieClient)
 
-        // The persona voice: personality fragment when selected, classic confidante otherwise.
-        let voice = personality?.systemFragment
-            ?? "You are a close confidante — honest, warm, and direct. Offer your honest perspective, not just a reflection of what they already said."
-
         let personalizedContext: String = """
-        Your name is \(personality?.name ?? "Seer").
-
-        \(voice) \(memoryInstruction)
+        \(chatPersonaSection(persona, memoryInstruction: memoryInstruction))
 
         \(instructions)
 

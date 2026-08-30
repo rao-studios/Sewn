@@ -55,13 +55,15 @@ func registerRealtimeRoute(
 /// carry out real actions — otherwise, asked to "edit this code", a generic
 /// model disclaims ("I can't edit directly, here's how…") while the client's
 /// orchestrator silently performs the edit. Extracted for unit testing.
-func realtimeOpeningSystemPrompt(personality: Personality?) -> String {
-    let voice = personality?.systemFragment
-        ?? "You are a close confidante — honest, warm, and direct."
+func realtimeOpeningSystemPrompt(
+    personality: Personality? = nil,
+    persona inline: ChatPersona? = nil
+) -> String {
+    let persona = resolveChatPersona(inline: inline, stored: personality)
     return """
-    Your name is \(personality?.name ?? "Seer").
+    Your name is \(persona.name).
 
-    \(voice)
+    \(persona.voice)
 
     You act through your tools as you speak — if the user asks you to do something (edit code, write, change \
     a file, run something), acknowledge you're doing it in the present ("I'm adding that now") and never \
@@ -166,7 +168,8 @@ private func handleRealtimeTurn(
 
     // ── Engine wiring ─────────────────────────────────────────────────────────
     let personality = PersonalityStore.personality(id: chatRequest.personality)
-    let openingSystemPrompt = realtimeOpeningSystemPrompt(personality: personality)
+    let openingSystemPrompt = realtimeOpeningSystemPrompt(
+        personality: personality, persona: chatRequest.persona)
 
     let historyMessages: [[String: String]] = chatRequest.messages.compactMap { message in
         guard let content = message.content.asString, !content.isEmpty else { return nil }

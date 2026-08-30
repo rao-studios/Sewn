@@ -23,10 +23,15 @@ class StandaloneGeneration {
         _ prompt: String,
         systemPrompt: String? = nil,
         maxTokens: Int? = nil,
+        temperature: Float? = nil,
+        model: String? = nil,
         modelProvider: ModelProvider,
         logger: Logger
     ) async throws -> String? {
-        return try await modelProvider.run(prompt, systemPrompt: systemPrompt, maxTokens: maxTokens, logger: logger).content
+        return try await modelProvider.run(
+            prompt, systemPrompt: systemPrompt, maxTokens: maxTokens,
+            temperature: temperature, model: model, logger: logger
+        ).content
     }
     
     /// Runs a standalone generation on a API based LLM (Mistral).

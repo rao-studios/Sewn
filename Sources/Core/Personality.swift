@@ -101,3 +101,44 @@ enum PersonalityStore {
         FilePersistence(key: key, kind: .basic, logger: logger).save(state: personalities)
     }
 }
+
+// MARK: - Per-request persona (handleChat prompt section)
+
+struct ResolvedChatPersona: Equatable, Sendable {
+    var name: String
+    var voice: String
+    var citationEmphasis: Bool
+
+    static let `default` = ResolvedChatPersona(
+        name: "Seer",
+        voice: Personality.defaults[0].systemFragment,
+        citationEmphasis: false)
+}
+
+/// Inline `persona` wins per field; stored personality fills the rest;
+/// otherwise she is Seer.
+func resolveChatPersona(inline: ChatPersona?, stored: Personality?) -> ResolvedChatPersona {
+    func trimmed(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let stripped = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? nil : stripped
+    }
+    return ResolvedChatPersona(
+        name: trimmed(inline?.name) ?? stored?.name ?? ResolvedChatPersona.default.name,
+        voice: trimmed(inline?.voice) ?? stored?.systemFragment ?? ResolvedChatPersona.default.voice,
+        citationEmphasis: stored?.citationEmphasis ?? false)
+}
+
+/// THE PERSONALITY SECTION of the chat system prompt — name, then voice,
+/// then the memory posture. Extracted so tests pin "Your name is Seer"
+/// as the default and "Your name is Mary" when a client sends a persona.
+func chatPersonaSection(
+    _ persona: ResolvedChatPersona,
+    memoryInstruction: String
+) -> String {
+    """
+    Your name is \(persona.name).
+
+    \(persona.voice) \(memoryInstruction)
+    """
+}

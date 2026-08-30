@@ -67,7 +67,8 @@ final class StreamingSentenceChunkerTests: XCTestCase {
 final class RealtimeOpeningPromptTests: XCTestCase {
 
     func testOpeningPromptFramesSeerAsActor() {
-        let prompt = realtimeOpeningSystemPrompt(personality: nil)
+        let prompt = realtimeOpeningSystemPrompt()
+        XCTAssertTrue(prompt.hasPrefix("Your name is Seer."))
         // The opening pass is the first thing spoken and drops client
         // instructions, so it must carry the agentic framing itself.
         XCTAssertTrue(prompt.contains("You act through your tools"))

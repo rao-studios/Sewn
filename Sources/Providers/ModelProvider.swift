@@ -134,11 +134,12 @@ final class ModelProvider {
         systemPrompt: String? = nil,
         maxTokens: Int? = nil,
         temperature: Float? = nil,
+        model preferredModel: String? = nil,
         logger: Logger
     ) async throws -> (content: String?, usage: Requests.Chat.Get.Usage) {
         logger.info("Sending chat request via Model Provider.")
 
-        let model = ModelConfig.utilityModel
+        let model = preferredModel ?? ModelConfig.utilityModel
         let llmStart = Date()
         defer {
             SeerMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)

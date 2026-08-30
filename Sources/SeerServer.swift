@@ -38,6 +38,7 @@ func configureRoutes(
         isVLM: isVLM
     )
     registerVisionLookRoute(protected)
+    registerCompleteRoute(protected, modelProvider: modelProvider)
     registerEmbeddingsRoute(
         protected,
         seer,
