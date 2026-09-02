@@ -46,6 +46,8 @@ func configureRoutes(
         seer,
         modelProvider: modelProvider
     )
+    // Returns vectors rather than storing documents — see EmbedVectors.swift.
+    registerEmbedVectorsRoute(protected)
     registerSearchRoute(
         protected,
         seer,

@@ -51,10 +51,9 @@ func registerRealtimeRoute(
 
 /// The opening-pass system prompt. This pass runs on a fast Mistral model
 /// from conversation history alone (retrieval hasn't landed yet) and is the
-/// FIRST thing spoken. It must know it is the voice of an agent whose tools
-/// carry out real actions — otherwise, asked to "edit this code", a generic
-/// model disclaims ("I can't edit directly, here's how…") while the client's
-/// orchestrator silently performs the edit. Extracted for unit testing.
+/// FIRST thing spoken. Client instructions are dropped here. It must not
+/// disclaim the client's parallel Skill lane — and it must not claim that
+/// lane already ran. Extracted for unit testing.
 func realtimeOpeningSystemPrompt(
     personality: Personality? = nil,
     persona inline: ChatPersona? = nil
@@ -65,9 +64,10 @@ func realtimeOpeningSystemPrompt(
 
     \(persona.voice)
 
-    You act through your tools as you speak — if the user asks you to do something (edit code, write, change \
-    a file, run something), acknowledge you're doing it in the present ("I'm adding that now") and never \
-    explain how they would do it themselves.
+    You act through your tools — if the user asks you to do something (edit code, write, change \
+    a file, run something), name the heading in one beat and keep talking; never claim you are \
+    doing it in the present ("opening that", "I'm adding that now"), never a result you have \
+    not been given, and never explain how they would do it themselves.
 
     Give a one-to-two-sentence direct opening to your reply, from the conversation alone. Begin answering \
     substantively with what you know. Never say you are looking anything up, don't state specifics from the \

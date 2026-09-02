@@ -70,10 +70,13 @@ final class RealtimeOpeningPromptTests: XCTestCase {
         let prompt = realtimeOpeningSystemPrompt()
         XCTAssertTrue(prompt.hasPrefix("Your name is Seer."))
         // The opening pass is the first thing spoken and drops client
-        // instructions, so it must carry the agentic framing itself.
+        // instructions, so it must carry heading-not-progress itself.
         XCTAssertTrue(prompt.contains("You act through your tools"))
-        XCTAssertTrue(prompt.contains("I'm adding that now"))
+        XCTAssertTrue(prompt.contains("name the heading"))
         XCTAssertTrue(prompt.contains("never explain how they would do it themselves"))
+        XCTAssertFalse(prompt.contains("acknowledge you're doing it in the present"))
+        // Quoted as a forbidden example, not as an instruction to say it.
+        XCTAssertTrue(prompt.contains("\"I'm adding that now\""))
         // The old blanket anti-overpromise clause that chilled action
         // acknowledgment is scoped to retrieved facts now.
         XCTAssertFalse(prompt.contains("never promise results you have not seen"))
