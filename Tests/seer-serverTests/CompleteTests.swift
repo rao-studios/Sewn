@@ -110,7 +110,9 @@ final class CompleteWireTests: XCTestCase {
 
     func testCompleteCapsTheTokenBudget() {
         XCTAssertEqual(completeMaxTokens(nil), 256)
-        XCTAssertEqual(completeMaxTokens(1024), 512)
         XCTAssertEqual(completeMaxTokens(8), 32)
+        // A stated budget is honoured: the drafter's recipe needs the room.
+        XCTAssertEqual(completeMaxTokens(1024), 1024)
+        XCTAssertEqual(completeMaxTokens(4096), 2048)
     }
 }

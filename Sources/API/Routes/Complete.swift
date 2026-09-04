@@ -106,9 +106,17 @@ func completeGenerationModel(_ utility: String) -> String {
     ModelConfig.isThinkingModel(utility) ? ModelConfig.defaultUtilityModel : utility
 }
 
-/// Tight on purpose: the annotator asks for a JSON object, not a page.
+/// The DEFAULT stays tight — annotation asks for a JSON object, not a page,
+/// and every unit in a corpus pass pays for whatever this route grants.
+///
+/// THE CEILING IS NOT THE DEFAULT. Annotation is no longer the only caller:
+/// Ability Studio's skill drafter asks this route for a whole recipe, and an
+/// eight-step object does not fit in 512. A budget the caller states
+/// explicitly is honoured up to `skillsCompleteMaxTokens`'s ceiling, because
+/// a truncated JSON object is not a short answer — it is an unparsable one,
+/// and the caller cannot tell which it got.
 func completeMaxTokens(_ requested: Int?) -> Int {
-    min(max(requested ?? 256, 32), 512)
+    min(max(requested ?? 256, 32), 2048)
 }
 
 // MARK: - Route registration
