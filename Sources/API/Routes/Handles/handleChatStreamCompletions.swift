@@ -47,8 +47,10 @@ func handleChatStreamCompletions(
     let personality = chatResult.personality
     // Resolve the model before the token budget: thinking models get a floor
     // so truncation never swallows the answer (see ModelConfig.chatMaxTokens).
+    let provider = chatRequest.provider ?? .serverDefault
     let requestedModel = chatRequest.model ?? personality?.modelOverride
-    let resolvedModel = ModelConfig.resolveChatModel(requested: requestedModel)
+    let resolvedModel = ModelConfig.resolveChatModel(
+        requested: requestedModel, provider: provider)
     let maxTokens = ModelConfig.chatMaxTokens(requested: chatRequest.maxTokens,
                                               model: resolvedModel)
     // Precedence: explicit request > personality (deliberate persona choice)
@@ -110,6 +112,7 @@ func handleChatStreamCompletions(
                 userInput.prompt,
                 generationParameters: generationParameters,
                 model: requestedModel,
+                provider: provider,
                 logger: logger
             )
 

@@ -7,7 +7,7 @@ actor NetworkService {
     
     let logger: Logger
     
-    init(logger: Logger, base endpoint: BaseEndpoint = BaseEndpoint.globalLLM) {
+    init(logger: Logger, base endpoint: BaseEndpoint = .mistral) {
         self.logger = logger
         self.configuration = Configuration(base: endpoint)
     }

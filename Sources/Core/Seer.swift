@@ -69,6 +69,8 @@ actor Seer {
                     modelProvider: ModelProvider,
                     seerRequest: SeerRequest? = nil,
                     queryExpansion: Bool = false) async throws -> ChatResult {
+        // The turn's backend, for every pass that reads the user's words.
+        let provider = request.provider ?? .serverDefault
 
         let seerRequest = seerRequest ?? request.seer
         var messages: [[String: Any]] = []
@@ -106,7 +108,8 @@ actor Seer {
         let sinatraTask = Task<Sinatra.PrepareResult?, any Error> {
             try await sinatra.prepare(capturedMessages,
                                       request: capturedSeerRequest,
-                                      modelProvider: modelProvider)
+                                      modelProvider: modelProvider,
+                                      provider: provider)
         }
 
         /* Search */
@@ -178,7 +181,8 @@ actor Seer {
                 partitions: result.partitions,
                 modelProvider: modelProvider,
                 request: seerRequest,
-                bonnieClient: isBonnieClient
+                bonnieClient: isBonnieClient,
+                provider: provider
             )
             let compactElapsedNs = DispatchTime.now().uptimeNanoseconds - compactStartNs
             SeerMetrics.compactDuration.recordNanoseconds(Int64(compactElapsedNs))
@@ -308,7 +312,8 @@ actor Seer {
                         messages: capturedMessages,
                         recentMessage: capturedRecent,
                         request: capturedRequest,
-                        modelProvider: modelProvider
+                        modelProvider: modelProvider,
+                        provider: provider
                     )
                 } catch {
                     self.logger.warning(

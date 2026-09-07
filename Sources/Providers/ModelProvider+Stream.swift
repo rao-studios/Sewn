@@ -34,6 +34,7 @@ extension ModelProvider {
         _ prompt: UserInput.Prompt,
         generationParameters: ChatGenerationParameters,
         model: String? = nil,
+        provider: LLMProvider,
         logger: Logger
     ) async throws -> AsyncThrowingStream<StreamDelta, Error> {
         var system: String?
@@ -55,10 +56,38 @@ extension ModelProvider {
             break
         }
 
-        let resolvedModel = ModelConfig.resolveChatModel(requested: model)
-        logger.info("⚜️ Streaming \(messages.count) messages via \(resolvedModel)")
+        let resolvedModel = ModelConfig.resolveChatModel(requested: model, provider: provider)
+        logger.info(
+            "⚜️ Streaming \(messages.count) messages via \(resolvedModel) (\(provider.rawValue))")
 
-        if ModelConfig.isMistralModel(resolvedModel) {
+        if provider.isLocal {
+            let localMessages = messages.map {
+                Requests.Chat.Get.Message(role: $0["role"] ?? "user", content: $0["content"] ?? "")
+            }
+            let events = local.stream(
+                system: system, messages: localMessages, tools: nil,
+                modelID: resolvedModel,
+                maxTokens: ModelConfig.chatMaxTokens(
+                    requested: generationParameters.maxTokens, model: resolvedModel))
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        continuation.yield(StreamDelta(role: "assistant", content: nil))
+                        for try await event in events {
+                            if case .text(let chunk) = event {
+                                continuation.yield(StreamDelta(role: nil, content: chunk))
+                            }
+                        }
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+        }
+
+        if provider == .mistral {
             // Mistral chat-completions: system rides inline as a leading
             // message rather than a top-level field.
             var mistralMessages = messages
@@ -90,13 +119,17 @@ extension ModelProvider {
 
         let bodyData = try JSONSerialization.data(withJSONObject: requestBody)
 
-        let base = NetworkService.BaseEndpoint.globalLLM
+        // The provider's OWN host, not the boot-time default: this line used
+        // to send a Tinker request wherever SEER_GLOBAL_LLM pointed.
+        guard let base = provider.hostedBase else {
+            throw ProviderUnavailable.localFailed("no hosted transport for \(provider.rawValue)")
+        }
         var urlRequest = URLRequest(
             url: URL(string: "https://\(base.host)\(base.pathPrefix)/v1/messages")!
         )
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue(base.apiKey, forHTTPHeaderField: "x-api-key")
+        urlRequest.setValue(try base.requireAPIKey(), forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.httpBody = bodyData
 
@@ -169,7 +202,8 @@ extension ModelProvider {
         )
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.setValue("Bearer \(base.apiKey)", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue(
+            "Bearer \(try base.requireAPIKey())", forHTTPHeaderField: "Authorization")
         urlRequest.httpBody = bodyData
 
         let decoder = JSONDecoder()

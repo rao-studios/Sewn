@@ -5,20 +5,32 @@ import Metrics
 final class ModelProvider {
     private let logger: Logger
     private let fileManager = FileManager.default
-    private let network: NetworkService
-    /// Utility one-shots always run on the Mistral API; primary chat routes
-    /// here too whenever the resolved model is Mistral-family (see
-    /// `ModelConfig.isMistralModel`), and to `network` (Tinker) otherwise.
-    private let mistralNetwork: NetworkService
+    /// One client per hosted vendor, built once and chosen per request. This
+    /// used to be a single client frozen at init to the boot-time default,
+    /// which is why a `tinker://` model reached Mistral's host.
+    private let hosted: [NetworkService.BaseEndpoint: NetworkService]
+    /// This machine. Never dialled unless a request selects `.local`.
+    let local: LocalInference
 
     init(logger: Logger) {
         self.logger = logger
-        self.network = NetworkService(logger: logger)
-        self.mistralNetwork = NetworkService(logger: logger, base: .mistral)
+        self.hosted = [
+            .mistral: NetworkService(logger: logger, base: .mistral),
+            .tinker: NetworkService(logger: logger, base: .tinker),
+        ]
+        self.local = LocalInference(logger: logger)
 
         guard FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first != nil else {
             fatalError("Could not find documents directory")
         }
+    }
+
+    /// The client for a hosted provider. `.local` never reaches here.
+    private func client(for provider: LLMProvider) throws -> NetworkService {
+        guard let base = provider.hostedBase, let service = hosted[base] else {
+            throw ProviderUnavailable.localFailed("no hosted transport for \(provider.rawValue)")
+        }
+        return service
     }
 
     /// Runs a standalone generation against the global LLM — Mistral's
@@ -34,6 +46,7 @@ final class ModelProvider {
         generationParameters: ChatGenerationParameters,
         maxTokens: Int? = nil,
         model: String? = nil,
+        provider: LLMProvider,
         logger: Logger
     ) async throws -> (
         choices: [ChatCompletionChoice],
@@ -59,7 +72,7 @@ final class ModelProvider {
 
         logger.info("⚜️ Sending messages: \(messages.count)")
 
-        let resolvedModel = ModelConfig.resolveChatModel(requested: model)
+        let resolvedModel = ModelConfig.resolveChatModel(requested: model, provider: provider)
         let resolvedMaxTokens = ModelConfig.chatMaxTokens(
             requested: maxTokens ?? generationParameters.maxTokens,
             model: resolvedModel)
@@ -69,7 +82,24 @@ final class ModelProvider {
             Counter(label: "provider.llm_requests_total", dimensions: [("model", resolvedModel)]).increment()
         }
 
-        if ModelConfig.isMistralModel(resolvedModel) {
+        if provider.isLocal {
+            var localMessages: [Requests.Chat.Get.Message] = []
+            localMessages.append(contentsOf: messages.map {
+                .init(role: $0.role, content: $0.content)
+            })
+            let answer = try await local.generate(
+                system: system, messages: localMessages, tools: nil,
+                modelID: resolvedModel, maxTokens: resolvedMaxTokens)
+            let choices: [ChatCompletionChoice] = [
+                .init(
+                    index: 0,
+                    message: .init(role: "assistant", content: answer.text),
+                    finishReason: "stop")
+            ]
+            return (choices, Self.localUsage())
+        }
+
+        if provider == .mistral {
             // Mistral chat-completions: system rides inline as a leading
             // message rather than a top-level field.
             var mistralMessages: [Requests.Chat.Get.Message] = []
@@ -79,7 +109,7 @@ final class ModelProvider {
             mistralMessages.append(contentsOf: messages.map {
                 .init(role: $0.role, content: $0.content)
             })
-            let response = try await mistralNetwork.request(
+            let response = try await client(for: .mistral).request(
                 Requests.Chat.Get(
                     model: resolvedModel,
                     messages: mistralMessages,
@@ -101,7 +131,7 @@ final class ModelProvider {
             return (choices, response.usage)
         }
 
-        let response = try await network.request(
+        let response = try await client(for: provider).request(
             Requests.Messages.Create(
                 model: resolvedModel,
                 system: system,
@@ -135,24 +165,48 @@ final class ModelProvider {
         maxTokens: Int? = nil,
         temperature: Float? = nil,
         model preferredModel: String? = nil,
+        provider: LLMProvider = .serverDefault,
+        /// TRUE for work nobody asked for — Sinatra's sentiment pass,
+        /// auto-memory, compaction — which runs BESIDE the turn it annotates.
+        /// A route the client called is not background, even though it uses
+        /// the same one-shot shape.
+        background: Bool = true,
         logger: Logger
     ) async throws -> (content: String?, usage: Requests.Chat.Get.Usage) {
         logger.info("Sending chat request via Model Provider.")
 
-        let model = preferredModel ?? ModelConfig.utilityModel
+        let model = preferredModel ?? ModelConfig.utilityModel(for: provider)
         let llmStart = Date()
         defer {
             SeerMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
             Counter(label: "provider.llm_requests_total", dimensions: [("model", model)]).increment()
         }
 
-        if ModelConfig.isMistralModel(model) {
+        if provider.isLocal {
+            // ON ONE GPU, BACKGROUND WORK IS NOT FREE: Sinatra, auto-memory and
+            // compaction each run beside the turn they annotate, so they are
+            // opt-in rather than three extra generations per turn. A route the
+            // client called is a different thing and always runs.
+            guard !background || LLMProvider.localUtilityEnabled else {
+                throw ProviderUnavailable.utilityDisabled(.local)
+            }
+            var localMessages: [Requests.Chat.Get.Message] = []
+            localMessages.append(.init(
+                role: ChatMessageRequestRole.user.rawValue, content: prompt))
+            let answer = try await local.generate(
+                system: systemPrompt, messages: localMessages, tools: nil,
+                modelID: model, maxTokens: maxTokens ?? GenerationDefaults.maxTokens)
+            let text = answer.text
+            return (text.isEmpty ? "Unknown" : text, Self.localUsage())
+        }
+
+        if provider == .mistral || ModelConfig.isMistralModel(model) {
             var messages: [Requests.Chat.Get.Message] = []
             if let systemPrompt {
                 messages.append(.init(role: ChatMessageRequestRole.system.rawValue, content: systemPrompt))
             }
             messages.append(.init(role: ChatMessageRequestRole.user.rawValue, content: prompt))
-            let response = try await mistralNetwork.request(
+            let response = try await client(for: .mistral).request(
                 Requests.Chat.Get(
                     model: model,
                     messages: messages,
@@ -169,7 +223,7 @@ final class ModelProvider {
         // deliberation, keep the thinking-token floor.
         let utilityPrompt = ModelConfig.supportsNoThinkSwitch(model)
             ? prompt + " /no_think" : prompt
-        let response = try await network.request(
+        let response = try await client(for: provider).request(
             Requests.Messages.Create(
                 model: model,
                 system: systemPrompt,
@@ -194,19 +248,26 @@ final class ModelProvider {
         toolDescription: String? = nil,
         schema: JSONValue,
         maxTokens: Int? = nil,
+        provider: LLMProvider = .serverDefault,
         logger: Logger
     ) async throws -> (value: T, usage: Requests.Chat.Get.Usage) {
-        let model = ModelConfig.utilityModel
+        let model = ModelConfig.utilityModel(for: provider)
         let llmStart = Date()
         defer {
             SeerMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
             Counter(label: "provider.llm_requests_total", dimensions: [("model", model)]).increment()
         }
 
-        if ModelConfig.isMistralModel(model) {
-            // Mistral path: schema-in-prompt + strict JSON parse (mistral-tiny
-            // has no function calling; prompt-and-parse matches the pre-Tinker
-            // behavior of these internal pipelines).
+        if provider.isLocal {
+            guard LLMProvider.localUtilityEnabled else {
+                throw ProviderUnavailable.utilityDisabled(.local)
+            }
+        }
+
+        if provider == .mistral || provider.isLocal || ModelConfig.isMistralModel(model) {
+            // Prompt-and-parse: schema in the system prompt, strict JSON out.
+            // mistral-tiny has no function calling and the on-device model's
+            // tool wrapper is for skills, not for an internal extraction.
             let schemaText: String = {
                 guard let data = try? JSONEncoder().encode(schema),
                       let text = String(data: data, encoding: .utf8) else { return "{}" }
@@ -218,18 +279,33 @@ final class ModelProvider {
             that matches this JSON schema exactly. No prose, no code fences, no explanations.
             Schema: \(schemaText)
             """
-            let response = try await mistralNetwork.request(
-                Requests.Chat.Get(
-                    model: model,
-                    messages: [
-                        .init(role: ChatMessageRequestRole.system.rawValue, content: system),
-                        .init(role: ChatMessageRequestRole.user.rawValue, content: prompt),
-                    ],
-                    maxTokens: maxTokens ?? GenerationDefaults.maxTokens,
-                    temperature: 0
+            let content: String
+            let usage: Requests.Chat.Get.Usage
+            if provider.isLocal {
+                let answer = try await local.generate(
+                    system: system,
+                    messages: [.init(
+                        role: ChatMessageRequestRole.user.rawValue, content: prompt)],
+                    tools: nil,
+                    modelID: model,
+                    maxTokens: maxTokens ?? GenerationDefaults.maxTokens)
+                content = answer.text
+                usage = Self.localUsage()
+            } else {
+                let response = try await client(for: .mistral).request(
+                    Requests.Chat.Get(
+                        model: model,
+                        messages: [
+                            .init(role: ChatMessageRequestRole.system.rawValue, content: system),
+                            .init(role: ChatMessageRequestRole.user.rawValue, content: prompt),
+                        ],
+                        maxTokens: maxTokens ?? GenerationDefaults.maxTokens,
+                        temperature: 0
+                    )
                 )
-            )
-            let content = response.choices.first?.message.content ?? ""
+                content = response.choices.first?.message.content ?? ""
+                usage = response.usage
+            }
             guard let first = content.firstIndex(of: "{"),
                   let last = content.lastIndex(of: "}"), first < last,
                   let data = String(content[first...last]).data(using: .utf8)
@@ -237,13 +313,13 @@ final class ModelProvider {
                 throw NetworkService.NetworkError.invalidResponse
             }
             let value = try JSONDecoder().decode(T.self, from: data)
-            return (value, response.usage)
+            return (value, usage)
         }
 
-        // Non-Mistral utility override: Anthropic-style forced tool call.
+        // Tinker: Anthropic-style forced tool call.
         let utilityPrompt = ModelConfig.supportsNoThinkSwitch(model)
             ? prompt + " /no_think" : prompt
-        let response = try await network.request(
+        let response = try await client(for: provider).request(
             Requests.Messages.Create(
                 model: model,
                 system: systemPrompt,
@@ -273,9 +349,11 @@ final class ModelProvider {
         maxTokens: Int,
         temperature: Float,
         model preferredModel: String? = nil,
+        provider: LLMProvider,
         logger: Logger
     ) async throws -> (text: String, toolCalls: [(name: String, arguments: String)]) {
-        let resolvedModel = ModelConfig.resolveChatModel(requested: preferredModel)
+        let resolvedModel = ModelConfig.resolveChatModel(
+            requested: preferredModel, provider: provider)
         let resolvedMaxTokens = ModelConfig.chatMaxTokens(
             requested: maxTokens, model: resolvedModel)
         let llmStart = Date()
@@ -284,14 +362,20 @@ final class ModelProvider {
             Counter(label: "provider.llm_requests_total", dimensions: [("model", resolvedModel)]).increment()
         }
 
-        if ModelConfig.isMistralModel(resolvedModel) {
+        if provider.isLocal {
+            return try await local.generate(
+                system: system, messages: messages, tools: tools,
+                modelID: resolvedModel, maxTokens: resolvedMaxTokens)
+        }
+
+        if provider == .mistral {
             var mistralMessages: [Requests.Chat.Get.Message] = []
             if let system, !system.isEmpty {
                 mistralMessages.append(.init(
                     role: ChatMessageRequestRole.system.rawValue, content: system))
             }
             mistralMessages.append(contentsOf: messages)
-            let response = try await mistralNetwork.request(
+            let response = try await client(for: .mistral).request(
                 Requests.Chat.Get(
                     model: resolvedModel,
                     messages: mistralMessages,
@@ -326,7 +410,7 @@ final class ModelProvider {
                 description: tool.function.description,
                 inputSchema: tool.function.parameters ?? .object([:]))
         }
-        let response = try await network.request(
+        let response = try await client(for: provider).request(
             Requests.Messages.Create(
                 model: resolvedModel,
                 system: system,
@@ -342,5 +426,11 @@ final class ModelProvider {
             return (name, block.input?.jsonString() ?? "{}")
         }
         return (response.text, calls)
+    }
+
+    /// On-device generations cost no money and report no vendor token counts.
+    /// Zeroes are the truth here; Gita prices what a vendor billed.
+    static func localUsage() -> Requests.Chat.Get.Usage {
+        Requests.Chat.Get.Usage(promptTokens: 0, completionTokens: 0, totalTokens: 0)
     }
 }

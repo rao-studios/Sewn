@@ -43,9 +43,11 @@ struct CompleteRequest: Codable {
     let tools: [CompleteTool]?
     let maxTokens: Int?
     let temperature: Float?
+    /// Which backend answers. Absent = the server default.
+    let provider: LLMProvider?
 
     enum CodingKeys: String, CodingKey {
-        case instructions, messages, tools, temperature
+        case instructions, messages, tools, temperature, provider
         case maxTokens = "max_tokens"
     }
 }
@@ -140,19 +142,27 @@ func registerCompleteRoute(
             "[Complete] messages: \(body.messages.count), tools: \(body.tools?.count ?? 0), max_tokens: \(completeMaxTokens(body.maxTokens))"
         )
 
+        let provider = body.provider ?? .serverDefault
         let output: String
         do {
-            let utility = ModelConfig.utilityModel
-            let model = completeGenerationModel(utility)
+            let utility = ModelConfig.utilityModel(for: provider)
+            // Annotation and the Studio drafter are bounded JSON jobs, not
+            // deliberation: a thinking model here reads as "returned nothing"
+            // on the client's timeout. On-device answers with its own model.
+            let model = provider.isLocal ? utility : completeGenerationModel(utility)
             output = try await StandaloneGeneration.runLLM(
                 userText,
                 systemPrompt: completeSystemPrompt(instructions: body.instructions),
                 maxTokens: completeMaxTokens(body.maxTokens),
                 temperature: body.temperature ?? 0,
                 model: model,
+                provider: provider,
                 modelProvider: modelProvider,
                 logger: context.logger
             ) ?? ""
+        } catch let error as ProviderUnavailable {
+            context.logger.error("[Complete] provider unavailable: \(error)")
+            throw HTTPError(.serviceUnavailable, message: error.description)
         } catch {
             context.logger.error("[Complete] upstream failure: \(error)")
             throw HTTPError(.badGateway, message: "complete model unavailable")

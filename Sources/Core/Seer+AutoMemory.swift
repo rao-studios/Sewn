@@ -65,7 +65,8 @@ extension Seer {
         messages: [[String: Any]],
         recentMessage: String,
         request: SeerRequest,
-        modelProvider: ModelProvider
+        modelProvider: ModelProvider,
+        provider: LLMProvider = .serverDefault
     ) async throws {
         logger.info(
             "Auto Memory",
@@ -113,6 +114,7 @@ extension Seer {
             formattedHistory,
             systemPrompt: systemPrompt,
             maxTokens: 777,
+            provider: provider,
             modelProvider: modelProvider,
             logger: baseLogger
         ), !summary.isEmpty else {
@@ -131,6 +133,7 @@ extension Seer {
             .run(
                 values,
                 modelProvider: modelProvider,
+                provider: provider,
                 logger: baseLogger
             )
 

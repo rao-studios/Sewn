@@ -22,6 +22,7 @@ class Sanitize {
     static func run(
         _ texts: [String],
         modelProvider: ModelProvider,
+        provider: LLMProvider = .serverDefault,
         useLLM: Bool = false,
         logger: Logger
     ) async throws -> [String] {
@@ -34,6 +35,7 @@ class Sanitize {
                 let generation = try await StandaloneGeneration
                     .runLLM(
                         prompt,
+                        provider: provider,
                         modelProvider: modelProvider,
                         logger: logger
                     )

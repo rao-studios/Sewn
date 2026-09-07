@@ -70,14 +70,16 @@ extension NetworkService {
             }
         } else if configuration.base == .tinker {
             // Anthropic-compatible auth: x-api-key + anthropic-version, no Bearer.
-            urlRequest.addValue(configuration.base.apiKey, forHTTPHeaderField: "x-api-key")
+            urlRequest.addValue(try configuration.base.requireAPIKey(), forHTTPHeaderField: "x-api-key")
             urlRequest.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
             // Thinking models (Inkling) can deliberate past URLSession's 60s
             // default before emitting their answer — don't cut them off.
             urlRequest.timeoutInterval = 300
         // Add authorization header if not ignored
         } else if !request.ignoresAuthHeader {
-            urlRequest.addValue("Bearer \(configuration.base.apiKey)", forHTTPHeaderField: "Authorization")
+            let key = configuration.base == .mistral
+                ? try configuration.base.requireAPIKey() : configuration.base.apiKey
+            urlRequest.addValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
         
         urlRequest.httpMethod = request.method.rawValue.uppercased()

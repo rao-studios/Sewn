@@ -25,12 +25,17 @@ class StandaloneGeneration {
         maxTokens: Int? = nil,
         temperature: Float? = nil,
         model: String? = nil,
+        provider: LLMProvider = .serverDefault,
         modelProvider: ModelProvider,
         logger: Logger
     ) async throws -> String? {
+        // A ROUTE THE CLIENT CALLED. `/v1/complete` and `/v1/tools/summarize`
+        // are asked for; they are not the background passes the on-device gate
+        // exists to hold back.
         return try await modelProvider.run(
             prompt, systemPrompt: systemPrompt, maxTokens: maxTokens,
-            temperature: temperature, model: model, logger: logger
+            temperature: temperature, model: model, provider: provider,
+            background: false, logger: logger
         ).content
     }
     

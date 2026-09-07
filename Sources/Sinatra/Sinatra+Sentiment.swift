@@ -89,9 +89,13 @@ extension Sinatra {
     ///
     /// Returns an **empty** ledger on all early-exit paths (no LLM was invoked).
     @discardableResult
+    /// `provider` is the TURN'S backend. Sentiment and resonance read the
+    /// user's words, so they must not reach a vendor the user did not choose:
+    /// on-device gates them off (see ModelProvider.run's `background`).
     func prepare(_ data: [ChatMessageRequestData],
                  request: SeerRequest,
-                 modelProvider: ModelProvider) async throws -> Sinatra.PrepareResult {
+                 modelProvider: ModelProvider,
+                 provider: LLMProvider = .serverDefault) async throws -> Sinatra.PrepareResult {
 
         let owner = SeerRegistry.Owner(id: request.ownerId)
         logger.debug("Prepare Sentiment", "⚜️ Starting sentiment analysis for owner: \(owner.id), messages: \(data.count)", service: .sinatra, request: request)
@@ -229,10 +233,11 @@ extension Sinatra {
                                toolDescription: "Record the sentiment analysis of the user's response.",
                                schema: Self.sentimentSchema,
                                maxTokens: 1200,
+                               provider: provider,
                                logger: logger.base)
             sentiment = value
             ledger.record(
-                model: ModelConfig.utilityModel,
+                model: ModelConfig.utilityModel(for: provider),
                 promptTokens: sinatraUsage.promptTokens,
                 completionTokens: sinatraUsage.completionTokens
             )

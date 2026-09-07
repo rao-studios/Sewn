@@ -8,18 +8,6 @@ extension NetworkService {
         case airtable = "api.airtable.com"
         case supabase = "supabase.seer.services"
 
-        /// The provider used for general LLM work (chat, utility one-shots).
-        /// TTS and embeddings stay on `.mistral`. Overridable at boot via
-        /// `SEER_GLOBAL_LLM=mistral|tinker` (set in `.env` or exported before
-        /// starting the process) — defaults to `.mistral` when unset.
-        static var globalLLM: BaseEndpoint {
-            switch ProcessInfo.processInfo.environment["SEER_GLOBAL_LLM"]?.lowercased() {
-            case "tinker": return .tinker
-            case "mistral": return .mistral
-            default: return .mistral
-            }
-        }
-
         var host: String { rawValue }
 
         /// Path prefix between the host and the API's own versioned paths.
@@ -43,19 +31,27 @@ extension NetworkService {
             }
         }
 
+        /// The key when the environment has one. Nil is an answer here, not
+        /// a crash: a client may select a provider whose key was never set.
+        var apiKeyIfPresent: String? {
+            guard let key = ProcessInfo.processInfo.environment[apiKeyEnvVar], !key.isEmpty
+            else { return nil }
+            return key
+        }
+
+        /// LLM hosts need their key; a missing one is a 503 to the client,
+        /// never a fatalError.
+        func requireAPIKey() throws -> String {
+            guard let key = apiKeyIfPresent else {
+                throw ProviderUnavailable.missingKey(envVar: apiKeyEnvVar)
+            }
+            return key
+        }
+
+        /// Auxiliary services (log shipping, forms) degrade to unauthenticated
+        /// requests rather than taking the server down.
         var apiKey: String {
-            if let key = ProcessInfo.processInfo.environment[apiKeyEnvVar], !key.isEmpty {
-                return key
-            }
-            switch self {
-            case .mistral, .tinker:
-                // LLM keys are load-bearing — fail loudly with the variable name.
-                fatalError("Missing \(apiKeyEnvVar) — add it to .env or export it before starting Seer.")
-            case .airtable, .supabase:
-                // Auxiliary services (log shipping, forms) degrade to unauthenticated
-                // requests rather than taking the server down.
-                return ""
-            }
+            apiKeyIfPresent ?? ""
         }
     }
 

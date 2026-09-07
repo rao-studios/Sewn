@@ -38,6 +38,7 @@ func configureRoutes(
         isVLM: isVLM
     )
     registerVisionLookRoute(protected)
+    registerProvidersRoutes(protected, modelProvider: modelProvider)
     registerCompleteRoute(protected, modelProvider: modelProvider)
     registerSkillsCompleteRoute(protected, modelProvider: modelProvider)
     registerCodeCompleteRoute(protected, modelProvider: modelProvider)
@@ -126,17 +127,11 @@ func loadDotEnv(path: String = ".env") {
 /// Main Server entry point.
 @main
 struct SeerServer: AsyncParsableCommand {
-    @ArgumentParser.Option(name: .long, help: "Required: Path to MLX model dir/name.")
-    var model: String = ""
-
     @ArgumentParser.Option(name: .long, help: "Host address.")
     var host: String = AppConstants.defaultHost
 
     @ArgumentParser.Option(name: .long, help: "Port number.")
     var port: Int = AppConstants.defaultPort
-
-    @ArgumentParser.Flag(name: .long, help: "Enable Mistral API over custom models.")
-    var mistral: Bool = false
 
     @ArgumentParser.Flag(name: .long, help: "Enable multi-modal processing for visual language models.")
     var vlm: Bool = false
@@ -157,7 +152,7 @@ struct SeerServer: AsyncParsableCommand {
     var grpcPort: Int = 9091
 
     enum CodingKeys: CodingKey {
-        case model, host, port, mistral, vlm
+        case host, port, vlm
         case enablePromptCache, promptCacheSizeMB, promptCacheTTLMinutes
         case enableTotems, grpcPort
     }
@@ -224,7 +219,28 @@ struct SeerServer: AsyncParsableCommand {
 
         let seerLogger = SeerLogger(logger)
         seerLogger.info("Startup", "Server starting on http://\(host):\(port)", service: .startup)
-        seerLogger.info("Startup", "Using model identifier: \(model)", service: .startup)
+        let provider = LLMProvider.serverDefault
+        seerLogger.info(
+            "Startup",
+            "Default provider: \(provider.rawValue) (\(ModelConfig.chatModel(for: provider)))",
+            service: .startup)
+        if await modelProvider.local.isBuilt {
+            let gpu = LocalGPU.report()
+            seerLogger.info(
+                "Startup",
+                "On-device provider: \(gpu.isSatisfied ? "available" : "no Metal library — run scripts/build-metallib.sh")",
+                service: .startup)
+            // A server whose default IS local should not make the first turn
+            // wait for a multi-gigabyte load.
+            if provider.isLocal, gpu.isSatisfied {
+                let local = modelProvider.local
+                let modelID = ModelConfig.chatModel(for: .local)
+                Task { await local.warm(modelID: modelID) }
+            }
+        } else {
+            seerLogger.info(
+                "Startup", "On-device provider: not built (MLX is macOS-only)", service: .startup)
+        }
         seerLogger.info("Startup", "VLM mode: \(vlm ? "enabled" : "disabled")", service: .startup)
         seerLogger.info(
             "Startup",

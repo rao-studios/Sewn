@@ -22,6 +22,10 @@ let package = Package(
     .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.28.0"),
     .package(path: "../../../rao/repositories/Conduit"),
+    // Frigate: the vendored MLX stack, for the on-device (`local`) provider.
+    // macOS only — the products below are conditioned, and every call site is
+    // behind `#if canImport(MLXLLM)`.
+    .package(path: "../Frigate"),
     // .package(url: "https://github.com/rao-studios/Conduit.git", branch: "main")
   ],
   targets: [
@@ -42,6 +46,9 @@ let package = Package(
         .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
         .product(name: "SwiftProtobuf", package: "swift-protobuf"),
         .product(name: "Conduit", package: "Conduit"),
+        .product(name: "MLX", package: "Frigate", condition: .when(platforms: [.macOS])),
+        .product(name: "MLXLMCommon", package: "Frigate", condition: .when(platforms: [.macOS])),
+        .product(name: "MLXLLM", package: "Frigate", condition: .when(platforms: [.macOS])),
       ],
       swiftSettings: [.swiftLanguageMode(.v5)]/*,
       plugins: [

@@ -33,9 +33,10 @@ func registerCodeCompleteRoute(
 
         let tools = skillsCompleteChatTools(body.tools)
         let maxTokens = codeCompleteMaxTokens(body.maxTokens)
-        let model = ModelConfig.codingModel
+        let provider = body.provider ?? .serverDefault
+        let model = ModelConfig.codingModel(for: provider)
         context.logger.info(
-            "[CodeComplete] model: \(model), messages: \(messages.count), tools: \(tools?.count ?? 0), max_tokens: \(maxTokens)"
+            "[CodeComplete] provider: \(provider.rawValue), model: \(model), messages: \(messages.count), tools: \(tools?.count ?? 0), max_tokens: \(maxTokens)"
         )
 
         let output: (text: String, toolCalls: [(name: String, arguments: String)])
@@ -47,8 +48,12 @@ func registerCodeCompleteRoute(
                 maxTokens: maxTokens,
                 temperature: body.temperature ?? 0,
                 model: model,
+                provider: provider,
                 logger: context.logger
             )
+        } catch let error as ProviderUnavailable {
+            context.logger.error("[CodeComplete] provider unavailable: \(error)")
+            throw HTTPError(.serviceUnavailable, message: error.description)
         } catch {
             context.logger.error("[CodeComplete] upstream failure: \(error)")
             throw HTTPError(.badGateway, message: "code complete model unavailable")

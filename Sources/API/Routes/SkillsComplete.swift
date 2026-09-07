@@ -37,9 +37,11 @@ struct SkillsCompleteRequest: Codable {
     let tools: [SkillsCompleteTool]?
     let maxTokens: Int?
     let temperature: Float?
+    /// Which backend synthesizes the invocation. Absent = the server default.
+    let provider: LLMProvider?
 
     enum CodingKeys: String, CodingKey {
-        case instructions, messages, tools, temperature
+        case instructions, messages, tools, temperature, provider
         case maxTokens = "max_tokens"
     }
 }
@@ -191,9 +193,10 @@ func registerSkillsCompleteRoute(
         let tools = skillsCompleteChatTools(body.tools)
         let maxTokens = skillsCompleteMaxTokens(body.maxTokens)
         context.logger.info(
-            "[SkillsComplete] messages: \(messages.count), tools: \(tools?.count ?? 0), max_tokens: \(maxTokens)"
+            "[SkillsComplete] provider: \((body.provider ?? .serverDefault).rawValue), messages: \(messages.count), tools: \(tools?.count ?? 0), max_tokens: \(maxTokens)"
         )
 
+        let provider = body.provider ?? .serverDefault
         let output: (text: String, toolCalls: [(name: String, arguments: String)])
         do {
             output = try await modelProvider.runWithTools(
@@ -202,8 +205,12 @@ func registerSkillsCompleteRoute(
                 tools: tools,
                 maxTokens: maxTokens,
                 temperature: body.temperature ?? 0,
+                provider: provider,
                 logger: context.logger
             )
+        } catch let error as ProviderUnavailable {
+            context.logger.error("[SkillsComplete] provider unavailable: \(error)")
+            throw HTTPError(.serviceUnavailable, message: error.description)
         } catch {
             context.logger.error("[SkillsComplete] upstream failure: \(error)")
             throw HTTPError(.badGateway, message: "skills complete model unavailable")

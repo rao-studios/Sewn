@@ -171,6 +171,49 @@ Fan-out to all active Totem nodes via gRPC. Results are merged, re-ranked, and d
 
 ---
 
+### Providers — which backend answers
+
+Every generation route takes an optional `provider` on the request body:
+`"mistral"`, `"tinker"`, or `"local"`. Omit it and the server default applies
+(`SEER_GLOBAL_LLM` in `.env`, Mistral when unset), so a client that never heard
+of providers is unaffected. An unknown value is a 400; a provider whose key is
+missing, or an on-device backend this build cannot serve, is a **503 naming the
+reason** — never a crashed server.
+
+`local` runs the model **inside Seer** through Frigate's MLX (macOS only). It
+needs `mlx.metallib` beside the binary:
+
+```sh
+swift build -c release
+./scripts/build-metallib.sh release     # SwiftPM has no Metal step
+```
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/providers` | Every backend: `available`, `state`, `model`, `capabilities`, and `reason` when it cannot serve |
+| `POST` | `/v1/providers/local/warm` | Load the on-device model now, so the first turn does not pay for it. Idempotent |
+
+**Which routes honor it**
+
+| Route | mistral | tinker | local |
+|---|---|---|---|
+| `/v1/chat/completions` (SSE + non-stream), realtime grounded pass | ✅ | ✅ | ✅ |
+| `/v1/skills/complete`, `/v1/code/complete` | ✅ | ✅ | ✅ |
+| `/v1/complete` | ✅ | ✅ | ✅ |
+| realtime **opening** pass | mistral-small | mistral-small | **skipped** — the grounded stream carries the turn rather than sending it off-machine |
+| Sinatra sentiment / resonance, auto-memory, compaction | mistral-tiny | mistral-tiny | follows the turn; **off** unless `SEER_LOCAL_UTILITY=1` (on one GPU these serialize behind every turn) |
+| `/v1/vision/look`, `/v1/embed`, `/v1/embeddings`, `/v1/speak` | Mistral | Mistral | Mistral — no on-device equivalent yet |
+
+A turn on `local` therefore makes **no outbound request at all**: sentiment,
+compaction and auto-memory follow the turn's backend rather than quietly
+reaching a vendor the user did not choose.
+
+**Models per provider** — `SEER_CHAT_MODEL` / `TINKER_MODEL` / `SEER_LOCAL_MODEL`
+for chat, `SEER_CODING_MODEL` / `SEER_LOCAL_CODING_MODEL` for `/v1/code/complete`,
+`UTILITY_MODEL` for one-shots. A client-supplied `model` is honored only when it
+belongs to the selected provider's family, so a `tinker://` id can never be
+posted to Mistral's host.
+
 ### Chat Completions
 
 | Method | Path | Description |
@@ -403,7 +446,19 @@ COCKPIT_TOKEN=<token-from-cockpit-console>
 COCKPIT_METRICS_ENDPOINT=https://<project-id>.metrics.cockpit.fr-par.scw.cloud/api/v1/push
 COCKPIT_LOGS_ENDPOINT=https://<project-id>.logs.cockpit.fr-par.scw.cloud/loki/api/v1/push
 METRICS_TOKEN=<random-secret>   # guards GET /metrics; Alloy sends it automatically
+
+# Which backend answers when a request names none. mistral | tinker | local
+SEER_GLOBAL_LLM=mistral
+MISTRAL_API_KEY=<key>           # needed for vision, embeddings and speech whatever else is chosen
+TINKER_API_KEY=<key>            # only for the tinker provider
+TINKER_MODEL=thinkingmachines/Inkling
+# On-device (macOS). Needs ./scripts/build-metallib.sh — see Providers above.
+SEER_LOCAL_MODEL=mlx-community/Mistral-Nemo-Instruct-2407-4bit
+SEER_LOCAL_UTILITY=0            # 1 lets Sinatra/auto-memory/compaction run on-device too
 ```
+
+A missing key is reported per request as a 503 naming the variable, and shows
+up as `available: false` on `GET /v1/providers` — it never stops the server.
 
 ---
 

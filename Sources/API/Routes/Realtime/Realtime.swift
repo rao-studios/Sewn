@@ -176,8 +176,10 @@ private func handleRealtimeTurn(
         return ["role": message.role.rawValue, "content": content]
     }
 
+    let provider = chatRequest.provider ?? .serverDefault
     let requestedModel = chatRequest.model ?? personality?.modelOverride
-    let resolvedModel = ModelConfig.resolveChatModel(requested: requestedModel)
+    let resolvedModel = ModelConfig.resolveChatModel(
+        requested: requestedModel, provider: provider)
     // Same precedence as the SSE handler, minus Sinatra tone — tone rides the
     // retrieval result, which the grounded closure predates. v1 accepts that.
     let groundedParameters = ChatGenerationParameters(
@@ -207,7 +209,16 @@ private func handleRealtimeTurn(
     let engine = RealtimeTurnEngine(
         deps: .init(
             opening: { messages in
-                try await modelProvider.runStreamMistral(
+                // THE OPENER IS A MISTRAL CALL. On-device was chosen so that
+                // nothing leaves the machine, so there is no opener at all —
+                // the grounded stream carries the turn. Without a Mistral key
+                // it degrades the same way rather than failing the turn.
+                guard provider != .local,
+                      NetworkService.BaseEndpoint.mistral.apiKeyIfPresent != nil
+                else {
+                    return AsyncThrowingStream { $0.finish() }
+                }
+                return try await modelProvider.runStreamMistral(
                     messages: messages,
                     generationParameters: openingParameters,
                     model: ModelConfig.openingModel,
@@ -227,6 +238,7 @@ private func handleRealtimeTurn(
                     prompt,
                     generationParameters: groundedParameters,
                     model: requestedModel,
+                    provider: provider,
                     logger: logger
                 )
             },

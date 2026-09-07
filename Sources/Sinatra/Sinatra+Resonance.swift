@@ -60,7 +60,8 @@ extension Sinatra {
         userContent: String,
         assistantContent: String,
         request: SeerRequest,
-        modelProvider: ModelProvider
+        modelProvider: ModelProvider,
+        provider: LLMProvider = .serverDefault
     ) async throws -> (partition: ResonancePartition?, ledger: Gita.TokenLedger) {
 
         var ledger = Gita.TokenLedger()
@@ -116,6 +117,7 @@ extension Sinatra {
             systemPrompt: systemPrompt,
             maxTokens: 400,
             temperature: 0.05,
+            provider: provider,
             logger: logger.base
         )
         ledger.record(

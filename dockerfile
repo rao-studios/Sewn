@@ -25,4 +25,4 @@ COPY --from=builder /build/.build/release/seer-server /app/
 EXPOSE 8080
 
 # Run with the correct flags
-CMD ["/app/seer-server", "--mistral", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/app/seer-server", "--host", "0.0.0.0", "--port", "8080"]

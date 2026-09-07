@@ -57,8 +57,10 @@ func handleChatCompletions(
     let personality = chatResult.personality
     // Resolve the model before the token budget: thinking models get a floor
     // so truncation never swallows the answer (see ModelConfig.chatMaxTokens).
+    let provider = chatRequest.provider ?? .serverDefault
     let requestedModel = chatRequest.model ?? personality?.modelOverride
-    let resolvedModel = ModelConfig.resolveChatModel(requested: requestedModel)
+    let resolvedModel = ModelConfig.resolveChatModel(
+        requested: requestedModel, provider: provider)
     let maxTokens = ModelConfig.chatMaxTokens(requested: chatRequest.maxTokens,
                                               model: resolvedModel)
     let temperature = chatRequest.temperature
@@ -98,12 +100,19 @@ func handleChatCompletions(
 
     // Run primary LLM generation. Personality model override applies when the
     // request didn't pin a model.
-    let result = try await modelProvider.run(
-        userInput.prompt,
-        generationParameters: generationParameters,
-        model: requestedModel,
-        logger: context.logger
-    )
+    let result: (choices: [ChatCompletionChoice], usage: Requests.Chat.Get.Usage)
+    do {
+        result = try await modelProvider.run(
+            userInput.prompt,
+            generationParameters: generationParameters,
+            model: requestedModel,
+            provider: provider,
+            logger: context.logger
+        )
+    } catch let error as ProviderUnavailable {
+        logger.error("Chat provider unavailable: \(error)")
+        throw HTTPError(.serviceUnavailable, message: error.description)
+    }
 
     // Track token usage for the primary generation.
     var tokenLedger = Gita.TokenLedger()

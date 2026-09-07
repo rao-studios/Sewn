@@ -37,11 +37,16 @@ struct ChatCompletionRequest: Codable {
     /// primary conversational material, and gives the client's own tool-action
     /// deposits their own tier. Nil/anything else = classic framing.
     var client: String?
+    /// WHICH BACKEND ANSWERS THIS TURN. Absent = the server default
+    /// (`SEER_GLOBAL_LLM`), so a client that never heard of providers is
+    /// unaffected. Rides the realtime `turn.start` frame too — it wraps this
+    /// same request.
+    var provider: LLMProvider?
 
     let seer: SeerRequest
 
     enum CodingKeys: String, CodingKey {
-        case messages, model, temperature, stream, stop, resize, seer, resonate, instructions, debug, client
+        case messages, model, temperature, stream, stop, resize, seer, resonate, instructions, debug, client, provider
         case personality, persona
         case maxTokens = "max_tokens"
         case topP = "top_p"

@@ -49,7 +49,8 @@ extension Seer {
                  partitions: [Seer.Partition],
                  modelProvider: ModelProvider,
                  request: SeerRequest,
-                 bonnieClient: Bool = false) async throws -> CompactResult {
+                 bonnieClient: Bool = false,
+                 provider: LLMProvider = .serverDefault) async throws -> CompactResult {
 
         let dateFormatter: DateFormatter = {
             let f = DateFormatter()
@@ -222,6 +223,7 @@ extension Seer {
                 content,
                 systemPrompt: systemPrompt,
                 maxTokens: 600,
+                provider: provider,
                 modelProvider: modelProvider,
                 logger: baseLogger
             ) ?? ""

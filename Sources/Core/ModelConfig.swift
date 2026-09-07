@@ -2,62 +2,121 @@
 //  ModelConfig.swift
 //  Seer
 //
-//  Runtime-mutable model selection for the global LLM provider (Mistral or
-//  ThinkingMachines/Tinker — see NetworkService.BaseEndpoint.globalLLM).
+//  Runtime-mutable model selection, keyed by LLMProvider. Every route asks
+//  for the model of a (provider, job) pair; nothing infers a provider from a
+//  model name any more.
 //
 
 import Foundation
 
-/// Which model serves chat and utility generations. Seeded from the
-/// environment at boot, mutable at runtime via `PUT /v1/admin/model` so the
-/// client app can deploy a freshly trained `tinker://…` checkpoint (or pin a
-/// different Mistral model) without a server restart.
+/// Which model serves each job for each provider. Seeded from the environment
+//  at boot, mutable at runtime via `PUT /v1/admin/model` so a freshly trained
+//  `tinker://…` checkpoint can be deployed without a server restart.
 enum ModelConfig {
-    /// Follows `NetworkService.BaseEndpoint.globalLLM` (env-driven, defaults
-    /// to Mistral): Tinker checkpoints only make sense as the default when
-    /// Tinker is the configured provider.
-    static var defaultModel: String {
-        NetworkService.BaseEndpoint.globalLLM == .tinker
-            ? "thinkingmachines/Inkling" : "mistral-medium-latest"
-    }
+    /// On-device default. The same Hub id Mary used to load in-process, so
+    /// a machine that already downloaded it pays nothing to switch.
+    static let defaultLocalModel = "mlx-community/Mistral-Nemo-Instruct-2407-4bit"
+    static let defaultTinkerModel = "thinkingmachines/Inkling"
+    static let defaultMistralModel = "mistral-medium-latest"
 
     /// Internal one-shot generations (compact, Sinatra sentiment, auto-memory,
-    /// summarize) run on the Mistral API — fast, non-thinking, and cheap.
-    /// Inkling must never double as the utility model: it deliberates for
-    /// 30–90s per call, which stacked into minutes of chat latency.
+    /// summarize) run on a fast, non-thinking model. Inkling must never double
+    /// as the utility model: it deliberates for 30–90s per call, which stacked
+    /// into minutes of chat latency — so Tinker borrows Mistral's here.
     static let defaultUtilityModel = "mistral-tiny"
 
-    /// True when the model name belongs to the Mistral API family — routes
-    /// utility calls to the Mistral chat-completions endpoint instead of
-    /// Tinker's Anthropic-compatible surface.
+    /// True when the model name belongs to the Mistral API family. Still the
+    /// family check `resolveChatModel` uses to police a client's request; it
+    /// is no longer how a provider is chosen.
     static func isMistralModel(_ model: String) -> Bool {
         let lowered = model.lowercased()
         return lowered.hasPrefix("mistral") || lowered.hasPrefix("open-mi")
             || lowered.hasPrefix("ministral") || lowered.hasPrefix("codestral")
     }
 
-    /// `TINKER_MODEL` only seeds the chat model when Tinker is the configured
-    /// provider — a leftover `TINKER_MODEL` in `.env` must not silently
-    /// override the Mistral default when `SEER_GLOBAL_LLM` says otherwise.
-    private static let state = LockedValue<(chat: String, utility: String)>((
-        chat: ProcessInfo.processInfo.environment["SEER_CHAT_MODEL"]
-            ?? (NetworkService.BaseEndpoint.globalLLM == .tinker
-                ? ProcessInfo.processInfo.environment["TINKER_MODEL"]
-                : nil)
-            ?? defaultModel,
-        // Provider-neutral: a Mistral utility model name works out of the box
-        // (isMistralModel routes it to the Mistral chat-completions path
-        // below), and a tinker:// override works too.
-        utility: ProcessInfo.processInfo.environment["UTILITY_MODEL"]
-            ?? defaultUtilityModel
-    ))
+    private static func environment(_ key: String) -> String? {
+        guard let value = ProcessInfo.processInfo.environment[key], !value.isEmpty
+        else { return nil }
+        return value
+    }
 
-    /// Model used for user-facing chat completions.
-    static var chatModel: String { state.withLock { $0.chat } }
+    /// Runtime overrides from `PUT /v1/admin/model`. Empty = follow the env.
+    private static let overrides = LockedValue<(chat: String, utility: String)>(("", ""))
 
-    /// Model used for internal one-shot generations (Sinatra sentiment,
-    /// Marielle, summarize, auto-memory).
-    static var utilityModel: String { state.withLock { $0.utility } }
+    /// The chat model for one provider.
+    static func chatModel(for provider: LLMProvider) -> String {
+        let override = overrides.withLock { $0.chat }
+        if !override.isEmpty, accepts(override, provider: provider) { return override }
+        switch provider {
+        case .mistral:
+            return environment("SEER_CHAT_MODEL").flatMap {
+                isMistralModel($0) ? $0 : nil
+            } ?? defaultMistralModel
+        case .tinker:
+            return environment("TINKER_MODEL") ?? defaultTinkerModel
+        case .local:
+            return environment("SEER_LOCAL_MODEL") ?? defaultLocalModel
+        }
+    }
+
+    /// The utility model for one provider. Hosted providers share Mistral's
+    /// fast one; local has only its own.
+    static func utilityModel(for provider: LLMProvider) -> String {
+        let override = overrides.withLock { $0.utility }
+        if !override.isEmpty { return override }
+        switch provider {
+        case .mistral, .tinker:
+            return environment("UTILITY_MODEL") ?? defaultUtilityModel
+        case .local:
+            return chatModel(for: .local)
+        }
+    }
+
+    /// Pair-coding synthesis for `/v1/code/complete`. Mary does not send a
+    /// model id; this is Seer's pin.
+    static func codingModel(for provider: LLMProvider) -> String {
+        switch provider {
+        case .mistral:
+            return environment("SEER_CODING_MODEL") ?? defaultCodingModel
+        case .tinker:
+            return chatModel(for: .tinker)
+        case .local:
+            return environment("SEER_LOCAL_CODING_MODEL") ?? chatModel(for: .local)
+        }
+    }
+
+    /// The provider that could serve this model id, by family. A request may
+    /// name a model, but only one belonging to the provider it selected —
+    /// otherwise a `tinker://` id would be posted to Mistral's API.
+    static func accepts(_ model: String, provider: LLMProvider) -> Bool {
+        switch provider {
+        case .mistral:
+            return isMistralModel(model)
+        case .tinker:
+            return model.hasPrefix("tinker://") || model.contains("/")
+        case .local:
+            return model.contains("/") && !model.hasPrefix("tinker://")
+        }
+    }
+
+    static func update(chatModel: String? = nil, utilityModel: String? = nil) {
+        overrides.withLock {
+            if let chatModel { $0.chat = chatModel }
+            if let utilityModel { $0.utility = utilityModel }
+        }
+    }
+
+    /// What `GET /v1/admin/model` reports: the server-default provider's pair.
+    static var chatModel: String { chatModel(for: .serverDefault) }
+    static var utilityModel: String { utilityModel(for: .serverDefault) }
+
+    /// A client-supplied `model` is honored only when it belongs to the
+    /// provider serving the request; anything else falls back to that
+    /// provider's configured chat model.
+    static func resolveChatModel(requested: String?, provider: LLMProvider) -> String {
+        guard let requested, !requested.isEmpty else { return chatModel(for: provider) }
+        return accepts(requested, provider: provider) ? requested : chatModel(for: provider)
+    }
 
     /// The vision model serving `/v1/vision/look`; override with
     /// `VISION_MODEL` in `.env`. The Pixtral ids are RETIRED (the API answers
@@ -65,23 +124,6 @@ enum ModelConfig {
     /// multimodal mainline; medium is the same family the chat lane uses.
     static var visionModel: String {
         ProcessInfo.processInfo.environment["VISION_MODEL"] ?? "mistral-medium-latest"
-    }
-
-    static func update(chatModel: String? = nil, utilityModel: String? = nil) {
-        state.withLock {
-            if let chatModel, !chatModel.isEmpty { $0.chat = chatModel }
-            if let utilityModel, !utilityModel.isEmpty { $0.utility = utilityModel }
-        }
-    }
-
-    /// A client-supplied `model` field is honored when it references a Tinker
-    /// checkpoint or an explicit provider model; placeholder names fall back
-    /// to the configured chat model.
-    static func resolveChatModel(requested: String?) -> String {
-        guard let requested, !requested.isEmpty else { return chatModel }
-        if requested.hasPrefix("tinker://") || requested.contains("/")
-            || isMistralModel(requested) { return requested }
-        return chatModel
     }
 
     // MARK: - Realtime opening pass
@@ -97,14 +139,7 @@ enum ModelConfig {
             ?? "mistral-small-latest"
     }
 
-    /// Pair-coding synthesis for `/v1/code/complete`. Mary does not send a
-    /// model id; this is Seer's pin. Override with `SEER_CODING_MODEL`.
     static let defaultCodingModel = "codestral-latest"
-    static var codingModel: String {
-        let override = ProcessInfo.processInfo.environment["SEER_CODING_MODEL"]
-        if let override, !override.isEmpty { return override }
-        return defaultCodingModel
-    }
 
     /// The opening is one-to-two sentences; a tight budget keeps a rambling
     /// generation from delaying the grounded continuation.
