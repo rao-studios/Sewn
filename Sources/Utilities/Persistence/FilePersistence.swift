@@ -42,7 +42,29 @@ final class FilePersistence : AnyPersistence {
         }
     }
     
+    /// Process-wide data root override, set once at startup from `--data-dir`
+    /// or `SEWN_DATA_DIR`. Nil means `~/Documents/sewn-db`.
+    private static var dataDirectoryOverride: URL?
+
+    /// Point every FilePersistence at `path` (tilde expanded, created with
+    /// intermediates). Nil or empty restores the default. Call before any
+    /// persistence is constructed — instances resolve the root in `init`.
+    @discardableResult
+    static func configure(dataDirectory path: String?) -> URL {
+        if let path, !path.isEmpty {
+            let expanded = (path as NSString).expandingTildeInPath
+            dataDirectoryOverride = URL(fileURLWithPath: expanded, isDirectory: true)
+        } else {
+            dataDirectoryOverride = nil
+        }
+        let root = getDefaultURL()
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    /// The data root: the configured override, else `~/Documents/sewn-db`.
     static func getDefaultURL() -> URL {
+        if let override = dataDirectoryOverride { return override }
         let value = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return value.appendingPathComponent("sewn-db")
     }

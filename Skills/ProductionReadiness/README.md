@@ -18,7 +18,7 @@ Checklists, deployment procedures, and operational guidance for Sewn in producti
 
 - [ ] `MISTRAL_API_KEY` is in environment, NOT in source or docker-compose
 - [ ] Supabase anon/service keys are in environment, NOT in source
-- [ ] `~/.sewn/` data directory is NOT world-readable: `chmod 700 ~/.sewn`
+- [ ] The data directory (`~/Documents/sewn-db`, or whatever `--data-dir`/`SEWN_DATA_DIR` names) is NOT world-readable: `chmod 700 <data-dir>`
 - [ ] Admin owner_id allowlist is configured correctly (not empty, not wildcard)
 - [ ] `GET /metrics` is not publicly accessible (firewall or reverse proxy gate)
 - [ ] TLS is terminated at the reverse proxy (Sewn itself runs HTTP internally)

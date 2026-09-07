@@ -151,16 +151,23 @@ struct SewnServer: AsyncParsableCommand {
     @ArgumentParser.Option(name: .long, help: "gRPC port for Thread registration service (default 9090).")
     var grpcPort: Int = 9091
 
+    @ArgumentParser.Option(name: .long, help: "Directory for on-disk state (default ~/Documents/sewn-db; env SEWN_DATA_DIR).")
+    var dataDir: String?
+
     enum CodingKeys: CodingKey {
         case host, port, vlm
         case enablePromptCache, promptCacheSizeMB, promptCacheTTLMinutes
-        case enableThreads, grpcPort
+        case enableThreads, grpcPort, dataDir
     }
 
     @MainActor
     func run() async throws {
         // ── Load .env before anything reads environment variables ────────────
         loadDotEnv()
+
+        // ── Storage root: --data-dir beats SEWN_DATA_DIR beats ~/Documents/sewn-db
+        let dataRoot = FilePersistence.configure(
+            dataDirectory: dataDir ?? ProcessInfo.processInfo.environment["SEWN_DATA_DIR"])
 
         // ── Logging ──────────────────────────────────────────────────────────
         LoggingSystem.bootstrap { label in
@@ -170,6 +177,7 @@ struct SewnServer: AsyncParsableCommand {
         }
         var logger = Logger(label: "sewn")
         logger.logLevel = .debug
+        logger.info("Storage root: \(dataRoot.path)")
 
         // ── Metrics ──────────────────────────────────────────────────────────
         MetricsSystem.bootstrap(PrometheusMetricsFactory())

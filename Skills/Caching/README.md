@@ -259,9 +259,11 @@ Low-level read/write for one file. Uses `PropertyListEncoder/Decoder`. All Sewn 
 
 ### Storage root
 
-`FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]/sewn-db/`
-
-In practice on a server: `~/.sewn/` (mapped at deployment via Docker volume).
+`~/Documents/sewn-db/` by default. Override with `sewn-server --data-dir <path>` or the
+`SEWN_DATA_DIR` environment variable (the flag wins); tilde is expanded and the directory
+is created on startup. Every `FilePersistence`, the registry WAL and `node-id` live under
+that one root (`FilePersistence.getDefaultURL()`). Mary launches Sewn with
+`--data-dir ~/Documents/maryOS/sewn-db`; Docker maps a volume onto the default.
 
 ### Key behaviors
 

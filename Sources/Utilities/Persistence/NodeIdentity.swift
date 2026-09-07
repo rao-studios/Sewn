@@ -20,22 +20,25 @@ import Logging
 ///      the storage identity and the network identity are always the same value —
 ///      no coordination required between the persistence layer and the mesh overlay.
 ///
-/// The identity file lives at `sewn-db/node-id`.
+/// The identity file lives at `<data-dir>/node-id` (default `~/Documents/sewn-db`).
 struct NodeIdentity {
     let nodeId: UUID
 
-    /// Load (or create) the node identity from `sewn-db/node-id`.
+    /// Load (or create) the node identity from `<data-dir>/node-id`.
     /// Synchronous — safe to call from a non-async context at server startup,
     /// before the cooperative thread pool is active.
     static func load(logger: Logger) -> NodeIdentity {
-        let url = FilePersistence.getDefaultURL().appendingPathComponent("node-id")
+        let dir = FilePersistence.getDefaultURL()
+        let url = dir.appendingPathComponent("node-id")
         if let data = try? Data(contentsOf: url),
            let str = String(data: data, encoding: .utf8),
            let uuid = UUID(uuidString: str.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return NodeIdentity(nodeId: uuid)
         }
-        // First launch: generate a fresh UUID and persist it atomically.
+        // First launch: generate a fresh UUID and persist it atomically. The
+        // data directory may not exist yet on a fresh root, so create it here.
         let fresh = UUID()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? "\(fresh)".data(using: .utf8)?.write(to: url, options: .atomic)
         logger.info("NodeIdentity: generated node-id \(fresh)")
         return NodeIdentity(nodeId: fresh)

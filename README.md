@@ -472,6 +472,7 @@ up as `available: false` on `GET /v1/providers` — it never stops the server.
 |------|-------------|
 | `--host` | Bind address (default: `127.0.0.1`) |
 | `--port` | HTTP port (default: `8080`) |
+| `--data-dir` | Directory for on-disk state (default `~/Documents/sewn-db`; env `SEWN_DATA_DIR`) |
 | `--model` | Path to MLX model directory |
 | `--embedding-model` | Path or identifier for the embedding model |
 | `--mistral` | Enable Mistral API over custom models |
