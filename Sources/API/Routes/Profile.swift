@@ -19,8 +19,8 @@ private struct _ProfileRow: Codable {
 ///
 /// Cross-user lookup reads from the public `profiles` table via PostgREST using the
 /// requesting user's JWT — no service role key required.
-func registerProfileRoute(_ router: some RouterMethods<SeerRequestContext>) {
-    router.get("/v1/profile") { request, context async throws -> SeerProfile in
+func registerProfileRoute(_ router: some RouterMethods<SewnRequestContext>) {
+    router.get("/v1/profile") { request, context async throws -> SewnProfile in
         guard let requestingUserId = context.authUserId else {
             throw HTTPError(.unauthorized, message: "Missing authenticated user ID")
         }
@@ -28,12 +28,12 @@ func registerProfileRoute(_ router: some RouterMethods<SeerRequestContext>) {
         // If no userId query param, return the requester's own profile (fast path).
         guard let targetUserId = request.uri.queryParameters.get("userId"),
               !targetUserId.isEmpty else {
-            return SeerProfile(userId: requestingUserId, displayName: context.authDisplayName)
+            return SewnProfile(userId: requestingUserId, displayName: context.authDisplayName)
         }
 
         // Same user — no table lookup needed.
         if targetUserId == requestingUserId {
-            return SeerProfile(userId: requestingUserId, displayName: context.authDisplayName)
+            return SewnProfile(userId: requestingUserId, displayName: context.authDisplayName)
         }
 
         // Cross-user lookup via the public profiles table (PostgREST, anon key + user JWT).
@@ -65,13 +65,13 @@ func registerProfileRoute(_ router: some RouterMethods<SeerRequestContext>) {
             throw HTTPError(.notFound, message: "User not found")
         }
 
-        return SeerProfile(userId: profile.id, displayName: profile.display_name)
+        return SewnProfile(userId: profile.id, displayName: profile.display_name)
     }
 }
 
 /// Registers PATCH /v1/profile — updates the authenticated user's display name in Supabase.
-func registerUpdateProfileRoute(_ router: some RouterMethods<SeerRequestContext>) {
-    router.patch("/v1/profile") { request, context async throws -> SeerProfile in
+func registerUpdateProfileRoute(_ router: some RouterMethods<SewnRequestContext>) {
+    router.patch("/v1/profile") { request, context async throws -> SewnProfile in
         guard let userId = context.authUserId else {
             throw HTTPError(.unauthorized, message: "Missing authenticated user ID")
         }
@@ -106,7 +106,7 @@ func registerUpdateProfileRoute(_ router: some RouterMethods<SeerRequestContext>
             throw HTTPError(.badGateway, message: "Failed to update profile in Supabase")
         }
 
-        return SeerProfile(userId: userId, displayName: body.displayName)
+        return SewnProfile(userId: userId, displayName: body.displayName)
     }
 }
 

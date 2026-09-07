@@ -1,12 +1,12 @@
 # Data Models Reference
 
-All major types across Seer, Sinatra, Gita, and Oracle. Use this as a quick lookup when writing request/response handlers, tests, or new features.
+All major types across Sewn, Sinatra, Gita, and Oracle. Use this as a quick lookup when writing request/response handlers, tests, or new features.
 
 ---
 
-## Seer (Database)
+## Sewn (Database)
 
-### `Seer.Document`
+### `Sewn.Document`
 Document-level metadata. One document = one source URL (a webpage, file, etc.).
 ```swift
 struct Document {
@@ -17,7 +17,7 @@ struct Document {
 }
 ```
 
-### `Seer.Partition`
+### `Sewn.Partition`
 A chunk of a document with its embedding. One document → N partitions.
 ```swift
 struct Partition {
@@ -42,7 +42,7 @@ struct PartitionSlot: Codable {
     var compressedEmbedding: [UInt16]?
 }
 // Reconstructed on demand:
-func toPartition(metadata: PartitionData?) -> Seer.Partition
+func toPartition(metadata: PartitionData?) -> Sewn.Partition
 ```
 
 ### `PartitionData` / `PartitionDataLoader`
@@ -73,11 +73,11 @@ mutating func search(
     k: Int, groupFilter: Set<DocumentID>?,
     indices: [DocumentID: PartitionIndex],
     sinatra: Sinatra, ...
-) -> (partitions: [(partition: Seer.Partition, distance: Float)],
+) -> (partitions: [(partition: Sewn.Partition, distance: Float)],
       trace: HNSWGraph.SearchTrace)
 ```
 
-### `Seer.Group`
+### `Sewn.Group`
 A named collection of documents with shared access control.
 ```swift
 struct Group {
@@ -85,12 +85,12 @@ struct Group {
     let label: String
     let owner_id: String
     var documents: [String]     // Document IDs
-    var access: SeerRegistry.Access
+    var access: SewnRegistry.Access
     var total_earnings: Double  // Gita-tracked earnings
 }
 ```
 
-### `Seer.User`
+### `Sewn.User`
 Thin wrapper around a user's groups. Returned from profile endpoints.
 ```swift
 struct User {
@@ -99,7 +99,7 @@ struct User {
 }
 ```
 
-### `Seer.DocumentStats`
+### `Sewn.DocumentStats`
 Engagement tracking per document.
 ```swift
 struct DocumentStats {
@@ -110,10 +110,10 @@ struct DocumentStats {
 }
 ```
 
-### `SeerRegistry`
+### `SewnRegistry`
 In-memory index — the primary access control and ownership lookup structure. Persisted to disk as JSON.
 ```swift
-struct SeerRegistry {
+struct SewnRegistry {
     var owners_documents: [Owner: Set<String>]   // owner → document IDs
     var document_owners: [String: Owner]          // document ID → owner
     var document_groups: [String: Set<String>]    // document ID → group IDs
@@ -138,7 +138,7 @@ struct Owner: Hashable {
 }
 ```
 
-### `Seer.SearchResult`
+### `Sewn.SearchResult`
 One result from a vector search.
 ```swift
 struct SearchResult {
@@ -151,8 +151,8 @@ struct SearchResult {
 }
 ```
 
-### `Seer.Wearable`
-Lightweight context object passed between Seer operations (carries owner_id, tone, request metadata).
+### `Sewn.Wearable`
+Lightweight context object passed between Sewn operations (carries owner_id, tone, request metadata).
 ```swift
 struct Wearable {
     let owner_id: String

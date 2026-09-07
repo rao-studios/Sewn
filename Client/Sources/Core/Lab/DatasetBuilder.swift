@@ -3,7 +3,7 @@ import Foundation
 /// Builds training JSONL files under App Support `datasets/`:
 ///  - **SFT** rows `{messages: [{role, content}...]}` from chat transcripts or
 ///    imported JSONL.
-///  - **DPO** rows `{prompt: [...], chosen: str, rejected: str}` from Seer's
+///  - **DPO** rows `{prompt: [...], chosen: str, rejected: str}` from Sewn's
 ///    Sinatra export: interactions grouped by query, best-vs-worst by
 ///    sentiment-derived weight when the gap clears a margin. Unpaired rows
 ///    spill over into an SFT file so no signal is wasted.
@@ -49,7 +49,7 @@ enum DatasetBuilder {
 
     // MARK: - Personality SFT (voice + marker discipline)
 
-    /// The citation protocol the Seer server injects for marked chats —
+    /// The citation protocol the Sewn server injects for marked chats —
     /// mirrored here so SFT rows train against the same instruction.
     static let citationProtocol = """
     When a sentence draws on a bracketed source [n], append that source's marker \

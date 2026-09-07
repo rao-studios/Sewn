@@ -1,6 +1,6 @@
 # Marielle — Personalization Layer
 
-> **Status: Not yet implemented.** All four routes (`/v1/marielle/open`, `/v1/marielle/proactive`, `/v1/marielle/interject`, `/v1/marielle/bridge`) return `503 Service Unavailable`. The implementation was designed against a local HNSW graph; it needs to be rewritten to query Totem nodes via gRPC fan-out.
+> **Status: Not yet implemented.** All four routes (`/v1/marielle/open`, `/v1/marielle/proactive`, `/v1/marielle/interject`, `/v1/marielle/bridge`) return `503 Service Unavailable`. The implementation was designed against a local HNSW graph; it needs to be rewritten to query Thread nodes via gRPC fan-out.
 
 ---
 
@@ -19,9 +19,9 @@ All four use LLM prompts (`MariellePrompts`) with tight word-count constraints (
 
 ## What Needs to Be Done
 
-1. **Replace local HNSW access** with `fanoutSearch()` or a dedicated `fanoutPersonalGraph()` primitive to fetch the user's top-k recent partitions from Totem nodes.
+1. **Replace local HNSW access** with `fanoutSearch()` or a dedicated `fanoutPersonalGraph()` primitive to fetch the user's top-k recent partitions from Thread nodes.
 2. **Wire the route handlers** in [Marielle.swift](../Sources/API/Routes/Marielle.swift) — all logic (prompts, Jaccard drift, bridge scoring) is already written; only the graph access layer is missing.
-3. **Bridge route** additionally needs a second owner's partitions, requiring cross-owner Totem fan-out with access gating.
+3. **Bridge route** additionally needs a second owner's partitions, requiring cross-owner Thread fan-out with access gating.
 
 ---
 

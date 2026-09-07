@@ -1,6 +1,6 @@
 //
 //  InfiniteSearchResponse.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation
@@ -8,7 +8,7 @@ import Foundation
 
 struct InfiniteSearchResponse: Codable {
     var object: String = "list"
-    let groups: [Seer.Group]
+    let groups: [Sewn.Group]
     let total: Int
 
     enum CodingKeys: String, CodingKey {

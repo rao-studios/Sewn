@@ -1,6 +1,6 @@
 //
 //  GitaResult.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 11/16/25.
 //

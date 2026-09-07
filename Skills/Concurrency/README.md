@@ -1,6 +1,6 @@
 # Concurrency — Mutators, IndexQueue, and PersistenceActor
 
-The entire write path in Seer is serialized through a small set of actors. Understanding these is essential before touching any mutation code, because the races they prevent are not obvious and took production incidents to discover.
+The entire write path in Sewn is serialized through a small set of actors. Understanding these is essential before touching any mutation code, because the races they prevent are not obvious and took production incidents to discover.
 
 Source files:
 - `Sources/Database/Mutators/TableMutator.swift`
@@ -42,9 +42,9 @@ The same race applies to `PartitionTable` (for HNSW nodes) and each owner's pers
 
 ```swift
 private enum Job {
-    case put([Seer.BatchPutItem], SeerRequest)
+    case put([Sewn.BatchPutItem], SewnRequest)
     case removeBatch([(documentId: String, ownerId: String)])
-    case removeAll(ownerId: String, request: SeerRequest, CheckedContinuation<Int, Never>)
+    case removeAll(ownerId: String, request: SewnRequest, CheckedContinuation<Int, Never>)
 }
 ```
 
@@ -64,12 +64,12 @@ private func drain() async {
 }
 ```
 
-Actor reentrancy is the key: when `execute(job)` suspends (`await seer.putBatch(...)`), new jobs arriving from concurrent HTTP requests accumulate in `pending` on the actor's queue. When `execute` resumes, the `while` loop picks up the next job immediately — no polling, no sleep.
+Actor reentrancy is the key: when `execute(job)` suspends (`await sewn.putBatch(...)`), new jobs arriving from concurrent HTTP requests accumulate in `pending` on the actor's queue. When `execute` resumes, the `while` loop picks up the next job immediately — no polling, no sleep.
 
 ### `removeAll` continuation pattern
 
 ```swift
-func removeAll(ownerId: String, request: SeerRequest) async -> Int {
+func removeAll(ownerId: String, request: SewnRequest) async -> Int {
     await withCheckedContinuation { continuation in
         enqueue(.removeAll(ownerId: ownerId, request: request, continuation))
     }
@@ -79,7 +79,7 @@ func removeAll(ownerId: String, request: SeerRequest) async -> Int {
 The continuation is stored inside the `.removeAll` job. When `execute()` processes it:
 ```swift
 case .removeAll(let ownerId, let request, let continuation):
-    let count = await seer.removeAll(ownerId: ownerId, request: request)
+    let count = await sewn.removeAll(ownerId: ownerId, request: request)
     continuation.resume(returning: count)
 ```
 
@@ -88,8 +88,8 @@ The route handler that called `indexQueue.removeAll(...)` was suspended at `with
 ### Metrics
 
 ```swift
-SeerMetrics.indexQueueDepth.record(Double(jobCount))
-SeerMetrics.indexQueueItems.record(Double(itemCount))
+SewnMetrics.indexQueueDepth.record(Double(jobCount))
+SewnMetrics.indexQueueItems.record(Double(itemCount))
 ```
 
 Both are recorded before and after each job. When queue drains to empty, both are zeroed. Monitor `indexQueueDepth` in production — if it grows unbounded, ingestion is outpacing processing.
@@ -100,7 +100,7 @@ Both are recorded before and after each job. When queue drains to empty, both ar
 
 `Sources/Database/Mutators/TableMutator.swift`
 
-Serializes all mutations to `PartitionTable` (global HNSW shard + PQ indices). Uses `SeerCache<PartitionTable>` for the in-memory snapshot and two separate `FilePersistence` files for topology vs. indices.
+Serializes all mutations to `PartitionTable` (global HNSW shard + PQ indices). Uses `SewnCache<PartitionTable>` for the in-memory snapshot and two separate `FilePersistence` files for topology vs. indices.
 
 ### Split file design (Phase 5)
 
@@ -201,11 +201,11 @@ The comment in source explains why: `store.nodeCount` (in `HNSWVectorStore`) inc
 
 ---
 
-## RegistryMutator — SeerRegistry Serializer
+## RegistryMutator — SewnRegistry Serializer
 
 `Sources/Database/Mutators/RegistryMutator.swift`
 
-Serializes all mutations to `SeerRegistry`. Uses `SeerCache<SeerRegistry>` backed by `FilePersistence(key: "registry")`.
+Serializes all mutations to `SewnRegistry`. Uses `SewnCache<SewnRegistry>` backed by `FilePersistence(key: "registry")`.
 
 ### Debounced vs immediate saves
 
@@ -259,7 +259,7 @@ The debounce means that 100 inferences per second produce at most 1 disk write p
 ### nonisolated snapshot
 
 ```swift
-nonisolated var snapshot: SeerRegistry? { cache.snapshot }
+nonisolated var snapshot: SewnRegistry? { cache.snapshot }
 ```
 
 Route handlers that need to read registry state (e.g., for access control checks during search) call `tableMutator.snapshot` and `registryMutator.snapshot` — these are synchronous, require no actor hop, and use `ReadWriteValue`'s shared read lock. Multiple concurrent searches read the snapshot simultaneously without blocking each other or the mutator.
@@ -338,7 +338,7 @@ func addBatch(items: [(partitions:, ownerId:)]) async {
     let ownerIds = Set(items.map { key($0.ownerId) })
     for ownerId in ownerIds { _ = await cachedGraph(for: ownerId) }  // warm cache
     
-    var byOwner: [String: [Seer.Partition]] = [:]
+    var byOwner: [String: [Sewn.Partition]] = [:]
     for (partitions, ownerId) in items { byOwner[key(ownerId), default: []].append(...) }
     
     var mutated: [String: HNSWGraph] = [:]
@@ -415,7 +415,7 @@ actor PersistenceActor {
 
 ### Usage patterns
 
-**`SeerCache<Value>.saveAsync()`** — detached task that hops to the actor:
+**`SewnCache<Value>.saveAsync()`** — detached task that hops to the actor:
 ```swift
 func saveAsync(_ value: Value) {
     Task.detached { [io] in await io.save(value) }
@@ -423,7 +423,7 @@ func saveAsync(_ value: Value) {
 ```
 The calling actor is freed immediately. Multiple rapid `saveAsync` calls queue behind each other in the actor — last-queued wins (each overwrites the prior). This is the correct behavior for checkpoint-style saves.
 
-**`SeerCache<Value>.load(makeDefault:)`** — suspends calling actor during I/O:
+**`SewnCache<Value>.load(makeDefault:)`** — suspends calling actor during I/O:
 ```swift
 func load(makeDefault: @Sendable () -> Value) async -> Value {
     if let hit = _store.withReadLock({ $0 }) { return hit }
@@ -456,7 +456,7 @@ POST /v1/embeddings
     ├─ IndexQueue.enqueuePut([BatchPutItem])   ← fire-and-forget
     │   │
     │   └─ (when queue drains to this job)
-    │       ├─ seer.putBatch(items)
+    │       ├─ sewn.putBatch(items)
     │       │   ├─ RegistryMutator.registerBatch()    ← actor hop → mutate → deferred save
     │       │   ├─ TableMutator.putBatch()             ← actor hop → mutate → WAL append
     │       │   └─ PersonalHNSWMutator.addBatch()      ← actor hop → mutate → WAL append
@@ -471,7 +471,7 @@ The response returns as soon as the job is enqueued. The actual indexing happens
 
 ## Rules for New Code
 
-1. **Never mutate `SeerRegistry` directly** — always go through `RegistryMutator`. There is no legitimate reason to bypass it.
+1. **Never mutate `SewnRegistry` directly** — always go through `RegistryMutator`. There is no legitimate reason to bypass it.
 
 2. **Never mutate `PartitionTable` outside `TableMutator`** — the split-file persistence and WAL coordination only work because mutations are actor-serialized.
 

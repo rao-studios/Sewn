@@ -1,6 +1,6 @@
 //
 //  Gita.TokenCost.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 4/12/26.
 //
@@ -10,7 +10,7 @@ import Foundation
 // MARK: - Credits
 
 extension Gita {
-    /// Seer's internal billing unit.
+    /// Sewn's internal billing unit.
     /// Conversion: $0.10 USD == 10 credits  →  1 credit == $0.01 USD
     /// Use `CreditConversion` to move between credits and fiat.
     typealias Credits = Double
@@ -58,7 +58,7 @@ extension Gita {
     }
 
     /// Static pricing catalog.
-    /// Add a new entry here whenever a new model is introduced to the Seer network.
+    /// Add a new entry here whenever a new model is introduced to the Sewn network.
     /// Prices are sourced from provider list pricing and converted to credits.
     enum ModelCatalog {
         // Mistral pricing as of 2026-04 (per-token, converted from USD):
@@ -70,7 +70,7 @@ extension Gita {
                 promptCreditsPerToken:     CreditConversion.fromDollars(3.00) / 1_000_000,
                 completionCreditsPerToken: CreditConversion.fromDollars(9.00) / 1_000_000
             ),
-            // Seer's default chat model (see ModelConfig.defaultModel) —
+            // Sewn's default chat model (see ModelConfig.defaultModel) —
             // same rate as "mistral-medium", priced explicitly rather than
             // relying on the catalog's medium-rate fallback.
             "mistral-medium-latest": .init(

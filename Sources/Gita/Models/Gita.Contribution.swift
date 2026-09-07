@@ -1,6 +1,6 @@
 //
 //  Gita.Royalty.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 11/8/25.
 //
@@ -29,7 +29,7 @@ extension Gita {
         /// Equals the raw LLM token cost distributed proportionally via royalty shares.
         var totalPayout: Credits
 
-        /// Seer's service charge for this inference (in credits).
+        /// Sewn's service charge for this inference (in credits).
         /// Covers vector search, Gita computation, peer coordination, and infrastructure.
         ///
         /// Invariant: `totalPayout + serviceCharge == totalCost`
@@ -68,7 +68,7 @@ extension Gita {
         var debugDescription: String {
             var desc = "Royalty Distribution:\n"
             for owner in owners.sorted(by: { $0.royalty > $1.royalty }) {
-                desc += "  - \(owner.ownerId ?? owner.totemId): \(String(format: "%.2f", owner.royalty * 100))%"
+                desc += "  - \(owner.ownerId ?? owner.threadId): \(String(format: "%.2f", owner.royalty * 100))%"
                 if owner.earning > 0 {
                     desc += "  earning=\(CreditConversion.formattedCredits(owner.earning))"
                     desc += " (\(CreditConversion.formattedDollars(owner.earning)))"
@@ -93,7 +93,7 @@ extension Gita {
         var ownersDebugDescription: String {
             var desc = "Royalty Distribution:\n"
             for owner in owners.sorted(by: { $0.royalty > $1.royalty }) {
-                desc += "  - \(owner.ownerId ?? owner.totemId): \(String(format: "%.2f", owner.royalty * 100))%"
+                desc += "  - \(owner.ownerId ?? owner.threadId): \(String(format: "%.2f", owner.royalty * 100))%"
                 if owner.earning > 0 {
                     desc += "  (\(CreditConversion.formattedCredits(owner.earning)))"
                 }
@@ -113,10 +113,10 @@ extension Gita {
     }
 
     struct Owner: Codable, Hashable {
-        /// The Totem that sourced these partitions — always present.
-        var totemId: String
-        /// Authenticated owner identity. `nil` when the Totem has no registered owner;
-        /// linked to `totemId` later when the owner claims their Totem's earnings.
+        /// The Thread that sourced these partitions — always present.
+        var threadId: String
+        /// Authenticated owner identity. `nil` when the Thread has no registered owner;
+        /// linked to `threadId` later when the owner claims their Thread's earnings.
         var ownerId: String?
         var documentIds: Set<String>
         var influence: [DocumentID: Double]
@@ -124,7 +124,7 @@ extension Gita {
         /// Character-offset ranges in the LLM response text that are attributed to
         /// this owner's retrieved content. Empty until span computation runs.
         var spans: [Gita.TextSpan]
-        /// Exact per-source-file attribution: spans keyed by the Totem document
+        /// Exact per-source-file attribution: spans keyed by the Thread document
         /// they were drawn from. Populated only by the citation-marker path
         /// (`Gita.annotate`) — nil when spans came from the heuristic alone.
         var documentSpans: [DocumentID: [Gita.TextSpan]]?
@@ -134,7 +134,7 @@ extension Gita {
         var earning: Credits
 
         init(
-            totemId: String,
+            threadId: String,
             ownerId: String? = nil,
             documentIds: Set<String>,
             influence: [DocumentID: Double],
@@ -143,7 +143,7 @@ extension Gita {
             documentSpans: [DocumentID: [Gita.TextSpan]]? = nil,
             earning: Credits = 0
         ) {
-            self.totemId = totemId
+            self.threadId = threadId
             self.ownerId = ownerId
             self.documentIds = documentIds
             self.influence = influence
@@ -154,7 +154,7 @@ extension Gita {
         }
 
         enum CodingKeys: String, CodingKey {
-            case totemId     = "totem_id"
+            case threadId     = "thread_id"
             case ownerId     = "owner_id"
             case documentIds = "document_ids"
             case influence
@@ -164,18 +164,18 @@ extension Gita {
             case earning
         }
 
-        /// Stable identity key: one owner per (totem, authenticated owner) pair.
-        /// Keying on totemId alone would merge distinct owners whose documents
-        /// live on the same Totem (or all local owners, totemId == "").
-        var identityKey: String { "\(totemId)|\(ownerId ?? "")" }
+        /// Stable identity key: one owner per (thread, authenticated owner) pair.
+        /// Keying on threadId alone would merge distinct owners whose documents
+        /// live on the same Thread (or all local owners, threadId == "").
+        var identityKey: String { "\(threadId)|\(ownerId ?? "")" }
 
         func hash(into hasher: inout Hasher) {
-            hasher.combine(totemId)
+            hasher.combine(threadId)
             hasher.combine(ownerId)
         }
 
         static func == (lhs: Owner, rhs: Owner) -> Bool {
-            lhs.totemId == rhs.totemId && lhs.ownerId == rhs.ownerId
+            lhs.threadId == rhs.threadId && lhs.ownerId == rhs.ownerId
         }
     }
 }

@@ -1,6 +1,6 @@
 //
 //  Gita+Royalty.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 11/8/25.
 //
@@ -10,18 +10,18 @@ import Foundation
 // Patent #4: Royalty Calculation System
 // TODO: [Weighted Influence] The royalty calculation currently derives influence purely from
 // word count across retrieved partitions. In the future, influence should be weighted by
-// document-level metrics surfaced through an enriched `Seer.Document` model. Planned factors:
+// document-level metrics surfaced through an enriched `Sewn.Document` model. Planned factors:
 //
 //   • kind          — document class carries an inherent credibility/signal multiplier.
 //                     e.g. research paper > article > social post (tweet, thread, etc.)
-//                     A `Seer.Document.Kind` enum (or similar) should encode these tiers
+//                     A `Sewn.Document.Kind` enum (or similar) should encode these tiers
 //                     so the royalty function can apply a per-document kind multiplier
 //                     before computing ownership percentages.
 //
 //   • retrievalCount — documents surfaced frequently across many distinct queries have
 //                     demonstrated sustained relevance. A higher retrieval count should
 //                     increase the document's weight, rewarding consistently useful content.
-//                     `Seer.Document` will need to persist and expose this counter
+//                     `Sewn.Document` will need to persist and expose this counter
 //                     (e.g. via Supabase), updated atomically each time the document
 //                     appears in a search result.
 //
@@ -30,7 +30,7 @@ import Foundation
 //
 // Implementation notes:
 //   - `royalty(for:request:)` will need a second parameter:
-//       `documents: [DocumentID: Seer.Document]`
+//       `documents: [DocumentID: Sewn.Document]`
 //     so per-document metadata is available during the weight calculation step.
 //   - The weighted word count per document becomes:
 //       rawWordCount * kindMultiplier * normalizedRetrievalWeight
@@ -56,10 +56,10 @@ extension Gita {
     ///            Call `priceContribution(_:ledger:strategy:currentLoad:)` afterward
     ///            to attach credit earnings once token usage is known.
     func royalty(
-        for partitions: [Seer.Partition],
+        for partitions: [Sewn.Partition],
         peerSources: [String: OracleNodeID] = [:],
         coOwners: [DocumentID: Set<OwnerID>] = [:],
-        request: SeerRequest? = nil
+        request: SewnRequest? = nil
     ) -> Gita.Contribution {
         guard !partitions.isEmpty else {
             return .init(owners: [])
@@ -80,55 +80,55 @@ extension Gita {
             return .init(owners: [])
         }
 
-        // totemId string per partition (empty string for local/unknown partitions).
-        let partitionTotemId: [String: String] = peerSources.mapValues { $0.uuidString }
+        // threadId string per partition (empty string for local/unknown partitions).
+        let partitionThreadId: [String: String] = peerSources.mapValues { $0.uuidString }
 
         // Fallback map: for documents not in coOwners, attribute to the first partition's
-        // (totemId, ownerId) pair. Empty ownerId strings are treated as nil (unauthenticated Totem).
-        let partitionByDoc: [DocumentID: Seer.Partition] = partitions.reduce(into: [:]) {
+        // (threadId, ownerId) pair. Empty ownerId strings are treated as nil (unauthenticated Thread).
+        let partitionByDoc: [DocumentID: Sewn.Partition] = partitions.reduce(into: [:]) {
             if $0[$1.documentId] == nil { $0[$1.documentId] = $1 }
         }
 
         // Split each document's word count equally among its owners.
         //
-        // Grouping key: ownerId when available, otherwise totemId (unauthenticated Totem).
-        // Each entry stores (totemId, ownerId?) alongside the per-document word-count share.
+        // Grouping key: ownerId when available, otherwise threadId (unauthenticated Thread).
+        // Each entry stores (threadId, ownerId?) alongside the per-document word-count share.
         //
         // TODO: [Weighted Split] Equal split is the baseline. Future: weight by each
         //       owner's upload date, retrieval count, or an explicit ownership stake
-        //       stored in SeerRegistry — applying a per-owner multiplier before
+        //       stored in SewnRegistry — applying a per-owner multiplier before
         //       normalising so shares still sum to the document's total word count.
-        var groupContrib: [String: (totemId: String, ownerId: String?, docs: [DocumentID: Double])] = [:]
+        var groupContrib: [String: (threadId: String, ownerId: String?, docs: [DocumentID: Double])] = [:]
         for (documentId, wordCount) in documentCounts {
-            // Determine (totemId, ownerId) candidates for this document.
-            let candidates: [(totemId: String, ownerId: String?)]
+            // Determine (threadId, ownerId) candidates for this document.
+            let candidates: [(threadId: String, ownerId: String?)]
             if let coOwnerSet = coOwners[documentId], !coOwnerSet.isEmpty {
                 // Co-owned by authenticated owners — attribute equally, using each owner's
-                // totemId from the first matching partition (fallback to empty string).
+                // threadId from the first matching partition (fallback to empty string).
                 candidates = Array(coOwnerSet).map { owId in
-                    let totemId = partitions
+                    let threadId = partitions
                         .first(where: { $0.documentId == documentId && $0.ownerId == owId })
-                        .flatMap { partitionTotemId[$0.id] } ?? ""
-                    return (totemId, owId)
+                        .flatMap { partitionThreadId[$0.id] } ?? ""
+                    return (threadId, owId)
                 }
             } else if let p = partitionByDoc[documentId] {
-                let totemId = partitionTotemId[p.id] ?? ""
+                let threadId = partitionThreadId[p.id] ?? ""
                 let ownerId = p.ownerId.isEmpty ? nil : p.ownerId
-                candidates = [(totemId, ownerId)]
+                candidates = [(threadId, ownerId)]
             } else {
                 continue
             }
             let share = Double(wordCount) / Double(candidates.count)
-            for (totemId, ownerId) in candidates {
-                let key = ownerId ?? totemId
+            for (threadId, ownerId) in candidates {
+                let key = ownerId ?? threadId
                 if groupContrib[key] == nil {
-                    groupContrib[key] = (totemId: totemId, ownerId: ownerId, docs: [:])
+                    groupContrib[key] = (threadId: threadId, ownerId: ownerId, docs: [:])
                 }
                 groupContrib[key]!.docs[documentId, default: 0] += share
             }
         }
 
-        // Build one `Gita.Owner` per (totemId, ownerId) group.
+        // Build one `Gita.Owner` per (threadId, ownerId) group.
         var gitaOwners = Set<Gita.Owner>()
         for (_, group) in groupContrib {
             let ownerTotal = group.docs.values.reduce(0, +)
@@ -136,7 +136,7 @@ extension Gita {
             let royalty   = ownerTotal / Double(totalTextCount)
             let influence = group.docs.mapValues { $0 / ownerTotal }
             gitaOwners.insert(.init(
-                totemId: group.totemId,
+                threadId: group.threadId,
                 ownerId: group.ownerId,
                 documentIds: Set(group.docs.keys),
                 influence: influence,
@@ -186,7 +186,7 @@ extension Gita {
     /// - Parameters:
     ///   - contribution: The contribution from `royalty(for:)` — royalty shares only.
     ///   - ledger: Accumulated token usage for every LLM call in this request.
-    ///   - strategy: How Seer prices its service on top of the LLM cost. Defaults to
+    ///   - strategy: How Sewn prices its service on top of the LLM cost. Defaults to
     ///               the 20 % scaled fee with surge enabled.
     ///   - currentLoad: Number of concurrent requests on the server right now.
     ///                  Used by the surge pricing calculation.
@@ -199,7 +199,7 @@ extension Gita {
         ledger: TokenLedger,
         strategy: ServiceChargeStrategy = .default,
         currentLoad: Int = 1,
-        request: SeerRequest? = nil
+        request: SewnRequest? = nil
     ) -> Gita.Contribution {
         guard !ledger.isEmpty else { return contribution }
 
@@ -257,7 +257,7 @@ extension Gita {
         strategy: ServiceChargeStrategy,
         pricedOwners: Set<Gita.Owner>,
         totalPayout: Credits,
-        request: SeerRequest?
+        request: SewnRequest?
     ) {
         // ── Token Ledger ──────────────────────────────────────────────────────
         var ledgerLog = "Token Ledger (\(ledger.lines.count) call\(ledger.lines.count == 1 ? "" : "s")):\n"
@@ -291,7 +291,7 @@ extension Gita {
         let sortedOwners = pricedOwners.sorted { $0.earning > $1.earning }
         var payoutLog    = "Owner Payouts (\(sortedOwners.count) owner\(sortedOwners.count == 1 ? "" : "s")):\n"
         for owner in sortedOwners {
-            payoutLog += "  \((owner.ownerId ?? owner.totemId).padding(toLength: 30, withPad: " ", startingAt: 0))"
+            payoutLog += "  \((owner.ownerId ?? owner.threadId).padding(toLength: 30, withPad: " ", startingAt: 0))"
             payoutLog += String(format: "  %5.2f%%", owner.royalty * 100)
             payoutLog += "  →  \(CreditConversion.formattedCredits(owner.earning).padding(toLength: 12, withPad: " ", startingAt: 0))"
             payoutLog += "  (\(CreditConversion.formattedDollars(owner.earning)))\n"

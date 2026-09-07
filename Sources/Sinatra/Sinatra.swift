@@ -14,10 +14,10 @@ import Logging
 /// throughout a conversations' aggregated context. To allow us to implement
 /// a basic version of predictive empathy or intuition.
 class Sinatra {
-    internal let logger: SeerLogger
+    internal let logger: SewnLogger
     /// Single source of truth for the Sinatra registry: lock-protected in-memory
     /// snapshot + serialised off-actor disk persistence via `PersistenceActor`.
-    internal let cache: SeerCache<SinatraRegistry>
+    internal let cache: SewnCache<SinatraRegistry>
 
     static var sentimentContextLimit: Int = 4
     /// Maximum number of parked entries kept per owner. Oldest are evicted first.
@@ -25,8 +25,8 @@ class Sinatra {
     static let maxParkedEntries: Int = 30
 
     init(logger: Logger) {
-        self.logger = SeerLogger(logger)
-        self.cache = SeerCache(
+        self.logger = SewnLogger(logger)
+        self.cache = SewnCache(
             persistence: FilePersistence(key: "sinatra/registry", kind: .basic, logger: logger)
         )
         initializeRegistry()

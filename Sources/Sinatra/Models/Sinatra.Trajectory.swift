@@ -1,6 +1,6 @@
 //
 //  Sinatra.Trajectory.swift
-//  seer-server
+//  sewn-server
 //
 //  Snapshot of the trajectory signals computed during a single Sinatra.prepare() cycle.
 //  Stored in SinatraRegistry and exposed via /v1/frank/parking for debug inspection.

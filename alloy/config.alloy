@@ -4,15 +4,15 @@ discovery.docker "containers" {
 }
 
 // Extract service_name from structured log lines before sending to Cockpit.
-// SeerLogger.externallyLog prints JSON lines with a "service" field (e.g.
+// SewnLogger.externallyLog prints JSON lines with a "service" field (e.g.
 // {"service":"Sinatra",...}). The pipeline below pulls that value into a
-// service_name Loki label so Cockpit's drilldown tabs (Seer, Sinatra, Gita,
+// service_name Loki label so Cockpit's drilldown tabs (Sewn, Sinatra, Gita,
 // GBT Training, Parking, Embedding, etc.) populate correctly.
-// Non-JSON lines (Vapor framework output) fall back to service_name="seer-server".
+// Non-JSON lines (Vapor framework output) fall back to service_name="sewn-server".
 loki.process "label_service" {
   // Default for framework/untagged lines.
   stage.static_labels {
-    values = { service_name = "seer-server" }
+    values = { service_name = "sewn-server" }
   }
 
   // Try to parse the log body as JSON. Extracts service, requestId, ownerId, and
@@ -37,7 +37,7 @@ loki.process "label_service" {
   // Unlike labels, structured metadata is not indexed into the stream key, so
   // there is no cardinality explosion. They appear as filterable fields in
   // Grafana Explore's "Detected fields" panel and support LogQL queries like:
-  //   {service_name="Seer"} | request_id = "abc-123"
+  //   {service_name="Sewn"} | request_id = "abc-123"
   stage.structured_metadata {
     values = { request_id = "request_id", owner_id = "owner_id", document_id = "document_id" }
   }
@@ -46,7 +46,7 @@ loki.process "label_service" {
 }
 
 // Ship container logs through the service-labelling pipeline to Cockpit Loki
-loki.source.docker "seer_logs" {
+loki.source.docker "sewn_logs" {
   host    = "unix:///var/run/docker.sock"
   targets = discovery.docker.containers.targets
 
@@ -63,9 +63,9 @@ loki.write "cockpit" {
   }
 }
 
-// Scrape Prometheus metrics from seer-server /metrics endpoint
-prometheus.scrape "seer_app" {
-  targets         = [{"__address__" = "seer:8080", "__metrics_path__" = "/metrics"}]
+// Scrape Prometheus metrics from sewn-server /metrics endpoint
+prometheus.scrape "sewn_app" {
+  targets         = [{"__address__" = "sewn:8080", "__metrics_path__" = "/metrics"}]
   scrape_interval = "30s"
   bearer_token    = env("METRICS_TOKEN")
   forward_to      = [prometheus.remote_write.cockpit.receiver]

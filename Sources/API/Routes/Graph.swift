@@ -1,6 +1,6 @@
 //
 //  Graph.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 7/16/26.
 //
@@ -10,26 +10,26 @@ import Hummingbird
 
 // MARK: - Request / Response models
 
-/// A knowledge-graph query proxied to the Totem fleet: resolve entities by name and/or
+/// A knowledge-graph query proxied to the Thread fleet: resolve entities by name and/or
 /// free-text similarity, then traverse up to `hops` edges. At least one of
 /// `entity` / `query` must be present.
 struct GraphProxyRequest: Codable {
-    let seer: SeerRequest
+    let sewn: SewnRequest
     /// Entity name lookup (token containment).
     let entity: String?
-    /// Free-text query; each Totem embeds it locally for similarity matching.
+    /// Free-text query; each Thread embeds it locally for similarity matching.
     let query: String?
     /// Restrict matches to these entity kinds.
     let kinds: [String]?
     /// Traversal depth (0–3). Defaults to 1.
     let hops: Int?
-    /// Max entities returned per Totem. Defaults to 20.
+    /// Max entities returned per Thread. Defaults to 20.
     let limit: Int?
     /// Whether to resolve linked documents. Defaults to true.
     let includeDocuments: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case seer
+        case sewn
         case entity
         case query
         case kinds
@@ -104,19 +104,19 @@ struct GraphProxyResponse: Codable {
 // MARK: - Route
 
 func registerGraphRoute(
-    _ router: some RouterMethods<SeerRequestContext>,
-    _ seer: Seer
+    _ router: some RouterMethods<SewnRequestContext>,
+    _ sewn: Sewn
 ) {
     router.post("/v1/graph") { request, context async throws -> GraphProxyResponse in
         let graphReq = try await request.decode(as: GraphProxyRequest.self, context: context)
-        let seerReq = try graphReq.seer.from(context)
+        let sewnReq = try graphReq.sewn.from(context)
 
         guard graphReq.entity != nil || graphReq.query != nil else {
             throw HTTPError(.badRequest, message: "Provide 'entity' and/or 'query'.")
         }
 
-        let merged = await seer.fanoutGraph(
-            ownerId: seerReq.ownerId,
+        let merged = await sewn.fanoutGraph(
+            ownerId: sewnReq.ownerId,
             entity: graphReq.entity,
             query: graphReq.query,
             kinds: graphReq.kinds ?? [],

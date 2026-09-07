@@ -1,15 +1,15 @@
 import Conduit
 import Foundation
 
-/// Serializes billing stat writes and Totem node tracking.
+/// Serializes billing stat writes and Thread node tracking.
 ///
-/// Document/group/ownership data is now owned by Totem nodes. This actor
+/// Document/group/ownership data is now owned by Thread nodes. This actor
 /// retains only two responsibilities:
 ///   1. `documentStats` — billing earnings and engagement performance
-///   2. Totem node metadata — active node set for fan-out routing
+///   2. Thread node metadata — active node set for fan-out routing
 actor RegistryMutator {
-    private let cache: SeerCache<SeerRegistry>
-    private let logger: SeerLogger
+    private let cache: SewnCache<SewnRegistry>
+    private let logger: SewnLogger
 
     // MARK: - WAL (billing-only)
     //
@@ -26,8 +26,8 @@ actor RegistryMutator {
     private var registryDirty = false
     private var flushTask: Task<Void, Never>?
 
-    init(logger: SeerLogger, walURL: URL? = FilePersistence.getDefaultURL().appendingPathComponent("registry-wal")) {
-        self.cache = SeerCache(
+    init(logger: SewnLogger, walURL: URL? = FilePersistence.getDefaultURL().appendingPathComponent("registry-wal")) {
+        self.cache = SewnCache(
             persistence: FilePersistence(key: "registry", kind: .basic, logger: logger.base)
         )
         self.logger = logger
@@ -37,15 +37,15 @@ actor RegistryMutator {
 
     // MARK: - Startup seeding
 
-    nonisolated func seed(_ initial: SeerRegistry) { cache.seed(initial) }
+    nonisolated func seed(_ initial: SewnRegistry) { cache.seed(initial) }
 
     // MARK: - Snapshot
 
-    nonisolated var snapshot: SeerRegistry? { cache.snapshot }
+    nonisolated var snapshot: SewnRegistry? { cache.snapshot }
 
     // MARK: - Private
 
-    private func loadedRegistry() async -> SeerRegistry {
+    private func loadedRegistry() async -> SewnRegistry {
         return await cache.load { .init() }
     }
 
@@ -125,7 +125,7 @@ actor RegistryMutator {
         appendWAL(.earningsAccumulated(earnings.map { ($0.key, $0.value) }))
     }
 
-    func accumulatePerformance(_ updates: [DocumentID: Seer.DocumentStats]) async {
+    func accumulatePerformance(_ updates: [DocumentID: Sewn.DocumentStats]) async {
         guard !updates.isEmpty else { return }
         var registry = await loadedRegistry()
         registry.addPerformance(updates)
@@ -133,82 +133,82 @@ actor RegistryMutator {
         appendWAL(.performanceAccumulated(updates.values.map { .init(from: $0) }))
     }
 
-    // MARK: - Owner → Totem cache
+    // MARK: - Owner → Thread cache
     //
-    // Records which Totem nodes have stored data for a given ownerId. Populated
+    // Records which Thread nodes have stored data for a given ownerId. Populated
     // eagerly from fanoutIndex (on put) and lazily from fanoutLibrary responses.
-    // Used to scope library fanouts to only relevant Totems instead of all active nodes.
+    // Used to scope library fanouts to only relevant Threads instead of all active nodes.
 
-    private var ownerTotemMap: [String: Set<UUID>] = [:]
+    private var ownerThreadMap: [String: Set<UUID>] = [:]
 
-    func recordOwnerTotem(ownerId: String, totemId: UUID) {
-        ownerTotemMap[ownerId, default: []].insert(totemId)
+    func recordOwnerThread(ownerId: String, threadId: UUID) {
+        ownerThreadMap[ownerId, default: []].insert(threadId)
     }
 
-    func totemNodesForOwner(_ ownerId: String, allNodes: [TotemNode]) -> [TotemNode] {
+    func threadNodesForOwner(_ ownerId: String, allNodes: [ThreadNode]) -> [ThreadNode] {
         guard !ownerId.isEmpty,
-              let ids = ownerTotemMap[ownerId], !ids.isEmpty else {
+              let ids = ownerThreadMap[ownerId], !ids.isEmpty else {
             return allNodes
         }
-        let targeted = allNodes.filter { ids.contains($0.totemId) }
+        let targeted = allNodes.filter { ids.contains($0.threadId) }
         return targeted.isEmpty ? allNodes : targeted
     }
 
-    // MARK: - Totem Node Registry
+    // MARK: - Thread Node Registry
 
-    private var nodes: [UUID: TotemNode] = [:]
+    private var nodes: [UUID: ThreadNode] = [:]
 
-    func registerNode(_ node: TotemNode) {
+    func registerNode(_ node: ThreadNode) {
         var node = node
-        // Allow the host to be remapped at runtime (e.g. TOTEM_HOST_OVERRIDE=host.docker.internal
-        // when Seer runs in Docker and Totem is on the host machine).
-        if let override = ProcessInfo.processInfo.environment["TOTEM_HOST_OVERRIDE"], !override.isEmpty {
+        // Allow the host to be remapped at runtime (e.g. THREAD_HOST_OVERRIDE=host.docker.internal
+        // when Sewn runs in Docker and Thread is on the host machine).
+        if let override = ProcessInfo.processInfo.environment["THREAD_HOST_OVERRIDE"], !override.isEmpty {
             node.host = override
         }
         // Remove any previous entry at the same address — handles the case where
-        // a Totem restarts and generates a new UUID (e.g. missing node-id file).
+        // a Thread restarts and generates a new UUID (e.g. missing node-id file).
         if let staleId = nodes.first(where: {
-            $0.key != node.totemId &&
+            $0.key != node.threadId &&
             $0.value.host == node.host &&
             $0.value.grpcPort == node.grpcPort
         })?.key {
             nodes.removeValue(forKey: staleId)
         }
-        nodes[node.totemId] = node
+        nodes[node.threadId] = node
     }
 
-    func heartbeatNode(totemId: UUID) {
-        guard var node = nodes[totemId] else { return }
+    func heartbeatNode(threadId: UUID) {
+        guard var node = nodes[threadId] else { return }
         node.lastSeen = Date()
-        nodes[totemId] = node
+        nodes[threadId] = node
     }
 
-    func updateNodeAvailability(totemId: UUID, accepting: Bool) {
-        guard var node = nodes[totemId] else { return }
+    func updateNodeAvailability(threadId: UUID, accepting: Bool) {
+        guard var node = nodes[threadId] else { return }
         node.acceptingStorage = accepting
-        nodes[totemId] = node
+        nodes[threadId] = node
     }
 
-    func removeNode(totemId: UUID) {
-        nodes.removeValue(forKey: totemId)
+    func removeNode(threadId: UUID) {
+        nodes.removeValue(forKey: threadId)
     }
 
-    func totemNode(for totemId: UUID) -> TotemNode? {
-        guard let n = nodes[totemId], n.isActive else { return nil }
+    func threadNode(for threadId: UUID) -> ThreadNode? {
+        guard let n = nodes[threadId], n.isActive else { return nil }
         return n
     }
 
-    var activeNodes: [TotemNode] {
+    var activeNodes: [ThreadNode] {
         nodes.values.filter { $0.isActive }
     }
 
-    var availableForStorage: [TotemNode] {
+    var availableForStorage: [ThreadNode] {
         nodes.values.filter { $0.isActive && $0.acceptingStorage }
     }
 
-    var allNodes: [TotemNode] {
+    var allNodes: [ThreadNode] {
         // Prune nodes not seen in 5 minutes before returning — prevents dead nodes
-        // accumulating when a Totem gets a new UUID on restart.
+        // accumulating when a Thread gets a new UUID on restart.
         let cutoff = Date().addingTimeInterval(-300)
         let stale = nodes.filter { $0.value.lastSeen < cutoff }.map(\.key)
         stale.forEach { nodes.removeValue(forKey: $0) }
@@ -216,7 +216,7 @@ actor RegistryMutator {
     }
 }
 
-// Conduit's TotemRegistrationServiceImpl writes registration, heartbeat, and
+// Conduit's ThreadRegistrationServiceImpl writes registration, heartbeat, and
 // availability updates through this conformance; the actor methods above are
 // the witnesses.
-extension RegistryMutator: TotemRegistry {}
+extension RegistryMutator: ThreadRegistry {}

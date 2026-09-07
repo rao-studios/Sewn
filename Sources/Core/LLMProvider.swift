@@ -1,10 +1,10 @@
 //
 //  LLMProvider.swift
-//  Seer
+//  Sewn
 //
 //  WHAT: Which backend answers a generation — the one enum every inference
 //        route switches on. Clients send it per request (`provider`); absent,
-//        the server default (`SEER_GLOBAL_LLM`) applies.
+//        the server default (`SEWN_GLOBAL_LLM`) applies.
 //  PIN:  Raw values are the wire, shared with Mary's LLMEngineChoice:
 //        "mistral" | "tinker" | "local". Never rename a case.
 //
@@ -16,13 +16,13 @@ enum LLMProvider: String, Codable, CaseIterable, Sendable {
     case mistral
     /// Thinking Machines' Tinker (Anthropic-compatible Messages wire).
     case tinker
-    /// This machine, through Frigate MLX inside Seer.
+    /// This machine, through Frigate MLX inside Sewn.
     case local
 
-    /// The provider a request gets when it names none. `SEER_GLOBAL_LLM`
+    /// The provider a request gets when it names none. `SEWN_GLOBAL_LLM`
     /// in `.env`; Mistral when unset or unknown.
     static var serverDefault: LLMProvider {
-        LLMProvider(rawValue: ProcessInfo.processInfo.environment["SEER_GLOBAL_LLM"]?
+        LLMProvider(rawValue: ProcessInfo.processInfo.environment["SEWN_GLOBAL_LLM"]?
             .lowercased() ?? "") ?? .mistral
     }
 
@@ -50,7 +50,7 @@ enum LLMProvider: String, Codable, CaseIterable, Sendable {
     /// five extra generations behind every turn.
     static var localUtilityEnabled: Bool {
         ["1", "true", "yes"].contains(
-            ProcessInfo.processInfo.environment["SEER_LOCAL_UTILITY"]?.lowercased() ?? "")
+            ProcessInfo.processInfo.environment["SEWN_LOCAL_UTILITY"]?.lowercased() ?? "")
     }
 }
 
@@ -65,13 +65,13 @@ enum ProviderUnavailable: Error, CustomStringConvertible, Equatable {
     var description: String {
         switch self {
         case .missingKey(let envVar):
-            return "Missing \(envVar) — add it to Seer's .env or export it before starting Seer."
+            return "Missing \(envVar) — add it to Sewn's .env or export it before starting Sewn."
         case .localNotBuilt:
-            return "This Seer build has no on-device backend (MLX is macOS-only)."
+            return "This Sewn build has no on-device backend (MLX is macOS-only)."
         case .localFailed(let reason):
             return "On-device model unavailable: \(reason)"
         case .utilityDisabled(let provider):
-            return "Utility generations are off for \(provider.rawValue); set SEER_LOCAL_UTILITY=1 to enable."
+            return "Utility generations are off for \(provider.rawValue); set SEWN_LOCAL_UTILITY=1 to enable."
         }
     }
 }

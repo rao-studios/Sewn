@@ -2,7 +2,7 @@ import Foundation
 import PDFKit
 
 /// Extracts plain text from the document formats the Library can ingest.
-/// Raw bytes are never sent to a Totem: RTF markup or PDF binary would pollute
+/// Raw bytes are never sent to a Thread: RTF markup or PDF binary would pollute
 /// the corpus and the extracted graph entities (e.g. "ansicpg1252" concepts).
 enum DocumentText {
 

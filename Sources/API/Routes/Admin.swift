@@ -1,6 +1,6 @@
 //
 //  Admin.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 3/20/26.
 //
@@ -33,7 +33,7 @@ struct AdminOwnersResponse: Codable {
 
 /// Minimal admin request body carrying only the target owner's identity.
 struct AdminOwnerRequest: Codable {
-    let seer: SeerRequest
+    let sewn: SewnRequest
 }
 
 // MARK: Model Selection
@@ -138,7 +138,7 @@ struct AuditReconcileResponse: Codable {
 /// Registers all `/v1/admin/` routes behind `AdminMiddleware`.
 ///
 /// These routes are identical in shape to their non-admin counterparts but
-/// **bypass the auth-owner lock** — the `owner_id` in the `seer` body is
+/// **bypass the auth-owner lock** — the `owner_id` in the `sewn` body is
 /// treated as the *target* user rather than being replaced by the authenticated
 /// caller's ID. The middleware guarantees only the admin account can reach them.
 ///
@@ -155,7 +155,7 @@ struct AuditReconcileResponse: Codable {
 /// - `POST /v1/admin/hnsw/personal/rebuild` — rebuild empty personal graphs from global shard (Phase 3 migration)
 /// - `POST /v1/admin/sinatra/gbt`      — Sinatra GBT model state for any owner
 /// - `POST /v1/admin/table/document`   — PartitionIndex + PQ stats + HNSW cross-reference for one document
-func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
+func registerAdminRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
 
     // MARK: POST /v1/admin/list/owners
 
@@ -167,7 +167,7 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
 
     router.post("/v1/admin/list/documents") { request, context async throws -> DocumentListResponse in
         let body    = try await request.decode(as: DocumentListRequest.self, context: context)
-        let ownerId = body.seer.ownerId
+        let ownerId = body.sewn.ownerId
         context.logger.info("[Admin] list/documents for owner: \(ownerId)")
         return .init(documents: [], access: [:])
     }
@@ -176,7 +176,7 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
 
     router.post("/v1/admin/list/groups") { request, context async throws -> GroupListResponse in
         let body    = try await request.decode(as: GroupListRequest.self, context: context)
-        let ownerId = body.seer.ownerId
+        let ownerId = body.sewn.ownerId
         context.logger.info("[Admin] list/groups for owner: \(ownerId)")
         return .init(groups: [], access: [:])
     }
@@ -186,10 +186,10 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
     router.post("/v1/admin/modify") { request, context async throws -> ModificationResponse in
         let modifyRequest = try await request.decode(as: ModificationRequest.self, context: context)
         // Admin routes use the body's owner_id as the target, not the caller's.
-        let ownerId = modifyRequest.seer.ownerId
+        let ownerId = modifyRequest.sewn.ownerId
         let id      = modifyRequest.update.documentId
         let update  = modifyRequest.update
-        let group   = modifyRequest.seer.group
+        let group   = modifyRequest.sewn.group
 
         context.logger.info("[Admin] modify \(update.operation.rawValue) doc: \(id), target owner: \(ownerId)")
 
@@ -202,7 +202,7 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
             updatedDocumentAccess = false
             updatedGroupAccess    = false
             updatedGroup          = false
-            await seer.remove(documentId: id, group: group, ownerId: ownerId)
+            await sewn.remove(documentId: id, group: group, ownerId: ownerId)
         case .access, .group:
             updatedDocumentAccess = false
             updatedGroupAccess    = false
@@ -210,11 +210,11 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
         }
 
         return .init(
-            document:       seer.document(for: id),
+            document:       sewn.document(for: id),
             documentAccess: updatedDocumentAccess ? modifyRequest.documentAccess : nil,
             groupAccess:    updatedGroupAccess    ? modifyRequest.groupAccess    : nil,
             groupId:        updatedGroup          ? group?.id                    : nil,
-            user:           seer.user(for: ownerId)
+            user:           sewn.user(for: ownerId)
         )
     }
 
@@ -222,7 +222,7 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
 
     router.post("/v1/admin/modify/group") { request, context async throws -> GroupModificationResponse in
         let modifyRequest = try await request.decode(as: GroupModificationRequest.self, context: context)
-        let ownerId       = modifyRequest.seer.ownerId
+        let ownerId       = modifyRequest.sewn.ownerId
         let groupId       = modifyRequest.groupId
         let access        = modifyRequest.access
 
@@ -231,7 +231,7 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
         return .init(
             groupId: groupId,
             access:  nil,
-            user:    seer.user(for: ownerId)
+            user:    sewn.user(for: ownerId)
         )
     }
 
@@ -239,12 +239,12 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
 
     router.post("/v1/admin/sinatra/gbt") { request, context async throws -> FrankGBTResponse in
         let body    = try await request.decode(as: FrankGBTRequest.self, context: context)
-        let ownerId = body.seer.ownerId
+        let ownerId = body.sewn.ownerId
 
         context.logger.info("[Admin] sinatra/gbt for owner: \(ownerId)")
 
-        let owner        = SeerRegistry.Owner(id: ownerId)
-        let sinatra      = seer.sinatra
+        let owner        = SewnRegistry.Owner(id: ownerId)
+        let sinatra      = sewn.sinatra
         let registry     = sinatra.registry
         let model        = registry?.models[owner]
         let collector    = registry?.collectors[owner]
@@ -312,18 +312,18 @@ func registerAdminRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
 
     router.post("/v1/admin/owner/delete") { request, context async throws -> AdminDeleteOwnerResponse in
         let body    = try await request.decode(as: AdminOwnerRequest.self, context: context)
-        let ownerId = body.seer.ownerId
+        let ownerId = body.sewn.ownerId
 
         context.logger.info("[Admin] owner/delete — purging all data for owner: \(ownerId)")
 
-        // Build a minimal SeerRequest for the removeAll call.
-        let seerReq = SeerRequest(ownerId: ownerId, group: nil, aggregate: nil, scope: nil, requestID: nil)
+        // Build a minimal SewnRequest for the removeAll call.
+        let sewnReq = SewnRequest(ownerId: ownerId, group: nil, aggregate: nil, scope: nil, requestID: nil)
 
         // 1. Remove all documents, partition table entries, HNSW nodes, and registry entries.
-        let docsRemoved = await seer.removeAll(ownerId: ownerId, request: seerReq)
+        let docsRemoved = await sewn.removeAll(ownerId: ownerId, request: sewnReq)
 
         // 2. Remove all Sinatra data (parked, collector, dataset, model, harmony memory).
-        let sinatraCleared = seer.sinatra.removeOwner(id: ownerId)
+        let sinatraCleared = sewn.sinatra.removeOwner(id: ownerId)
 
         context.logger.info("[Admin] owner/delete — done. docs=\(docsRemoved), sinatra=\(sinatraCleared)")
 

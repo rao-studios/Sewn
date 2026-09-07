@@ -1,6 +1,6 @@
 //
 //  Sinatra+Registry.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 1/29/26.
 //
@@ -45,7 +45,7 @@ extension Sinatra {
     /// Overwrites all Sinatra data for a given owner with the contents of a `SinatraExport`.
     /// Existing data for that owner is replaced atomically.
     func importOwner(id: String, from export: SinatraExport) {
-        let owner = SeerRegistry.Owner(id: id)
+        let owner = SewnRegistry.Owner(id: id)
         updateRegistry { reg in
             reg.parked[owner]            = export.parked.isEmpty ? nil : export.parked
             reg.collectors[owner]        = export.collector
@@ -63,7 +63,7 @@ extension Sinatra {
     /// - Returns: `true` if the owner had any data in the registry.
     @discardableResult
     func removeOwner(id: String) -> Bool {
-        let owner = SeerRegistry.Owner(id: id)
+        let owner = SewnRegistry.Owner(id: id)
         var hadData = false
         updateRegistry { reg in
             hadData = reg.parked[owner] != nil

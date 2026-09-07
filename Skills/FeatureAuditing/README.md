@@ -1,12 +1,12 @@
 # Feature Auditing
 
-Checklists and procedures for auditing every major feature in Seer. Run these when: landing a large PR, after a refactor, before a release, or when a system has been dormant for a while.
+Checklists and procedures for auditing every major feature in Sewn. Run these when: landing a large PR, after a refactor, before a release, or when a system has been dormant for a while.
 
 ---
 
 ## System-by-System Audit Checklists
 
-### Seer Database
+### Sewn Database
 
 - [ ] HNSW global graph: node count matches sum of all owner document partition counts
 - [ ] HNSW personal graphs: every owner with documents has a personal graph
@@ -103,7 +103,7 @@ Checklists and procedures for auditing every major feature in Seer. Run these wh
 
 ### Concurrency Safety
 
-- [ ] No direct mutation of `SeerRegistry` outside of `RegistryMutator` actor
+- [ ] No direct mutation of `SewnRegistry` outside of `RegistryMutator` actor
 - [ ] No direct HNSW mutation outside of `TableMutator` or `PersonalHNSWMutator` actors
 - [ ] `IndexQueue` is used for all embed→insert cycles (not bypassed)
 - [ ] No shared mutable state accessed from route handlers directly (all through actors)
@@ -111,9 +111,9 @@ Checklists and procedures for auditing every major feature in Seer. Run these wh
 ### Persistence Integrity
 
 - [ ] All JSON persistence goes through `PersistenceActor`
-- [ ] Server restart: all registries reload correctly (HNSW, Sinatra, Gita, Seer)
+- [ ] Server restart: all registries reload correctly (HNSW, Sinatra, Gita, Sewn)
 - [ ] WAL replay doesn't produce duplicate nodes on crash recovery
-- [ ] `~/.seer/` directory has appropriate permissions (not world-readable)
+- [ ] `~/.sewn/` directory has appropriate permissions (not world-readable)
 
 ### Metrics & Observability
 
@@ -135,7 +135,7 @@ Checklists and procedures for auditing every major feature in Seer. Run these wh
 
 | System | When to Audit |
 |--------|--------------|
-| Seer registry/HNSW | Weekly + after any mass document operation |
+| Sewn registry/HNSW | Weekly + after any mass document operation |
 | Sinatra GBT | Monthly + when users report off-tone responses |
 | Gita wallet | After every release that touches royalty logic |
 | Oracle | After adding/removing peers, or after network incident |

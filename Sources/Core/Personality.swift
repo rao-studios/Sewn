@@ -1,6 +1,6 @@
 //
 //  Personality.swift
-//  seer-server
+//  sewn-server
 //
 //  Named chat personas: a voice fragment injected into the system prompt,
 //  optional generation-parameter defaults, and an optional fine-tuned
@@ -42,8 +42,8 @@ struct Personality: Codable, Sendable, Equatable, Identifiable {
 extension Personality {
     static let defaults: [Personality] = [
         Personality(
-            id: "seer",
-            name: "Seer",
+            id: "sewn",
+            name: "Sewn",
             tagline: "The classic confidante",
             systemFragment: "You are a close confidante — honest, warm, and direct. Offer your honest perspective, not just a reflection of what they already said.",
             citationEmphasis: false,
@@ -84,7 +84,7 @@ enum PersonalityStore {
 
     static var all: [Personality] {
         if let personalities = state.withLock({ $0 }) { return personalities }
-        let logger = Logger(label: "seer-personalities")
+        let logger = Logger(label: "sewn-personalities")
         let loaded: [Personality] = FilePersistence(key: key, kind: .basic, logger: logger)
             .restore() ?? Personality.defaults
         state.withLock { $0 = loaded }
@@ -110,13 +110,13 @@ struct ResolvedChatPersona: Equatable, Sendable {
     var citationEmphasis: Bool
 
     static let `default` = ResolvedChatPersona(
-        name: "Seer",
+        name: "Sewn",
         voice: Personality.defaults[0].systemFragment,
         citationEmphasis: false)
 }
 
 /// Inline `persona` wins per field; stored personality fills the rest;
-/// otherwise she is Seer.
+/// otherwise she is Sewn.
 func resolveChatPersona(inline: ChatPersona?, stored: Personality?) -> ResolvedChatPersona {
     func trimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -130,7 +130,7 @@ func resolveChatPersona(inline: ChatPersona?, stored: Personality?) -> ResolvedC
 }
 
 /// THE PERSONALITY SECTION of the chat system prompt — name, then voice,
-/// then the memory posture. Extracted so tests pin "Your name is Seer"
+/// then the memory posture. Extracted so tests pin "Your name is Sewn"
 /// as the default and "Your name is Mary" when a client sends a persona.
 func chatPersonaSection(
     _ persona: ResolvedChatPersona,

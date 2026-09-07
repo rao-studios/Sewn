@@ -1,6 +1,6 @@
 //
 //  ModelProvider+Stream.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 3/21/26.
 //
@@ -120,7 +120,7 @@ extension ModelProvider {
         let bodyData = try JSONSerialization.data(withJSONObject: requestBody)
 
         // The provider's OWN host, not the boot-time default: this line used
-        // to send a Tinker request wherever SEER_GLOBAL_LLM pointed.
+        // to send a Tinker request wherever SEWN_GLOBAL_LLM pointed.
         guard let base = provider.hostedBase else {
             throw ProviderUnavailable.localFailed("no hosted transport for \(provider.rawValue)")
         }

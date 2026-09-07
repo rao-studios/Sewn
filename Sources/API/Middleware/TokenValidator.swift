@@ -1,6 +1,6 @@
 //
 //  TokenValidator.swift
-//  seer-server
+//  sewn-server
 //
 //  Supabase access-token validation for the request middlewares.
 //

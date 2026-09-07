@@ -1,13 +1,13 @@
 # Test Maintenance
 
-Guide to writing, organizing, and maintaining tests for Seer. The existing test suite follows a "Flow" convention — each flow represents a user journey or system behavior.
+Guide to writing, organizing, and maintaining tests for Sewn. The existing test suite follows a "Flow" convention — each flow represents a user journey or system behavior.
 
 ---
 
 ## Test Organization
 
 ```
-Tests/seer-serverTests/
+Tests/sewn-serverTests/
 ├── FlowN_*.swift          — Feature flow tests (numbered 1–11, grow from here)
 ├── SimpleTests.swift      — Basic sanity checks
 ├── UtilsTests.swift       — Utility function tests
@@ -43,24 +43,24 @@ Tests/seer-serverTests/
 ## Test Template: New Flow Test
 
 ```swift
-// Tests/seer-serverTests/Flow12_OracleTests.swift
+// Tests/sewn-serverTests/Flow12_OracleTests.swift
 import XCTest
-@testable import SeerServer
+@testable import SewnServer
 
 final class Flow12_OracleTests: XCTestCase {
     
-    var seer: Seer!
+    var sewn: Sewn!
     var oracle: Oracle!
     
     override func setUp() async throws {
         // Use in-memory persistence (no disk I/O in tests)
-        seer = await Seer(persistence: .inMemory)
-        oracle = Oracle(transport: MockOracleTransport(), delegate: seer)
+        sewn = await Sewn(persistence: .inMemory)
+        oracle = Oracle(transport: MockOracleTransport(), delegate: sewn)
     }
     
     override func tearDown() async throws {
         // Clean up actor state
-        await seer.reset()
+        await sewn.reset()
     }
     
     func test_queryFanOut_respectsHopLimit() async throws {
@@ -111,15 +111,15 @@ final class Flow12_OracleTests: XCTestCase {
 ## Test Template: Actor Unit Test
 
 ```swift
-// Tests/seer-serverTests/SomeActorTests.swift
+// Tests/sewn-serverTests/SomeActorTests.swift
 import XCTest
-@testable import SeerServer
+@testable import SewnServer
 
 final class SomeActorTests: XCTestCase {
     
     func test_registryMutator_serializesWrites() async throws {
         let mutator = RegistryMutator()
-        var registry = SeerRegistry()
+        var registry = SewnRegistry()
         
         // Concurrent writes — should not race
         await withTaskGroup(of: Void.self) { group in
@@ -127,7 +127,7 @@ final class SomeActorTests: XCTestCase {
                 group.addTask {
                     await mutator.addDocument(
                         id: "doc-\(i)",
-                        owner: SeerRegistry.Owner(id: "owner-1"),
+                        owner: SewnRegistry.Owner(id: "owner-1"),
                         to: &registry
                     )
                 }
@@ -144,10 +144,10 @@ final class SomeActorTests: XCTestCase {
 ## Test Template: Route Integration Test
 
 ```swift
-// Tests/seer-serverTests/RouteTests.swift
+// Tests/sewn-serverTests/RouteTests.swift
 import XCTest
 import XCTVapor
-@testable import SeerServer
+@testable import SewnServer
 
 final class WalletRouteTests: XCTestCase {
     
@@ -187,12 +187,12 @@ final class WalletRouteTests: XCTestCase {
 The `Fixtures.swift` file provides reusable test data. Always extend it rather than hardcoding values in individual tests.
 
 **Actual helpers** (in `Fixtures.swift`):
-- `SeerLogger.test` / `Logger.test` — silent logger for tests
+- `SewnLogger.test` / `Logger.test` — silent logger for tests
 - `TableMutator.test()` — in-memory mutator seeded with empty table
 - `RegistryMutator.test()` — mutator seeded with empty registry
-- `SeerRequest.test(ownerId:scope:)` — minimal request fixture
-- `Seer.Document.test(id:ownerId:)` — document with example URL
-- `Seer.Partition.test(id:documentId:embedding:text:hint:ownerId:)` — partition with all fields
+- `SewnRequest.test(ownerId:scope:)` — minimal request fixture
+- `Sewn.Document.test(id:ownerId:)` — document with example URL
+- `Sewn.Partition.test(id:documentId:embedding:text:hint:ownerId:)` — partition with all fields
 - `VectorFixtures.random(seed:)` / `.random(dim:seed:)` — deterministic 32-dim or N-dim vector
 - `VectorFixtures.near(_:seed:)` — perturbed copy (small noise) of a center vector
 - `VectorFixtures.unit(axis:)` — unit vector along one axis (32-dim)
@@ -235,11 +235,11 @@ For any test that exercises `TableMutator`, `RegistryMutator`, or `PersonalHNSWM
 
 ```swift
 func test_newField_persistsAndLoads() async throws {
-    let seer = await Seer(persistence: .tempDirectory)
-    await seer.setSomeNewField("value", for: "owner-1")
+    let sewn = await Sewn(persistence: .tempDirectory)
+    await sewn.setSomeNewField("value", for: "owner-1")
     
     // Simulate restart
-    let reloaded = await Seer(persistence: .tempDirectory)
+    let reloaded = await Sewn(persistence: .tempDirectory)
     let value = await reloaded.someNewField(for: "owner-1")
     XCTAssertEqual(value, "value")
 }
@@ -259,7 +259,7 @@ func test_newField_persistsAndLoads() async throws {
 | Storage | Restore re-indexes correctly (node count before/after) | Medium |
 | Auth | Token expiry handling, refresh token rotation | Medium |
 | Admin | `audit/stale` + `audit/reconcile` round-trip | Low |
-| Seer | `Seer+Marielle.bridge` centroid intersection math | Low |
+| Sewn | `Sewn+Marielle.bridge` centroid intersection math | Low |
 
 Create `Flow12_OracleTests.swift` and `Flow13_MarielleTests.swift` next.
 
@@ -298,7 +298,7 @@ swift test --parallel
 
 ## Test Stability Rules
 
-1. **No real disk I/O**: use `.inMemory` or `.tempDirectory` persistence, never `~/.seer/`
+1. **No real disk I/O**: use `.inMemory` or `.tempDirectory` persistence, never `~/.sewn/`
 2. **No real network**: use `MockOracleTransport` and mock `NetworkService`
 3. **No real Supabase**: mock `SupabaseProvider` for auth in route tests
 4. **No sleep**: use `async/await` properly; if something needs time, it needs a redesign

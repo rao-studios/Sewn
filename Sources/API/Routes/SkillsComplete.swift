@@ -1,8 +1,8 @@
 //
 //  SkillsComplete.swift
-//  Seer
+//  Sewn
 //
-//  ONE BOUNDED SKILL-INVOCATION SYNTHESIS, no persona, no Totem RAG, no
+//  ONE BOUNDED SKILL-INVOCATION SYNTHESIS, no persona, no Thread RAG, no
 //  Gita contribution. Sibling of `/v1/complete`: that route flattens
 //  messages into one user blob and ignores tools (corpus annotation).
 //  This one keeps roles, offers the caller's tool roster, and may return
@@ -179,7 +179,7 @@ private func skillCall(from object: [String: Any]) -> SkillsCompleteToolCall? {
 // MARK: - Route registration
 
 func registerSkillsCompleteRoute(
-    _ router: some RouterMethods<SeerRequestContext>,
+    _ router: some RouterMethods<SewnRequestContext>,
     modelProvider: ModelProvider
 ) {
     router.post("/v1/skills/complete") { request, context async throws -> SkillsCompleteResponse in

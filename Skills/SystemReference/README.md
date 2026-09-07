@@ -1,6 +1,6 @@
 # System Reference
 
-Complete reference documentation for the Seer server architecture and API.
+Complete reference documentation for the Sewn server architecture and API.
 
 ## Contents
 
@@ -8,7 +8,7 @@ Complete reference documentation for the Seer server architecture and API.
 |------|---------|
 | [Architecture.md](Architecture.md) | Full system architecture — component map, request lifecycle, design decisions, startup sequence |
 | [RouteReference.md](RouteReference.md) | Every API route — method, path, auth, request/response schema, business logic |
-| [DataModels.md](DataModels.md) | All Swift types — Seer, Sinatra, Gita, Oracle, API models |
+| [DataModels.md](DataModels.md) | All Swift types — Sewn, Sinatra, Gita, Oracle, API models |
 
 ## When to Use
 

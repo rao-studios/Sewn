@@ -1,6 +1,6 @@
 //
 //  SinatraGBTResponse.swift
-//  seer-server
+//  sewn-server
 //
 
 

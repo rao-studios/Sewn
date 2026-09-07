@@ -1,6 +1,6 @@
 //
 //  Realtime.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 7/22/26.
 //
@@ -22,7 +22,7 @@ import NIOCore
 
 func registerRealtimeRoute(
     _ router: Router<BasicWebSocketRequestContext>,
-    _ seer: Seer,
+    _ sewn: Sewn,
     modelProvider: ModelProvider
 ) {
     router.ws(
@@ -42,7 +42,7 @@ func registerRealtimeRoute(
                 inbound: inbound,
                 outbound: outbound,
                 context: context,
-                seer: seer,
+                sewn: sewn,
                 modelProvider: modelProvider
             )
         }
@@ -104,7 +104,7 @@ private func handleRealtimeTurn(
     inbound: WebSocketInboundStream,
     outbound: WebSocketOutboundWriter,
     context: WebSocketRouterContext<BasicWebSocketRequestContext>,
-    seer: Seer,
+    sewn: Sewn,
     modelProvider: ModelProvider
 ) async throws {
     let logger = context.logger
@@ -135,7 +135,7 @@ private func handleRealtimeTurn(
     }
 
     // Re-validate (cache hit) to bind the turn to the authed owner exactly the
-    // way `SeerRequest.from(context)` does on the HTTP routes.
+    // way `SewnRequest.from(context)` does on the HTTP routes.
     guard let token = bearerToken(from: context.request) else {
         try? await send(.error(stage: "request", message: "Missing bearer token"))
         return
@@ -150,21 +150,21 @@ private func handleRealtimeTurn(
 
     let chatRequest = turnStart.request
     let requestID = UUID().uuidString
-    let seerRequest = SeerRequest(
+    let sewnRequest = SewnRequest(
         ownerId: user.userId.lowercased(),
-        group: chatRequest.seer.group,
-        groups: chatRequest.seer.groups,
-        entities: chatRequest.seer.entities,
-        tags: chatRequest.seer.tags,
-        aggregate: chatRequest.seer.aggregate,
-        scope: chatRequest.seer.scope,
-        totemIds: chatRequest.seer.totemIds,
-        personalTotemId: chatRequest.seer.personalTotemId,
+        group: chatRequest.sewn.group,
+        groups: chatRequest.sewn.groups,
+        entities: chatRequest.sewn.entities,
+        tags: chatRequest.sewn.tags,
+        aggregate: chatRequest.sewn.aggregate,
+        scope: chatRequest.sewn.scope,
+        threadIds: chatRequest.sewn.threadIds,
+        personalThreadId: chatRequest.sewn.personalThreadId,
         requestID: requestID
     )
 
-    SeerMetrics.realtimeTurns.increment()
-    logger.info("[realtime] turn start — owner \(seerRequest.ownerId), request \(requestID)")
+    SewnMetrics.realtimeTurns.increment()
+    logger.info("[realtime] turn start — owner \(sewnRequest.ownerId), request \(requestID)")
 
     // ── Engine wiring ─────────────────────────────────────────────────────────
     let personality = PersonalityStore.personality(id: chatRequest.personality)
@@ -226,10 +226,10 @@ private func handleRealtimeTurn(
                 )
             },
             retrieval: {
-                try await seer.handleChat(
+                try await sewn.handleChat(
                     request: chatRequest,
                     modelProvider: modelProvider,
-                    seerRequest: seerRequest,
+                    sewnRequest: sewnRequest,
                     queryExpansion: chatRequest.resonate ?? false
                 )
             },
@@ -308,10 +308,10 @@ private func handleRealtimeTurn(
     }
 
     guard let summary else { return }
-    if summary.ttsFailed { SeerMetrics.realtimeTTSFailures.increment() }
-    if let ms = summary.firstTokenMs { SeerMetrics.realtimeFirstToken.recordMilliseconds(ms) }
-    if let ms = summary.firstAudioMs { SeerMetrics.realtimeFirstAudio.recordMilliseconds(ms) }
-    if let ms = summary.retrievalWaitMs { SeerMetrics.realtimeRetrievalWait.recordMilliseconds(ms) }
+    if summary.ttsFailed { SewnMetrics.realtimeTTSFailures.increment() }
+    if let ms = summary.firstTokenMs { SewnMetrics.realtimeFirstToken.recordMilliseconds(ms) }
+    if let ms = summary.firstAudioMs { SewnMetrics.realtimeFirstAudio.recordMilliseconds(ms) }
+    if let ms = summary.retrievalWaitMs { SewnMetrics.realtimeRetrievalWait.recordMilliseconds(ms) }
 
     // ── Metadata chunk (SSE trailing-chunk shape, reused verbatim) ────────────
     let chatResult = summary.chatResult
@@ -356,24 +356,24 @@ private func handleRealtimeTurn(
     if let chatResult {
         let sinatraPrepareResult = try? await chatResult.sinatraTask?.value
         if let statsUpdates = sinatraPrepareResult?.documentStatsUpdates, !statsUpdates.isEmpty {
-            seer.accumulatePerformance(statsUpdates)
+            sewn.accumulatePerformance(statsUpdates)
         }
         if let resonance = sinatraPrepareResult?.resonancePartition {
-            let resonanceGroup = Seer.Group(
-                id: "resonance-\(seerRequest.ownerId)",
+            let resonanceGroup = Sewn.Group(
+                id: "resonance-\(sewnRequest.ownerId)",
                 label: Sinatra.resonanceGroupLabel,
-                ownerId: seerRequest.ownerId,
+                ownerId: sewnRequest.ownerId,
                 documents: []
             )
-            let resonanceRequest = SeerRequest(
-                ownerId: seerRequest.ownerId,
+            let resonanceRequest = SewnRequest(
+                ownerId: sewnRequest.ownerId,
                 group: resonanceGroup,
                 aggregate: nil,
                 scope: nil,
-                totemIds: seerRequest.personalTotemId.map { [$0] },
+                threadIds: sewnRequest.personalThreadId.map { [$0] },
                 requestID: nil
             )
-            let item = Seer.BatchPutItem(
+            let item = Sewn.BatchPutItem(
                 id: resonance.documentId,
                 texts: [resonance.text],
                 tags: ["resonance"],
@@ -383,7 +383,7 @@ private func handleRealtimeTurn(
                 name: nil,
                 metadata: nil
             )
-            await seer.enqueuePut([item], request: resonanceRequest)
+            await sewn.enqueuePut([item], request: resonanceRequest)
         }
         if let baseContribution = chatResult.contribution {
             let priced = await Gita.StreamBilling.price(
@@ -391,11 +391,11 @@ private func handleRealtimeTurn(
                 prompt: chatResult.input.prompt,
                 accumulatedText: summary.accumulatedText,
                 sinatraLedger: sinatraPrepareResult?.ledger,
-                gita: seer.gita,
-                request: seerRequest
+                gita: sewn.gita,
+                request: sewnRequest
             )
-            let totemIds = (chatResult.references).compactMap(\.totemId)
-            seer.accumulateEarnings(from: priced, totemIds: totemIds)
+            let threadIds = (chatResult.references).compactMap(\.threadId)
+            sewn.accumulateEarnings(from: priced, threadIds: threadIds)
         }
     }
 }

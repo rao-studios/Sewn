@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-// MARK: - Graph editing (mutations proxied to the selected Totem node)
+// MARK: - Graph editing (mutations proxied to the selected Thread node)
 
 extension GraphViewModel {
 
@@ -30,7 +30,7 @@ extension GraphViewModel {
         mutate { api in try await api.reExtract(documentId: documentId, ownerId: self.ownerId) }
     }
 
-    private func mutate(_ operation: @escaping (TotemAPI) async throws -> GraphMutationResponse) {
+    private func mutate(_ operation: @escaping (ThreadAPI) async throws -> GraphMutationResponse) {
         guard let api else { return }
         Task { [weak self] in
             guard let self else { return }

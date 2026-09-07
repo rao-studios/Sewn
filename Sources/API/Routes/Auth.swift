@@ -1,6 +1,6 @@
 //
 //  Auth.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 2/22/26.
 //
@@ -11,7 +11,7 @@ import Hummingbird
 
 // MARK: - Sign In
 
-func registerAuthSignInRoute(_ router: some RouterMethods<SeerRequestContext>) {
+func registerAuthSignInRoute(_ router: some RouterMethods<SewnRequestContext>) {
     router.post("/v1/auth/sign-in") { request, context async throws -> SignInResponse in
         let body = try await request.decode(as: SignInRequest.self, context: context)
         let logger = context.logger
@@ -34,7 +34,7 @@ func registerAuthSignInRoute(_ router: some RouterMethods<SeerRequestContext>) {
 
 // MARK: - Sign Up
 
-func registerAuthSignUpRoute(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
+func registerAuthSignUpRoute(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
     router.post("/v1/auth/sign-up") { request, context async throws -> SignUpResponse in
         let body = try await request.decode(as: SignUpRequest.self, context: context)
         let logger = context.logger
@@ -46,7 +46,7 @@ func registerAuthSignUpRoute(_ router: some RouterMethods<SeerRequestContext>, _
 
         let userId = response.user.id.uuidString.lowercased()
         logger.info("Auth sign-up: user \(userId)")
-        seer.gita.initializeWallet(for: userId)
+        sewn.gita.initializeWallet(for: userId)
 
         return SignUpResponse(from: response)
     }
@@ -54,7 +54,7 @@ func registerAuthSignUpRoute(_ router: some RouterMethods<SeerRequestContext>, _
 
 // MARK: - Verify OTP
 
-func registerAuthVerifyRoute(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
+func registerAuthVerifyRoute(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
     router.post("/v1/auth/verify") { request, context async throws -> SignUpResponse in
         let body = try await request.decode(as: VerifyRequest.self, context: context)
         let logger = context.logger
@@ -74,7 +74,7 @@ func registerAuthVerifyRoute(_ router: some RouterMethods<SeerRequestContext>, _
 
         let userId = response.user.id.uuidString.lowercased()
         logger.info("Auth verify (\(body.type)): user \(userId)")
-        seer.gita.initializeWallet(for: userId)
+        sewn.gita.initializeWallet(for: userId)
 
         return SignUpResponse(from: response)
     }
@@ -82,7 +82,7 @@ func registerAuthVerifyRoute(_ router: some RouterMethods<SeerRequestContext>, _
 
 // MARK: - Refresh Token
 
-func registerAuthRefreshRoute(_ router: some RouterMethods<SeerRequestContext>) {
+func registerAuthRefreshRoute(_ router: some RouterMethods<SewnRequestContext>) {
     router.post("/v1/auth/refresh") { request, context async throws -> SignInResponse in
         let body = try await request.decode(as: RefreshRequest.self, context: context)
         let logger = context.logger
@@ -104,7 +104,7 @@ func registerAuthRefreshRoute(_ router: some RouterMethods<SeerRequestContext>) 
 
 // MARK: - Sign Out
 
-func registerAuthSignOutRoute(_ router: some RouterMethods<SeerRequestContext>) {
+func registerAuthSignOutRoute(_ router: some RouterMethods<SewnRequestContext>) {
     router.post("/v1/auth/sign-out") { request, context async throws -> HTTPResponse.Status in
         let body = try await request.decode(as: SignOutRequest.self, context: context)
         let logger = context.logger
@@ -141,7 +141,7 @@ func registerAuthSignOutRoute(_ router: some RouterMethods<SeerRequestContext>) 
 
 // MARK: - Reset Password
 
-func registerAuthResetPasswordRoute(_ router: some RouterMethods<SeerRequestContext>) {
+func registerAuthResetPasswordRoute(_ router: some RouterMethods<SewnRequestContext>) {
     router.post("/v1/auth/reset-password") { request, context async throws -> HTTPResponse.Status in
         let body = try await request.decode(as: ResetPasswordRequest.self, context: context)
         let logger = context.logger

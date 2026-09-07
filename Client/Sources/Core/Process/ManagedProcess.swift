@@ -1,7 +1,7 @@
 import Foundation
 
 /// Wraps a Foundation `Process` running a long-lived command (e.g. `swift run
-/// seer-server …` inside a repo checkout), capturing stdout/stderr into a
+/// sewn-server …` inside a repo checkout), capturing stdout/stderr into a
 /// `LogBuffer` and providing graceful stop with a port-sweep fallback.
 ///
 /// `swift run` spawns the real server as a child process, so SIGTERM on the
@@ -105,7 +105,7 @@ final class ManagedProcess: @unchecked Sendable {
     /// left behind — the actual server is a child of the swift frontend, so
     /// terminating the frontend never signals it).
     ///
-    /// Graceful-first: SIGTERM so the server's shutdown flush runs (Totems
+    /// Graceful-first: SIGTERM so the server's shutdown flush runs (Threads
     /// persist their partition table on SIGTERM — a straight `kill -9` here
     /// was silently discarding documents indexed since the last flush), then
     /// SIGKILL only what survives the grace window.

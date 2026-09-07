@@ -1,7 +1,7 @@
 import Foundation
 //
 //  APIChatCompletionsRoute.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 12/21/25.
 //
@@ -10,9 +10,9 @@ import Hummingbird
 
 func handleChatCompletions(
     request: Request,
-    context: SeerRequestContext,
+    context: SewnRequestContext,
     chatRequest: ChatCompletionRequest,
-    seer: Seer,
+    sewn: Sewn,
     isVLM: Bool = false,
     modelProvider: ModelProvider
 ) async throws -> ChatCompletionResponse {
@@ -26,16 +26,16 @@ func handleChatCompletions(
         "Received API CHAT completion request."
     )
 
-    // Extract SeerRequest once — used for log correlation and Gita pricing.
-    let seerRequest = try chatRequest.seer.from(context)
+    // Extract SewnRequest once — used for log correlation and Gita pricing.
+    let sewnRequest = try chatRequest.sewn.from(context)
 
     // Process user messages, chat history.
     let chatResult = try await _processUserMessages(
         chatRequest,
-        seer,
+        sewn,
         modelProvider: modelProvider,
         isVLM: isVLM,
-        seerRequest: seerRequest
+        sewnRequest: sewnRequest
     )
 
     let userInput = chatResult.input
@@ -132,27 +132,27 @@ func handleChatCompletions(
         tokenLedger.merge(sinatraLedger)
     }
     if let statsUpdates = sinatraPrepareResult?.documentStatsUpdates, !statsUpdates.isEmpty {
-        seer.accumulatePerformance(statsUpdates)
+        sewn.accumulatePerformance(statsUpdates)
     }
     // Store the resonance partition in the user's "Resonance" group when one was
     // detected. This is fire-and-forget via the IndexQueue — the response is never
     // delayed by the write.
     if let resonance = sinatraPrepareResult?.resonancePartition {
-        let resonanceGroup = Seer.Group(
-            id: "resonance-\(seerRequest.ownerId)",
+        let resonanceGroup = Sewn.Group(
+            id: "resonance-\(sewnRequest.ownerId)",
             label: Sinatra.resonanceGroupLabel,
-            ownerId: seerRequest.ownerId,
+            ownerId: sewnRequest.ownerId,
             documents: []
         )
-        let resonanceRequest = SeerRequest(
-            ownerId: seerRequest.ownerId,
+        let resonanceRequest = SewnRequest(
+            ownerId: sewnRequest.ownerId,
             group: resonanceGroup,
             aggregate: nil,
             scope: nil,
-            totemIds: seerRequest.personalTotemId.map { [$0] },
+            threadIds: sewnRequest.personalThreadId.map { [$0] },
             requestID: nil
         )
-        let item = Seer.BatchPutItem(
+        let item = Sewn.BatchPutItem(
             id: resonance.documentId,
             texts: [resonance.text],
             tags: ["resonance"],
@@ -162,7 +162,7 @@ func handleChatCompletions(
             name: nil,
             metadata: nil
         )
-        await seer.enqueuePut([item], request: resonanceRequest)
+        await sewn.enqueuePut([item], request: resonanceRequest)
     }
 
     // Annotate each owner with response-text highlight spans now that we have
@@ -200,20 +200,20 @@ func handleChatCompletions(
     // Logging (Token Ledger, Cost Breakdown, Owner Payouts) is emitted inside
     // priceContribution under service: .gita, flow: .chat.
     let pricedContribution: Gita.Contribution? = annotatedContribution.map {
-        seer.gita.priceContribution(
+        sewn.gita.priceContribution(
             $0,
             ledger: tokenLedger,
             strategy: .default,
             currentLoad: 1,
-            request: seerRequest
+            request: sewnRequest
         )
     }
 
     // Persist document-level earnings to the registry — fire-and-forget.
     // Runs through RegistryMutator so writes are serialized and debounced.
     if let pricedContribution {
-        let totemIds = gitaResponseContext.references.compactMap(\.totemId)
-        seer.accumulateEarnings(from: pricedContribution, totemIds: totemIds)
+        let threadIds = gitaResponseContext.references.compactMap(\.threadId)
+        sewn.accumulateEarnings(from: pricedContribution, threadIds: threadIds)
     }
 
     let chatResponse = ChatCompletionResponse(
@@ -233,19 +233,19 @@ func handleChatCompletions(
         personality: personality?.id
     )
 
-    seer.logger.info(
+    sewn.logger.info(
         "Usage",
         "\(result.usage.description)",
         service: .gita,
-        request: seerRequest,
+        request: sewnRequest,
         flow: .chat
     )
 
-    seer.logger.info(
+    sewn.logger.info(
         "Chat Complete",
         "API Non-streaming CHAT response generated (ID: \(responseId)).",
         service: .gita,
-        request: seerRequest,
+        request: sewnRequest,
         flow: .chat
     )
 

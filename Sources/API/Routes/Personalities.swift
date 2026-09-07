@@ -1,6 +1,6 @@
 //
 //  Personalities.swift
-//  seer-server
+//  sewn-server
 //
 //  Personality management:
 //    GET /v1/personalities        (auth)  — list available personas
@@ -15,8 +15,8 @@ struct PersonalitiesResponse: Codable, ResponseCodable {
 }
 
 func registerPersonalitiesRoute(
-    _ router: some RouterMethods<SeerRequestContext>,
-    _ seer: Seer
+    _ router: some RouterMethods<SewnRequestContext>,
+    _ sewn: Sewn
 ) {
     router.get("/v1/personalities") { _, _ async throws -> PersonalitiesResponse in
         PersonalitiesResponse(personalities: PersonalityStore.all)
@@ -24,8 +24,8 @@ func registerPersonalitiesRoute(
 }
 
 func registerAdminPersonalitiesRoute(
-    _ router: some RouterMethods<SeerRequestContext>,
-    _ seer: Seer
+    _ router: some RouterMethods<SewnRequestContext>,
+    _ sewn: Sewn
 ) {
     router.put("/v1/admin/personalities") { request, context async throws -> PersonalitiesResponse in
         let body = try await request.decode(as: PersonalitiesResponse.self, context: context)

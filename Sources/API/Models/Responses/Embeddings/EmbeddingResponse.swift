@@ -12,7 +12,7 @@ struct EmbeddingResponse: Codable {
     let model: String
     let usage: UsageData
     let success: Bool
-    let user: Seer.User?
+    let user: Sewn.User?
 }
 
 struct EmbeddingData: Codable {

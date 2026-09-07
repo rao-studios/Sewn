@@ -1,6 +1,6 @@
 # Caching & Synchronization Primitives
 
-Seer's caching layer is built from four composable types that cover different scopes: per-request synchronous reads, generic persistent state, document identity lookup, and raw value protection. Understanding when to use each is critical to preserving the concurrency invariants that prevent data races at scale.
+Sewn's caching layer is built from four composable types that cover different scopes: per-request synchronous reads, generic persistent state, document identity lookup, and raw value protection. Understanding when to use each is critical to preserving the concurrency invariants that prevent data races at scale.
 
 ---
 
@@ -9,8 +9,8 @@ Seer's caching layer is built from four composable types that cover different sc
 ```
 ReadWriteValue<T>          — pthread_rwlock: concurrent reads, exclusive writes
 LockedValue<T>             — NSLock: exclusive access for every operation
-DocumentCache              — ReadWriteValue<[DocumentID: Seer.Document]>
-SeerCache<Value: Codable>  — ReadWriteValue<Value?> + PersistenceActor (disk)
+DocumentCache              — ReadWriteValue<[DocumentID: Sewn.Document]>
+SewnCache<Value: Codable>  — ReadWriteValue<Value?> + PersistenceActor (disk)
 PersistenceActor           — actor: serializes all disk I/O for one file
 FilePersistence            — PropertyList encode/decode for one file
 ```
@@ -27,7 +27,7 @@ A POSIX reader-writer lock (`pthread_rwlock_t`) wrapper. Multiple callers can re
 
 ### When to use
 
-Use `ReadWriteValue` for any value that is **read far more frequently than it is written** — the classic high-read/low-write pattern. The key examples in Seer:
+Use `ReadWriteValue` for any value that is **read far more frequently than it is written** — the classic high-read/low-write pattern. The key examples in Sewn:
 
 | Value | Read frequency | Write frequency |
 |-------|---------------|----------------|
@@ -74,7 +74,7 @@ Use `LockedValue` for values where:
 1. Write operations are as frequent as reads, OR
 2. You need a cross-platform `OSAllocatedUnfairLock`-compatible API in a context where the value isn't clearly read-heavy
 
-In practice in Seer, `ReadWriteValue` is preferred for all hot paths. `LockedValue` appears in lower-frequency state.
+In practice in Sewn, `ReadWriteValue` is preferred for all hot paths. `LockedValue` appears in lower-frequency state.
 
 ### API
 
@@ -94,13 +94,13 @@ let result = lv.withLock { value -> Int in
 
 ### What it is
 
-A `Sendable`, actor-free, thread-safe in-memory cache for `Seer.Document` objects, backed by `ReadWriteValue<[DocumentID: Seer.Document]>`.
+A `Sendable`, actor-free, thread-safe in-memory cache for `Sewn.Document` objects, backed by `ReadWriteValue<[DocumentID: Sewn.Document]>`.
 
-Document reads are the most frequent operation in Seer (every search result lookup, every royalty calculation). Routing them through an actor would add unnecessary queue hops. `DocumentCache` gives sub-microsecond concurrent reads with no actor overhead.
+Document reads are the most frequent operation in Sewn (every search result lookup, every royalty calculation). Routing them through an actor would add unnecessary queue hops. `DocumentCache` gives sub-microsecond concurrent reads with no actor overhead.
 
 ### Lifecycle
 
-1. **Startup** — `Seer.init` calls `seed(_:)` with the full map restored from `RegistryMutator`
+1. **Startup** — `Sewn.init` calls `seed(_:)` with the full map restored from `RegistryMutator`
 2. **Index** — `cache(_:)` inserts one document (single write lock acquisition)
 3. **Batch index** — `cacheBatch(_:)` inserts N documents in a **single** write lock acquisition (no N lock/unlock cycles)
 4. **Lookup** — `get(_:)` concurrent read, lock held for microseconds
@@ -131,13 +131,13 @@ documentCache.evict(documentId)
 
 ---
 
-## SeerCache\<Value\>
+## SewnCache\<Value\>
 
-**File**: `Sources/Utilities/Database/SeerCache.swift`
+**File**: `Sources/Utilities/Database/SewnCache.swift`
 
 ### What it is
 
-A generic, persistent, read-through cache for any `Codable & Sendable` value. Used by `TableMutator` (for `PartitionTable`) and `RegistryMutator` (for `SeerRegistry`).
+A generic, persistent, read-through cache for any `Codable & Sendable` value. Used by `TableMutator` (for `PartitionTable`) and `RegistryMutator` (for `SewnRegistry`).
 
 Combines:
 - `ReadWriteValue<Value?>` — concurrent in-memory reads
@@ -160,7 +160,7 @@ Combines:
 
 ```swift
 // Inside TableMutator (actor):
-func put(_ partition: Seer.Partition) async {
+func put(_ partition: Sewn.Partition) async {
     var table = cache.snapshot ?? PartitionTable()
     table.insert(partition)
     cache.update(table)          // update in-memory snapshot
@@ -171,7 +171,7 @@ func put(_ partition: Seer.Partition) async {
 ### Load on first access
 
 ```swift
-// Called once during Seer startup
+// Called once during Sewn startup
 let table = await cache.load { PartitionTable() }
 ```
 
@@ -181,7 +181,7 @@ let table = await cache.load { PartitionTable() }
 
 ```swift
 // Inside RegistryMutator — atomic earnings accumulation
-let updated = cache.modify(makeDefault: { SeerRegistry() }) { registry in
+let updated = cache.modify(makeDefault: { SewnRegistry() }) { registry in
     registry.applyEarnings(earnings)
 }
 cache.saveAsync(updated)
@@ -212,8 +212,8 @@ A Swift actor that wraps `FilePersistence` to serialize all disk I/O for a singl
 
 | Instance location | File it guards |
 |-------------------|---------------|
-| `SeerCache<PartitionTable>` inside `TableMutator` | `shard-<nodeId>-topology` |
-| `SeerCache<SeerRegistry>` inside `RegistryMutator` | `seer-registry` |
+| `SewnCache<PartitionTable>` inside `TableMutator` | `shard-<nodeId>-topology` |
+| `SewnCache<SewnRegistry>` inside `RegistryMutator` | `sewn-registry` |
 | Per-owner `PersistenceActor` inside `PersonalHNSWMutator` | `personal-<ownerId>-topology` |
 | Per-owner `PersistenceActor` for Sinatra | `sinatra-<ownerId>` |
 
@@ -231,7 +231,7 @@ actor PersistenceActor {
 
 ### `saveAsync` pattern
 
-`SeerCache.saveAsync` uses:
+`SewnCache.saveAsync` uses:
 
 ```swift
 func saveAsync(_ value: Value) {
@@ -255,13 +255,13 @@ func saveAsync(_ value: Value) {
 
 ### What it is
 
-Low-level read/write for one file. Uses `PropertyListEncoder/Decoder`. All Seer state files (registry, table topology, Sinatra, Gita wallet) are stored as binary plists.
+Low-level read/write for one file. Uses `PropertyListEncoder/Decoder`. All Sewn state files (registry, table topology, Sinatra, Gita wallet) are stored as binary plists.
 
 ### Storage root
 
-`FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]/seer-db/`
+`FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]/sewn-db/`
 
-In practice on a server: `~/.seer/` (mapped at deployment via Docker volume).
+In practice on a server: `~/.sewn/` (mapped at deployment via Docker volume).
 
 ### Key behaviors
 
@@ -280,7 +280,7 @@ New value to protect:
 │   └─ YES → DocumentCache
 │
 ├─ Does it need to survive process restarts?
-│   └─ YES → SeerCache<Value>
+│   └─ YES → SewnCache<Value>
 │       ├─ reads >> writes?  → backed by ReadWriteValue internally ✓
 │       └─ need atomic RMW?  → use cache.modify(...)
 │
@@ -344,7 +344,7 @@ let cache = ReadWriteValue<[DocumentID: Document]>([:])
 
 ## Interaction with Actors (TableMutator, RegistryMutator)
 
-`SeerCache` is not itself an actor — it is a `final class` held by an actor. The owning actor provides logical mutation serialization; `SeerCache` provides:
+`SewnCache` is not itself an actor — it is a `final class` held by an actor. The owning actor provides logical mutation serialization; `SewnCache` provides:
 - Concurrent reads from outside the actor (via `snapshot`)
 - Serialized disk writes regardless of which actor context triggers them
 

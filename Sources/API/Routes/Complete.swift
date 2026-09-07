@@ -1,8 +1,8 @@
 //
 //  Complete.swift
-//  Seer
+//  Sewn
 //
-//  ONE BOUNDED GENERATION, no persona, no Totem RAG, no Gita contribution.
+//  ONE BOUNDED GENERATION, no persona, no Thread RAG, no Gita contribution.
 //  `/v1/chat/completions` always runs `_processUserMessages` — personality,
 //  HNSW retrieval, auto_memory, and a trailing contribution chunk. Jobs that
 //  need a JSON object and nothing else (corpus unit annotation today,
@@ -11,7 +11,7 @@
 //
 //  Sibling of `/v1/vision/look`: one POST, one JSON body, no SSE trailer.
 //  The chat model is called the way vision calls Pixtral — system + user,
-//  one completion. There is no `seer` scope object on the wire.
+//  one completion. There is no `sewn` scope object on the wire.
 //
 
 import Foundation
@@ -124,7 +124,7 @@ func completeMaxTokens(_ requested: Int?) -> Int {
 // MARK: - Route registration
 
 func registerCompleteRoute(
-    _ router: some RouterMethods<SeerRequestContext>,
+    _ router: some RouterMethods<SewnRequestContext>,
     modelProvider: ModelProvider
 ) {
     router.post("/v1/complete") { request, context async throws -> CompleteResponse in

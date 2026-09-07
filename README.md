@@ -1,6 +1,6 @@
-# Seer
+# Sewn
 
-A personalized AI assistant server built in Swift on [Vapor](https://vapor.codes). Seer is the **orchestration layer** of a distributed vector search architecture: it handles authentication, chat completions (with RAG and Sinatra sentiment tuning), royalty tracking (Gita), and fan-out to **Totem** nodes — independently deployed vector search nodes that hold all document and HNSW data. Seer coordinates it; Totem stores and searches it.
+A personalized AI assistant server built in Swift on [Vapor](https://vapor.codes). Sewn is the **orchestration layer** of a distributed vector search architecture: it handles authentication, chat completions (with RAG and Sinatra sentiment tuning), royalty tracking (Gita), and fan-out to **Thread** nodes — independently deployed vector search nodes that hold all document and HNSW data. Sewn coordinates it; Thread stores and searches it.
 
 *"When does generative AI qualify for fair use?"*
 
@@ -12,12 +12,12 @@ A personalized AI assistant server built in Swift on [Vapor](https://vapor.codes
 
 | Service | Description |
 |---------|-------------|
-| **Seer** | Orchestration layer: auth, RAG search, chat completions, document lifecycle, Totem fan-out. |
+| **Sewn** | Orchestration layer: auth, RAG search, chat completions, document lifecycle, Thread fan-out. |
 | **Sinatra** | Gradient Boosted Trees (GBT) sentiment analysis that dynamically adjusts generation parameters (temperature, top-p, repetition penalty) based on conversation tone. Also collects RLHF training data via user reactions. |
 | **Gita** | Royalty tracking system that calculates contribution percentages for each document owner whose data influenced an inference. |
-| **Totem** (external) | Distributed vector search nodes. Each Totem registers with Seer over gRPC, holds a persistent bidirectional session stream, and receives all search/index/remove/library fan-out through that session. HNSW graphs and PQ codebooks live on Totem nodes. |
+| **Thread** (external) | Distributed vector search nodes. Each Thread registers with Sewn over gRPC, holds a persistent bidirectional session stream, and receives all search/index/remove/library fan-out through that session. HNSW graphs and PQ codebooks live on Thread nodes. |
 
-Seer has a companion iOS app, Sister — [Open Source](https://github.com/riteshpakala/Sis).
+Sewn has a companion iOS app, Sister — [Open Source](https://github.com/riteshpakala/Sis).
 
 ---
 
@@ -32,9 +32,9 @@ AuthMiddleware  ←─── Supabase (JWT validation)
     ▼
 Route Handler
     ├── Sinatra.prepare()         Sentiment analysis via GBT
-    ├── fanoutSearch()    ──────► Totem nodes (gRPC) ──► HNSW-PQ KNN search
-    ├── fanoutIndex()     ──────► Totem nodes (gRPC) ──► PQ train + HNSW insert
-    ├── fanoutRemove()    ──────► Totem nodes (gRPC) ──► soft-delete + WAL
+    ├── fanoutSearch()    ──────► Thread nodes (gRPC) ──► HNSW-PQ KNN search
+    ├── fanoutIndex()     ──────► Thread nodes (gRPC) ──► PQ train + HNSW insert
+    ├── fanoutRemove()    ──────► Thread nodes (gRPC) ──► soft-delete + WAL
     ├── Context engineering       Compact messages + retrieved context
     ├── Tone adjustment           Sinatra tunes generation params
     └── ModelProvider.run()       Mistral / local MLX inference
@@ -46,14 +46,14 @@ Gita.inference()                 Royalty contribution calculation
 ChatCompletionResponse (with tone, references, contribution)
 
 
-Totem Registration (gRPC — port 9091):
+Thread Registration (gRPC — port 9091):
     MothershipRegistrationService
-        1. register()            — Totem sends host, grpcPort, httpPort, totemId
-        2. session()             — bidirectional stream; Totem pings every 30 s;
-                                   Seer sends fan-out payloads; Totem replies
-        3. updateAvailability()  — Totem signals whether it accepts new document storage
+        1. register()            — Thread sends host, grpcPort, httpPort, threadId
+        2. session()             — bidirectional stream; Thread pings every 30 s;
+                                   Sewn sends fan-out payloads; Thread replies
+        3. updateAvailability()  — Thread signals whether it accepts new document storage
 
-GET /v1/totems                   — lists all registered Totem nodes (id, host, ports, status)
+GET /v1/threads                   — lists all registered Thread nodes (id, host, ports, status)
 ```
 
 ---
@@ -97,9 +97,9 @@ All endpoints below require `Authorization: Bearer <access_token>` unless noted.
 | `GET` | `/health` | None | Health check |
 | `GET` | `/metrics` | Token | Prometheus metrics |
 | `GET` | `/v1/models` | None | List available models |
-| `GET` | `/v1/totems` | None | List registered Totem nodes |
+| `GET` | `/v1/threads` | None | List registered Thread nodes |
 
-**`GET /v1/totems`**
+**`GET /v1/threads`**
 ```json
 // Response
 {
@@ -107,7 +107,7 @@ All endpoints below require `Authorization: Bearer <access_token>` unless noted.
   "enabled": true,
   "nodes": [
     {
-      "totem_id": "uuid",
+      "thread_id": "uuid",
       "host": "192.168.1.2",
       "grpc_port": 9090,
       "http_port": 8080,
@@ -123,7 +123,7 @@ All endpoints below require `Authorization: Bearer <access_token>` unless noted.
 
 ### Embeddings & Indexing
 
-Fan-out to all active Totem nodes via gRPC session. Totem performs embedding, PQ training, and HNSW insertion.
+Fan-out to all active Thread nodes via gRPC session. Thread performs embedding, PQ training, and HNSW insertion.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -137,16 +137,16 @@ Fan-out to all active Totem nodes via gRPC session. Totem performs embedding, PQ
   "inputs": [{ "values": ["chunk a", "chunk b"] }, { "values": ["chunk c"] }],
   "model": "mistral-embed",
   "sanitize": false,
-  "seer": { "owner_id": "uuid" }
+  "sewn": { "owner_id": "uuid" }
 }
-// 3-phase: parallel sanitization → concurrent embedding → Totem index fan-out
+// 3-phase: parallel sanitization → concurrent embedding → Thread index fan-out
 ```
 
 ---
 
 ### Search
 
-Fan-out to all active Totem nodes via gRPC. Results are merged, re-ranked, and deduped by Seer.
+Fan-out to all active Thread nodes via gRPC. Results are merged, re-ranked, and deduped by Sewn.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -158,7 +158,7 @@ Fan-out to all active Totem nodes via gRPC. Results are merged, re-ranked, and d
 {
   "query": "what did I write about distributed systems?",
   "model": "mistral-embed",
-  "seer": { "owner_id": "uuid" }
+  "sewn": { "owner_id": "uuid" }
 }
 
 // Response
@@ -175,12 +175,12 @@ Fan-out to all active Totem nodes via gRPC. Results are merged, re-ranked, and d
 
 Every generation route takes an optional `provider` on the request body:
 `"mistral"`, `"tinker"`, or `"local"`. Omit it and the server default applies
-(`SEER_GLOBAL_LLM` in `.env`, Mistral when unset), so a client that never heard
+(`SEWN_GLOBAL_LLM` in `.env`, Mistral when unset), so a client that never heard
 of providers is unaffected. An unknown value is a 400; a provider whose key is
 missing, or an on-device backend this build cannot serve, is a **503 naming the
 reason** — never a crashed server.
 
-`local` runs the model **inside Seer** through Frigate's MLX (macOS only). It
+`local` runs the model **inside Sewn** through Frigate's MLX (macOS only). It
 needs `mlx.metallib` beside the binary:
 
 ```sh
@@ -201,15 +201,15 @@ swift build -c release
 | `/v1/skills/complete`, `/v1/code/complete` | ✅ | ✅ | ✅ |
 | `/v1/complete` | ✅ | ✅ | ✅ |
 | realtime **opening** pass | mistral-small | mistral-small | **skipped** — the grounded stream carries the turn rather than sending it off-machine |
-| Sinatra sentiment / resonance, auto-memory, compaction | mistral-tiny | mistral-tiny | follows the turn; **off** unless `SEER_LOCAL_UTILITY=1` (on one GPU these serialize behind every turn) |
+| Sinatra sentiment / resonance, auto-memory, compaction | mistral-tiny | mistral-tiny | follows the turn; **off** unless `SEWN_LOCAL_UTILITY=1` (on one GPU these serialize behind every turn) |
 | `/v1/vision/look`, `/v1/embed`, `/v1/embeddings`, `/v1/speak` | Mistral | Mistral | Mistral — no on-device equivalent yet |
 
 A turn on `local` therefore makes **no outbound request at all**: sentiment,
 compaction and auto-memory follow the turn's backend rather than quietly
 reaching a vendor the user did not choose.
 
-**Models per provider** — `SEER_CHAT_MODEL` / `TINKER_MODEL` / `SEER_LOCAL_MODEL`
-for chat, `SEER_CODING_MODEL` / `SEER_LOCAL_CODING_MODEL` for `/v1/code/complete`,
+**Models per provider** — `SEWN_CHAT_MODEL` / `TINKER_MODEL` / `SEWN_LOCAL_MODEL`
+for chat, `SEWN_CODING_MODEL` / `SEWN_LOCAL_CODING_MODEL` for `/v1/code/complete`,
 `UTILITY_MODEL` for one-shots. A client-supplied `model` is honored only when it
 belongs to the selected provider's family, so a `tinker://` id can never be
 posted to Mistral's host.
@@ -230,7 +230,7 @@ posted to Mistral's host.
   "model": "mistral-medium",
   "personality": "scholar",
   "stream": false,
-  "seer": { "owner_id": "uuid" }
+  "sewn": { "owner_id": "uuid" }
 }
 
 // Response (stream: false)
@@ -243,7 +243,7 @@ posted to Mistral's host.
 // stream: true → Server-Sent Events with delta chunks
 ```
 
-Responses are attributed to their Totem source files: the model cites context
+Responses are attributed to their Thread source files: the model cites context
 sources with invisible `[[n]]` markers which the server strips and resolves to
 exact character-offset spans per document (`contribution.owners[].document_spans`),
 falling back to n-gram heuristic spans for unmarked sentences.
@@ -267,10 +267,10 @@ Supports multi-modal input (images, video) when `--vlm` is enabled.
 // Request
 {
   "update": { "operation": "remove", "documentId": "did" },
-  "seer": { "owner_id": "uuid" }
+  "sewn": { "owner_id": "uuid" }
 }
 // operation: "access" | "remove" | "group"
-// "remove" fans out to Totem nodes; "access" and "group" update Seer registry
+// "remove" fans out to Thread nodes; "access" and "group" update Sewn registry
 ```
 
 ---
@@ -292,35 +292,35 @@ Supabase Storage bucket (`documents`) with path `{userId}/{groupId}/{documentId}
 
 ### HNSW Graph
 
-HNSW is managed entirely by Totem nodes. Seer acts as a thin gRPC proxy. Graph routes require `seer.totem_ids[0]` to specify the target Totem node. Stats routes fan out to **all** active Totem nodes and aggregate.
+HNSW is managed entirely by Thread nodes. Sewn acts as a thin gRPC proxy. Graph routes require `sewn.thread_ids[0]` to specify the target Thread node. Stats routes fan out to **all** active Thread nodes and aggregate.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/hnsw/stats` | Aggregate stats across all active Totem nodes |
+| `POST` | `/v1/hnsw/stats` | Aggregate stats across all active Thread nodes |
 | `POST` | `/v1/hnsw/document/stats` | Stats filtered to one document across all nodes |
-| `POST` | `/v1/hnsw/personal/stats` | Stats for a specific Totem node (requires `totem_ids`) |
-| `POST` | `/v1/hnsw/personal` | Personal graph from a specific Totem node |
+| `POST` | `/v1/hnsw/personal/stats` | Stats for a specific Thread node (requires `thread_ids`) |
+| `POST` | `/v1/hnsw/personal` | Personal graph from a specific Thread node |
 | `POST` | `/v1/hnsw/personal/hubs` | Hub-only personal graph (nodes with level > 0) |
 | `POST` | `/v1/hnsw/personal/document` | Personal graph filtered to one document |
 | `POST` | `/v1/hnsw/personal/documents` | Personal graph filtered to a set of document IDs |
-| `POST` | `/v1/hnsw/global` | Global graph from a specific Totem node |
+| `POST` | `/v1/hnsw/global` | Global graph from a specific Thread node |
 | `POST` | `/v1/hnsw/global/hubs` | Hub-only global graph |
 | `POST` | `/v1/hnsw/documents` | Global graph filtered to a set of document IDs |
 | `POST` | `/v1/hnsw/documents/hubs` | Hub-only global graph for a document set |
 | `POST` | `/v1/hnsw/node` | Full single-node inspection (all layers + neighbors) |
 | `POST` | `/v1/hnsw/nodes/batch` | Batch fetch multiple nodes by partition ID |
-| `DELETE` | `/v1/hnsw/node` | Soft-delete a node on a specific Totem node |
+| `DELETE` | `/v1/hnsw/node` | Soft-delete a node on a specific Thread node |
 
 ```json
-// Most graph routes require totem_ids to route to a specific node:
-{ "seer": { "owner_id": "uuid", "totem_ids": ["totem-node-uuid"] } }
+// Most graph routes require thread_ids to route to a specific node:
+{ "sewn": { "owner_id": "uuid", "thread_ids": ["thread-node-uuid"] } }
 ```
 
 ---
 
 ### Marielle — Personalization
 
-> **Status: Not yet implemented.** All routes return `503 Service Unavailable`. Marielle requires Totem-hosted HNSW graphs to be accessible for personalized question generation.
+> **Status: Not yet implemented.** All routes return `503 Service Unavailable`. Marielle requires Thread-hosted HNSW graphs to be accessible for personalized question generation.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -379,23 +379,23 @@ All admin routes require an admin-scoped Bearer token. `owner_id` in the body ta
 | `POST` | `/v1/admin/list/groups` | Stub (returns `[]`) | List groups for any target owner |
 | `POST` | `/v1/admin/modify` | Partial — `remove` works | Modify any document |
 | `POST` | `/v1/admin/modify/group` | Partial | Modify any group |
-| `POST` | `/v1/admin/hnsw/stats` | **503** — managed by Totem | HNSW stats |
-| `POST` | `/v1/admin/hnsw/personal` | **503** — managed by Totem | Personal HNSW graph |
-| `DELETE` | `/v1/admin/hnsw/node` | **503** — managed by Totem | Delete any HNSW node |
-| `POST` | `/v1/admin/hnsw/compact` | **503** — managed by Totem | Compact graphs |
+| `POST` | `/v1/admin/hnsw/stats` | **503** — managed by Thread | HNSW stats |
+| `POST` | `/v1/admin/hnsw/personal` | **503** — managed by Thread | Personal HNSW graph |
+| `DELETE` | `/v1/admin/hnsw/node` | **503** — managed by Thread | Delete any HNSW node |
+| `POST` | `/v1/admin/hnsw/compact` | **503** — managed by Thread | Compact graphs |
 | `POST` | `/v1/admin/sinatra/gbt` | **Implemented** | Sinatra GBT state for any owner |
-| `POST` | `/v1/admin/table/document` | **Implemented** | Document inspection via Totem fanout |
+| `POST` | `/v1/admin/table/document` | **Implemented** | Document inspection via Thread fanout |
 | `POST` | `/v1/admin/system/stats` | Stub (returns zeroes) | Aggregate system-wide statistics |
 | `POST` | `/v1/admin/owner/delete` | **Implemented** | Atomic owner purge (docs + Sinatra) |
 | `POST` | `/v1/admin/audit/stale` | Stub (returns `[]`) | Scan for orphaned registry entries |
 | `POST` | `/v1/admin/audit/reconcile` | Stub (returns zeroes) | Remove stale documents |
 
-**`POST /v1/admin/table/document`** fans out to Totem to fetch HNSW nodes for a document:
+**`POST /v1/admin/table/document`** fans out to Thread to fetch HNSW nodes for a document:
 ```json
 // Request
-{ "documentId": "did", "seer": { "owner_id": "uuid" } }
+{ "documentId": "did", "sewn": { "owner_id": "uuid" } }
 
-// Response — PQ stats are empty placeholders; HNSW data comes from Totem fanout
+// Response — PQ stats are empty placeholders; HNSW data comes from Thread fanout
 {
   "document_id": "did",
   "in_table_keys": true,
@@ -414,22 +414,22 @@ All admin routes require an admin-scoped Bearer token. `owner_id` in the body ta
 
 ## Common Request Shape
 
-All protected routes accept a `seer` object:
+All protected routes accept a `sewn` object:
 
 ```json
 {
-  "seer": {
+  "sewn": {
     "owner_id": "uuid",
     "group": { "id": "gid", "label": "Group Name" },
     "aggregate": true,
     "scope": "personal",
-    "totem_ids": ["totem-uuid"],
+    "thread_ids": ["thread-uuid"],
     "request_id": "uuid"
   }
 }
 ```
 
-`AuthMiddleware` replaces `owner_id` with the authenticated user's JWT-derived ID for all non-admin routes. `totem_ids` is used by HNSW graph routes to pin a request to a specific Totem node.
+`AuthMiddleware` replaces `owner_id` with the authenticated user's JWT-derived ID for all non-admin routes. `thread_ids` is used by HNSW graph routes to pin a request to a specific Thread node.
 
 ---
 
@@ -448,13 +448,13 @@ COCKPIT_LOGS_ENDPOINT=https://<project-id>.logs.cockpit.fr-par.scw.cloud/loki/ap
 METRICS_TOKEN=<random-secret>   # guards GET /metrics; Alloy sends it automatically
 
 # Which backend answers when a request names none. mistral | tinker | local
-SEER_GLOBAL_LLM=mistral
+SEWN_GLOBAL_LLM=mistral
 MISTRAL_API_KEY=<key>           # needed for vision, embeddings and speech whatever else is chosen
 TINKER_API_KEY=<key>            # only for the tinker provider
 TINKER_MODEL=thinkingmachines/Inkling
 # On-device (macOS). Needs ./scripts/build-metallib.sh — see Providers above.
-SEER_LOCAL_MODEL=mlx-community/Mistral-Nemo-Instruct-2407-4bit
-SEER_LOCAL_UTILITY=0            # 1 lets Sinatra/auto-memory/compaction run on-device too
+SEWN_LOCAL_MODEL=mlx-community/Mistral-Nemo-Instruct-2407-4bit
+SEWN_LOCAL_UTILITY=0            # 1 lets Sinatra/auto-memory/compaction run on-device too
 ```
 
 A missing key is reported per request as a 503 naming the variable, and shows
@@ -480,25 +480,25 @@ up as `available: false` on `GET /v1/providers` — it never stops the server.
 | `--prompt-cache-size-mb` | Max prompt cache size in MB (default: 1024) |
 | `--prompt-cache-ttl-minutes` | Prompt cache TTL in minutes (default: 30) |
 
-Seer listens on port **9091** (gRPC) for Totem node registration. This is configured in `docker-compose.yml` and is not a CLI flag — it is always active.
+Sewn listens on port **9091** (gRPC) for Thread node registration. This is configured in `docker-compose.yml` and is not a CLI flag — it is always active.
 
 ```bash
 # Standard
-swift run seer-server --host 0.0.0.0 --port 8080
+swift run sewn-server --host 0.0.0.0 --port 8080
 ```
 
 ---
 
 ## Observability
 
-Seer ships a full observability stack on [Scaleway Cockpit](https://www.scaleway.com/en/docs/observability/cockpit/) (Loki, Grafana, Mimir). A [Grafana Alloy](https://grafana.com/docs/alloy/latest/) sidecar pushes metrics and logs.
+Sewn ships a full observability stack on [Scaleway Cockpit](https://www.scaleway.com/en/docs/observability/cockpit/) (Loki, Grafana, Mimir). A [Grafana Alloy](https://grafana.com/docs/alloy/latest/) sidecar pushes metrics and logs.
 
 ### Application Metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `seer.search.total` | Counter | Total search requests |
-| `seer.search.duration` | Histogram | Search latency (excludes embedding time) |
+| `sewn.search.total` | Counter | Total search requests |
+| `sewn.search.duration` | Histogram | Search latency (excludes embedding time) |
 | `sinatra.inferences_total` | Counter | Total Sinatra GBT inference calls |
 | `sinatra.adjustments_total` | Counter | Inferences where an adjustment was applied |
 | `provider.llm_requests_total{model}` | Counter | LLM API requests dispatched |
@@ -515,10 +515,10 @@ Four pre-built dashboards in [`Dashboards/`](Dashboards/). Import via **Grafana 
 
 | File | UID | Contents |
 |------|-----|----------|
-| [`seer-overview.json`](Dashboards/seer-overview.json) | `seer-overview` | Search rate, latency percentiles, indexed documents |
-| [`seer-database.json`](Dashboards/seer-database.json) | `seer-database` | HNSW traversal cost (via Totem nodes) |
-| [`seer-infrastructure.json`](Dashboards/seer-infrastructure.json) | `seer-infra` | CPU, memory, disk I/O, network throughput |
-| [`seer-ml-inference.json`](Dashboards/seer-ml-inference.json) | `seer-ml` | Search hit rate, LLM inference, embedding latency |
+| [`sewn-overview.json`](Dashboards/sewn-overview.json) | `sewn-overview` | Search rate, latency percentiles, indexed documents |
+| [`sewn-database.json`](Dashboards/sewn-database.json) | `sewn-database` | HNSW traversal cost (via Thread nodes) |
+| [`sewn-infrastructure.json`](Dashboards/sewn-infrastructure.json) | `sewn-infra` | CPU, memory, disk I/O, network throughput |
+| [`sewn-ml-inference.json`](Dashboards/sewn-ml-inference.json) | `sewn-ml` | Search hit rate, LLM inference, embedding latency |
 
 ---
 
@@ -528,7 +528,7 @@ Four pre-built dashboards in [`Dashboards/`](Dashboards/). Import via **Grafana 
 - Linux (Ubuntu/Debian 24+) or macOS 14+
 - A running Supabase project (self-hosted or cloud)
 - Mistral-compatible LLM endpoint
-- One or more running [Totem](https://github.com/riteshpakala/Totem) nodes
+- One or more running [Thread](https://github.com/riteshpakala/Totem) nodes
 
 ## Dependencies
 
@@ -540,7 +540,7 @@ Four pre-built dashboards in [`Dashboards/`](Dashboards/). Import via **Grafana 
 | [Web3.swift](https://github.com/Boilertalk/Web3.swift) | Ethereum / smart contract interaction |
 | [swift-argument-parser](https://github.com/apple/swift-argument-parser) | CLI argument parsing |
 | [swift-prometheus](https://github.com/swift-server/swift-prometheus) | Prometheus metrics backend |
-| [grpc-swift](https://github.com/grpc/grpc-swift) | gRPC client/server for Totem integration |
+| [grpc-swift](https://github.com/grpc/grpc-swift) | gRPC client/server for Thread integration |
 
 ---
 

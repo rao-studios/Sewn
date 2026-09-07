@@ -1,14 +1,14 @@
 import Foundation
 //
 //  IPMetricsMiddleware.swift
-//  seer-server
+//  sewn-server
 //
 
 import Metrics
 import Hummingbird
 import HTTPTypes
 
-/// Global middleware that records one `seer.http.requests_total` counter increment
+/// Global middleware that records one `sewn.http.requests_total` counter increment
 /// for every HTTP request, labelled by route path, full client IP, deployment
 /// region, and country code.
 ///
@@ -18,15 +18,15 @@ import HTTPTypes
 /// - `ip`           — client IP resolved in priority order:
 ///                    `X-Forwarded-For` first header (set by reverse proxies / Docker),
 ///                    then `X-Real-IP`, then `remoteAddress`. Strips port if present.
-/// - `region`       — value of the `SEER_REGION` environment variable, or `"unknown"`.
+/// - `region`       — value of the `SEWN_REGION` environment variable, or `"unknown"`.
 /// - `country_code` — resolved in priority order from CDN-injected headers:
 ///                    `CF-IPCountry` (Cloudflare), `CloudFront-Viewer-Country` (AWS),
 ///                    `X-Country-Code` (generic proxy). Falls back to `"unknown"`.
 struct IPMetricsMiddleware: RouterMiddleware {
-    typealias Context = SeerRequestContext
+    typealias Context = SewnRequestContext
 
     private static let region: String =
-        ProcessInfo.processInfo.environment["SEER_REGION"] ?? "unknown"
+        ProcessInfo.processInfo.environment["SEWN_REGION"] ?? "unknown"
 
     /// Paths that are polled by infrastructure (Alloy scrapes, load-balancer health
     /// checks) and must not inflate the business-traffic counter.
@@ -34,8 +34,8 @@ struct IPMetricsMiddleware: RouterMiddleware {
 
     func handle(
         _ request: Request,
-        context: SeerRequestContext,
-        next: (Request, SeerRequestContext) async throws -> Response
+        context: SewnRequestContext,
+        next: (Request, SewnRequestContext) async throws -> Response
     ) async throws -> Response {
         let response = try await next(request, context)
 
@@ -62,7 +62,7 @@ struct IPMetricsMiddleware: RouterMiddleware {
             "unknown"
 
         Counter(
-            label: "seer.http.requests_total",
+            label: "sewn.http.requests_total",
             dimensions: [
                 ("route",        path),
                 ("ip",           ip),

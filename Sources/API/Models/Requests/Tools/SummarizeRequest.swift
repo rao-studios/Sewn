@@ -9,5 +9,5 @@
 
 struct SummarizeRequest: Codable {
     let content: String
-    let seer: SeerRequest
+    let sewn: SewnRequest
 }

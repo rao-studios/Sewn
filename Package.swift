@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-  name: "seer-server",
+  name: "sewn-server",
   platforms: [.macOS(.v15)],
   dependencies: [
     .package(
@@ -30,7 +30,7 @@ let package = Package(
   ],
   targets: [
     .executableTarget(
-      name: "seer-server",
+      name: "sewn-server",
       dependencies: [
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
         .product(name: "Hummingbird", package: "hummingbird"),
@@ -56,9 +56,9 @@ let package = Package(
       ]*/
     ),
     .testTarget(
-      name: "seer-serverTests",
+      name: "sewn-serverTests",
       dependencies: [
-        "seer-server",
+        "sewn-server",
         .product(name: "HummingbirdTesting", package: "hummingbird"),
         .product(name: "HummingbirdWSTesting", package: "hummingbird-websocket"),
       ]

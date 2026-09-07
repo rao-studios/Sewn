@@ -1,6 +1,6 @@
 //
 //  Sinatra+Inference.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 1/25/26.
 //
@@ -15,21 +15,21 @@ extension Sinatra {
     /// get a lower (better) distance, while negative sentiment increases it.
     /// - Parameters:
     ///   - inference: `SinatraInference` containing partition id and PQ distance from the current search.
-    ///   - request: The current `SeerRequest` for owner lookup.
+    ///   - request: The current `SewnRequest` for owner lookup.
     /// - Returns: `SinatraInference.Result` with the adjusted distance.
     /// Infer with a caller-supplied registry snapshot.
     /// Use this inside search loops — load `sinatra.registry` once before the loop
     /// and pass it here to avoid a disk read per partition result.
     ///
-    /// - Parameter documentStats: Snapshot of `SeerRegistry.documentStats`. Used to look up
+    /// - Parameter documentStats: Snapshot of `SewnRegistry.documentStats`. Used to look up
     ///   `partitionSentiments[partitionId].averageSentiment` for the GBT feature vector so
     ///   inference reflects per-partition engagement rather than document-level averages.
     func infer(_ inference: SinatraInference,
                registry: SinatraRegistry?,
-               documentStats: [DocumentID: Seer.DocumentStats] = [:],
-               request: SeerRequest) -> SinatraInference.Result {
-        SeerMetrics.sinatraInferences.increment()
-        let owner = SeerRegistry.Owner(id: request.ownerId)
+               documentStats: [DocumentID: Sewn.DocumentStats] = [:],
+               request: SewnRequest) -> SinatraInference.Result {
+        SewnMetrics.sinatraInferences.increment()
+        let owner = SewnRegistry.Owner(id: request.ownerId)
         let distance = inference.distance
 
         guard let registry = registry else {
@@ -94,12 +94,12 @@ extension Sinatra {
         logger.info("Infer", "⚜️ [INFER] partition=\(inference.partitionId) predicted=\(String(format: "%.4f", predicted)) factor=\(String(format: "%.4f", clampedFactor))\(wasClamped ? " (clamped from \(String(format: "%.4f", adjustmentFactor)))" : "") dist=\(String(format: "%.4f", distance)) → \(String(format: "%.4f", adjustedDistance))",
                     service: .sinatra, request: request, flow: .frank(partitionId: inference.partitionId))
 
-        SeerMetrics.sinatraAdjustments.increment()
-        SeerMetrics.sinatraAdjustmentFactor.record(clampedFactor)
+        SewnMetrics.sinatraAdjustments.increment()
+        SewnMetrics.sinatraAdjustmentFactor.record(clampedFactor)
         if clampedFactor < 1.0 {
-            SeerMetrics.sinatraBoosts.increment()
+            SewnMetrics.sinatraBoosts.increment()
         } else if clampedFactor > 1.0 {
-            SeerMetrics.sinatraDemotions.increment()
+            SewnMetrics.sinatraDemotions.increment()
         }
         return .init(adjustedDistance: adjustedDistance, applied: true)
     }
@@ -112,9 +112,9 @@ extension Sinatra {
     /// Clamped to [0.50, 0.99].
     func inferTagThreshold(
         documentId: DocumentID,
-        owner: SeerRegistry.Owner,
+        owner: SewnRegistry.Owner,
         registry: SinatraRegistry?,
-        documentStats: [DocumentID: Seer.DocumentStats]
+        documentStats: [DocumentID: Sewn.DocumentStats]
     ) -> Float {
         let base: Float = 0.85
 

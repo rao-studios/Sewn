@@ -1,6 +1,6 @@
 //
 //  Gita+Spans.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 3/29/26.
 //
@@ -37,7 +37,7 @@ extension Gita {
     /// No additional LLM call is needed — this is a deterministic post-processing step.
     static func extractCitations(
         from compactText: String,
-        partitions: [Seer.Partition],
+        partitions: [Sewn.Partition],
         requestOwnerId: String
     ) -> [CompactCitation] {
         guard !partitions.isEmpty, !compactText.isEmpty else { return [] }
@@ -98,7 +98,7 @@ extension Gita {
     static func computeSpans(
         responseText: String,
         contribution: Gita.Contribution,
-        partitions: [Seer.Partition],
+        partitions: [Sewn.Partition],
         compactCitations: [CompactCitation] = []
     ) -> Gita.Contribution {
         guard !contribution.owners.isEmpty, !responseText.isEmpty else {

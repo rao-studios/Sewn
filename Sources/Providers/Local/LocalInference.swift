@@ -1,8 +1,8 @@
 //
 //  LocalInference.swift
-//  Seer
+//  Sewn
 //
-//  WHAT: On-device generation through Frigate MLX, inside Seer. The `.local`
+//  WHAT: On-device generation through Frigate MLX, inside Sewn. The `.local`
 //        provider's whole implementation.
 //  IN:   ModelProvider (never a route directly)
 //  OUT:  text + tool calls, or a StreamDelta stream
@@ -247,7 +247,7 @@ actor LocalInference {
 #else
 
 /// The backend this build does not have. Same surface, honest refusal — a
-/// Linux Seer answers 503 rather than failing to compile.
+/// Linux Sewn answers 503 rather than failing to compile.
 actor LocalInference {
 
     init(logger: Logger) {}

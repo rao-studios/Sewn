@@ -1,6 +1,6 @@
 //
 //  handleChatStreamCompletions.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 3/21/26.
 //
@@ -13,9 +13,9 @@ import Logging
 
 func handleChatStreamCompletions(
     request: Request,
-    context: SeerRequestContext,
+    context: SewnRequestContext,
     chatRequest: ChatCompletionRequest,
-    seer: Seer,
+    sewn: Sewn,
     isVLM: Bool = false,
     modelProvider: ModelProvider
 ) async throws -> Response {
@@ -26,13 +26,13 @@ func handleChatStreamCompletions(
 
     logger.info("Received API CHAT streaming completion request.")
 
-    let seerRequest = try chatRequest.seer.from(context)
+    let sewnRequest = try chatRequest.sewn.from(context)
     let chatResult = try await _processUserMessages(
         chatRequest,
-        seer,
+        sewn,
         modelProvider: modelProvider,
         isVLM: isVLM,
-        seerRequest: seerRequest
+        sewnRequest: sewnRequest
     )
 
     let userInput = chatResult.input
@@ -160,7 +160,7 @@ func handleChatStreamCompletions(
                     let now = DispatchTime.now().uptimeNanoseconds
                     firstTokenNs = now
                     let ttftNs = now - handlerStartNs
-                    SeerMetrics.chatTTFT.recordNanoseconds(Int64(ttftNs))
+                    SewnMetrics.chatTTFT.recordNanoseconds(Int64(ttftNs))
                     logger.info("[timing] ttft \(ttftNs / 1_000_000)ms")
                 }
                 // Emit when there is visible content, or for the very first
@@ -178,7 +178,7 @@ func handleChatStreamCompletions(
 
             if let firstTokenNs {
                 let streamNs = DispatchTime.now().uptimeNanoseconds - firstTokenNs
-                SeerMetrics.chatStreamDuration.recordNanoseconds(Int64(streamNs))
+                SewnMetrics.chatStreamDuration.recordNanoseconds(Int64(streamNs))
                 logger.info("[timing] stream \(streamNs / 1_000_000)ms")
             }
 
@@ -218,26 +218,26 @@ func handleChatStreamCompletions(
             // (for billing) and the documentStatsUpdates (for the registry).
             let sinatraPrepareResult = try? await sinatraTask?.value
             if let statsUpdates = sinatraPrepareResult?.documentStatsUpdates, !statsUpdates.isEmpty {
-                seer.accumulatePerformance(statsUpdates)
+                sewn.accumulatePerformance(statsUpdates)
             }
             // Store the resonance partition in the user's "Resonance" group when one
             // was detected — fire-and-forget via IndexQueue.
             if let resonance = sinatraPrepareResult?.resonancePartition {
-                let resonanceGroup = Seer.Group(
-                    id: "resonance-\(seerRequest.ownerId)",
+                let resonanceGroup = Sewn.Group(
+                    id: "resonance-\(sewnRequest.ownerId)",
                     label: Sinatra.resonanceGroupLabel,
-                    ownerId: seerRequest.ownerId,
+                    ownerId: sewnRequest.ownerId,
                     documents: []
                 )
-                let resonanceRequest = SeerRequest(
-                    ownerId: seerRequest.ownerId,
+                let resonanceRequest = SewnRequest(
+                    ownerId: sewnRequest.ownerId,
                     group: resonanceGroup,
                     aggregate: nil,
                     scope: nil,
-                    totemIds: seerRequest.personalTotemId.map { [$0] },
+                    threadIds: sewnRequest.personalThreadId.map { [$0] },
                     requestID: nil
                 )
-                let item = Seer.BatchPutItem(
+                let item = Sewn.BatchPutItem(
                     id: resonance.documentId,
                     texts: [resonance.text],
                     tags: ["resonance"],
@@ -247,7 +247,7 @@ func handleChatStreamCompletions(
                     name: nil,
                     metadata: nil
                 )
-                await seer.enqueuePut([item], request: resonanceRequest)
+                await sewn.enqueuePut([item], request: resonanceRequest)
             }
             if let baseContribution = contribution {
                 let priced = await Gita.StreamBilling.price(
@@ -255,11 +255,11 @@ func handleChatStreamCompletions(
                     prompt: userInput.prompt,
                     accumulatedText: accumulatedText,
                     sinatraLedger: sinatraPrepareResult?.ledger,
-                    gita: seer.gita,
-                    request: seerRequest
+                    gita: sewn.gita,
+                    request: sewnRequest
                 )
-                let totemIds = references.compactMap(\.totemId)
-                seer.accumulateEarnings(from: priced, totemIds: totemIds)
+                let threadIds = references.compactMap(\.threadId)
+                sewn.accumulateEarnings(from: priced, threadIds: threadIds)
             }
             // ─────────────────────────────────────────────────────────────
 

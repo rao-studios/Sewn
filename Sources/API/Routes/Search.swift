@@ -9,8 +9,8 @@ import Foundation
 import Hummingbird
 
 func registerSearchRoute(
-    _ router: some RouterMethods<SeerRequestContext>,
-    _ seer: Seer,
+    _ router: some RouterMethods<SewnRequestContext>,
+    _ sewn: Sewn,
     modelProvider: ModelProvider
 ) {
     router.post("/v1/search") { request, context async throws -> SearchResponse in
@@ -20,9 +20,9 @@ func registerSearchRoute(
 
         logger.info("Received search request (ID: \(searchReqId)) for model: \(searchRequest.model ?? "Default")")
 
-        let result = try await seer.search(
+        let result = try await sewn.search(
             searchRequest.query,
-            request: try searchRequest.seer.from(context),
+            request: try searchRequest.sewn.from(context),
             enableSinatraPark: searchRequest.train
         )
         

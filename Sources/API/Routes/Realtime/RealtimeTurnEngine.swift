@@ -1,6 +1,6 @@
 //
 //  RealtimeTurnEngine.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 7/22/26.
 //
@@ -191,7 +191,7 @@ struct RealtimeTurnEngine {
         summary.chatResult = chatResult
         summary.retrievalWaitMs = elapsedMs() - openingDoneMs
         if chatResult == nil {
-            SeerMetrics.realtimeRetrievalFailures.increment()
+            SewnMetrics.realtimeRetrievalFailures.increment()
             logger.warning("[realtime] retrieval failed — degraded grounded pass")
         }
         logger.info("[timing] realtime retrieval_wait \(summary.retrievalWaitMs ?? 0)ms")

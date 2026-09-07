@@ -1,6 +1,6 @@
 //
 //  MarielleInterjectRequest.swift
-//  Seer
+//  Sewn
 //
 //  Created by Ritesh Pakala on 3/25/26.
 //
@@ -12,7 +12,7 @@
 /// surface a lateral question, and which nodes are already in context so
 /// the interjection targets something genuinely new.
 struct MarielleInterjectRequest: Codable {
-    let seer: SeerRequest
+    let sewn: SewnRequest
     /// Current session turns. Used to embed the conversational direction
     /// and compute drift / saturation scores.
     let messages: [ChatMessageRequestData]
@@ -21,7 +21,7 @@ struct MarielleInterjectRequest: Codable {
     let lastContextPartitionIds: [String]?
 
     enum CodingKeys: String, CodingKey {
-        case seer
+        case sewn
         case messages
         case lastContextPartitionIds = "last_context_partition_ids"
     }

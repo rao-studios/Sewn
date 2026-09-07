@@ -1,6 +1,6 @@
 //
 //  MarielleOpenRequest.swift
-//  Seer
+//  Sewn
 //
 //  Created by Ritesh Pakala on 3/25/26.
 //
@@ -11,5 +11,5 @@
 /// Marielle examines the requestor's personal HNSW and generates a single
 /// opening/ice-breaker question based on recency-weighted document candidates.
 struct MarielleOpenRequest: Codable {
-    let seer: SeerRequest
+    let sewn: SewnRequest
 }

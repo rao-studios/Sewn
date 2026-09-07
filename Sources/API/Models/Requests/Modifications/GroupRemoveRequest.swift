@@ -1,6 +1,6 @@
 //
 //  GroupRemoveRequest.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation
@@ -8,10 +8,10 @@ import Foundation
 
 struct GroupRemoveRequest: Codable {
     let groupId: String
-    let seer: SeerRequest
+    let sewn: SewnRequest
 
     enum CodingKeys: String, CodingKey {
         case groupId = "group_id"
-        case seer
+        case sewn
     }
 }

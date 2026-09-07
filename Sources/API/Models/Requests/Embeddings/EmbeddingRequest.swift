@@ -16,8 +16,8 @@ struct EmbeddingRequest: Codable {
     let user: String?
     let batchSize: Int?
     let sanitize: Bool?
-    let update: SeerUpdate?
-    let seer: SeerRequest
+    let update: SewnUpdate?
+    let sewn: SewnRequest
     /// Per-document tags; outer index aligns 1:1 with `inputs`.
     let tags: [[String]]?
     let mediaType: MediaType?
@@ -35,7 +35,7 @@ struct EmbeddingRequest: Codable {
         case batchSize = "batch_size"
         case sanitize
         case update
-        case seer
+        case sewn
         case tags
         case mediaType = "media_type"
         case metadata

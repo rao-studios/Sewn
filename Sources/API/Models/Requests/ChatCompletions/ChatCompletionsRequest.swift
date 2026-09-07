@@ -27,7 +27,7 @@ struct ChatCompletionRequest: Codable {
     var personality: String?
     /// Per-request identity. Lets a client (Mary) name herself and supply
     /// the desired voice without looking up a stored personality. Empty
-    /// fields fall through to `personality`, then to "Seer".
+    /// fields fall through to `personality`, then to "Sewn".
     var persona: ChatPersona? = nil
     // Toggles query expansion
     var resonate: Bool?
@@ -38,15 +38,15 @@ struct ChatCompletionRequest: Codable {
     /// deposits their own tier. Nil/anything else = classic framing.
     var client: String?
     /// WHICH BACKEND ANSWERS THIS TURN. Absent = the server default
-    /// (`SEER_GLOBAL_LLM`), so a client that never heard of providers is
+    /// (`SEWN_GLOBAL_LLM`), so a client that never heard of providers is
     /// unaffected. Rides the realtime `turn.start` frame too — it wraps this
     /// same request.
     var provider: LLMProvider?
 
-    let seer: SeerRequest
+    let sewn: SewnRequest
 
     enum CodingKeys: String, CodingKey {
-        case messages, model, temperature, stream, stop, resize, seer, resonate, instructions, debug, client, provider
+        case messages, model, temperature, stream, stop, resize, sewn, resonate, instructions, debug, client, provider
         case personality, persona
         case maxTokens = "max_tokens"
         case topP = "top_p"

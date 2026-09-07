@@ -1,6 +1,6 @@
 //
 //  RetrievalDataCollector.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 2/8/26.
 //
@@ -60,7 +60,7 @@ struct RetrievalDataCollector: Codable {
     var periods: IndicatorPeriods = .default
 
     /// Transient logger — excluded from Codable. Must be set after decoding.
-    var logger: SeerLogger?
+    var logger: SewnLogger?
 
     enum CodingKeys: String, CodingKey {
         case interactionHistory
@@ -90,9 +90,9 @@ struct RetrievalDataCollector: Codable {
         try container.encode(periods,               forKey: .periods)
     }
 
-    /// Records an interaction and returns the updated `Seer.DocumentStats` for the
+    /// Records an interaction and returns the updated `Sewn.DocumentStats` for the
     /// given partition. The caller is responsible for persisting the returned entry
-    /// back to `SeerRegistry.documentStats` via `RegistryMutator.accumulatePerformance`.
+    /// back to `SewnRegistry.documentStats` via `RegistryMutator.accumulatePerformance`.
     ///
     /// - Parameters:
     ///   - existingStats: The current `DocumentStats` from the registry snapshot, if any.
@@ -105,9 +105,9 @@ struct RetrievalDataCollector: Codable {
         effectiveWeight: Double? = nil,
         paceScore: Double = 0.5,
         attentivenessScore: Double = 0.0,
-        existingStats: Seer.DocumentStats? = nil,
-        request: SeerRequest? = nil
-    ) -> Seer.DocumentStats {
+        existingStats: Sewn.DocumentStats? = nil,
+        request: SewnRequest? = nil
+    ) -> Sewn.DocumentStats {
         let partitionId = parked.id
         let docId       = parked.documentId.isEmpty ? parked.id : parked.documentId
         let weight      = effectiveWeight ?? sentiment.calculateWeight()
@@ -144,7 +144,7 @@ struct RetrievalDataCollector: Codable {
         // Build the updated document performance entry and return it to the caller.
         // Use docId (document ID) as the stats key; bump partitionRetrievalCount
         // and partitionSentiments with the specific partitionId for per-partition granularity.
-        var stats = existingStats ?? Seer.DocumentStats(id: docId)
+        var stats = existingStats ?? Sewn.DocumentStats(id: docId)
         stats.retrievalCount += 1
         stats.sentimentSum   += weight
         stats.lastRetrieved  = Date()
@@ -173,8 +173,8 @@ struct RetrievalDataCollector: Codable {
     func generateFeatureVector(
         partitionId: String,
         documentId: String = "",
-        documentStats: [DocumentID: Seer.DocumentStats] = [:],
-        request: SeerRequest? = nil
+        documentStats: [DocumentID: Sewn.DocumentStats] = [:],
+        request: SewnRequest? = nil
     ) -> [Double]? {
         guard interactionHistory.count >= 20 else {
             return nil
@@ -234,7 +234,7 @@ struct RetrievalDataCollector: Codable {
     func evaluateFitness(
         periods candidatePeriods: IndicatorPeriods,
         model: GBTModel,
-        documentStats: [DocumentID: Seer.DocumentStats] = [:]
+        documentStats: [DocumentID: Sewn.DocumentStats] = [:]
     ) -> Double {
         guard interactionHistory.count >= 20 else { return .infinity }
 
@@ -300,7 +300,7 @@ struct RetrievalDataCollector: Codable {
     ///
     /// - Parameter documentStats: Registry snapshot used to look up `averageSentiment`
     ///                            per partition. Pass the caller's local accumulation.
-    func buildDataSet(documentStats: [DocumentID: Seer.DocumentStats] = [:]) -> DataSet {
+    func buildDataSet(documentStats: [DocumentID: Sewn.DocumentStats] = [:]) -> DataSet {
         var dataSet = DataSet(
             dataType: .Regression,
             inputDimension: Self.featureVectorDimension,
@@ -374,7 +374,7 @@ struct RetrievalDataCollector: Codable {
     // MARK: - Compaction
 
     /// Trims unbounded data structures to prevent registry bloat.
-    private mutating func compact(request: SeerRequest? = nil) {
+    private mutating func compact(request: SewnRequest? = nil) {
         var trimmed = false
 
         if interactionHistory.count > Self.interactionHistoryLimit {

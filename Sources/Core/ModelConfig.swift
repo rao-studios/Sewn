@@ -1,6 +1,6 @@
 //
 //  ModelConfig.swift
-//  Seer
+//  Sewn
 //
 //  Runtime-mutable model selection, keyed by LLMProvider. Every route asks
 //  for the model of a (provider, job) pair; nothing infers a provider from a
@@ -49,13 +49,13 @@ enum ModelConfig {
         if !override.isEmpty, accepts(override, provider: provider) { return override }
         switch provider {
         case .mistral:
-            return environment("SEER_CHAT_MODEL").flatMap {
+            return environment("SEWN_CHAT_MODEL").flatMap {
                 isMistralModel($0) ? $0 : nil
             } ?? defaultMistralModel
         case .tinker:
             return environment("TINKER_MODEL") ?? defaultTinkerModel
         case .local:
-            return environment("SEER_LOCAL_MODEL") ?? defaultLocalModel
+            return environment("SEWN_LOCAL_MODEL") ?? defaultLocalModel
         }
     }
 
@@ -73,15 +73,15 @@ enum ModelConfig {
     }
 
     /// Pair-coding synthesis for `/v1/code/complete`. Mary does not send a
-    /// model id; this is Seer's pin.
+    /// model id; this is Sewn's pin.
     static func codingModel(for provider: LLMProvider) -> String {
         switch provider {
         case .mistral:
-            return environment("SEER_CODING_MODEL") ?? defaultCodingModel
+            return environment("SEWN_CODING_MODEL") ?? defaultCodingModel
         case .tinker:
             return chatModel(for: .tinker)
         case .local:
-            return environment("SEER_LOCAL_CODING_MODEL") ?? chatModel(for: .local)
+            return environment("SEWN_LOCAL_CODING_MODEL") ?? chatModel(for: .local)
         }
     }
 
@@ -135,7 +135,7 @@ enum ModelConfig {
     /// `utilityModel` (mistral-tiny): the opening is user-visible prose, not an
     /// extraction job.
     static var openingModel: String {
-        ProcessInfo.processInfo.environment["SEER_REALTIME_OPENING_MODEL"]
+        ProcessInfo.processInfo.environment["SEWN_REALTIME_OPENING_MODEL"]
             ?? "mistral-small-latest"
     }
 

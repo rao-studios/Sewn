@@ -78,7 +78,7 @@ final class ModelProvider {
             model: resolvedModel)
         let llmStart = Date()
         defer {
-            SeerMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
+            SewnMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
             Counter(label: "provider.llm_requests_total", dimensions: [("model", resolvedModel)]).increment()
         }
 
@@ -178,7 +178,7 @@ final class ModelProvider {
         let model = preferredModel ?? ModelConfig.utilityModel(for: provider)
         let llmStart = Date()
         defer {
-            SeerMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
+            SewnMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
             Counter(label: "provider.llm_requests_total", dimensions: [("model", model)]).increment()
         }
 
@@ -254,7 +254,7 @@ final class ModelProvider {
         let model = ModelConfig.utilityModel(for: provider)
         let llmStart = Date()
         defer {
-            SeerMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
+            SewnMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
             Counter(label: "provider.llm_requests_total", dimensions: [("model", model)]).increment()
         }
 
@@ -358,7 +358,7 @@ final class ModelProvider {
             requested: maxTokens, model: resolvedModel)
         let llmStart = Date()
         defer {
-            SeerMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
+            SewnMetrics.llmDuration.recordMilliseconds(Date().timeIntervalSince(llmStart) * 1000)
             Counter(label: "provider.llm_requests_total", dimensions: [("model", resolvedModel)]).increment()
         }
 

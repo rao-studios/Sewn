@@ -36,7 +36,7 @@ private struct _FeedbackRow: Codable {
 
 /// Registers POST /v1/feedback — inserts user feedback into the Supabase `feedback` table.
 /// The authenticated user's ID is used as the submitter key.
-func registerFeedbackRoute(_ router: some RouterMethods<SeerRequestContext>) {
+func registerFeedbackRoute(_ router: some RouterMethods<SewnRequestContext>) {
     router.post("/v1/feedback") { request, context async throws -> FeedbackResponse in
         guard let userId = context.authUserId else {
             throw HTTPError(.unauthorized, message: "Missing authenticated user ID")

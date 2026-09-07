@@ -27,7 +27,7 @@ struct SpeakRequest: Codable {
 
 // MARK: - Route Registration
 
-func registerSpeakRoute(_ router: some RouterMethods<SeerRequestContext>) {
+func registerSpeakRoute(_ router: some RouterMethods<SewnRequestContext>) {
     router.post("/v1/speak") { request, context async throws -> Response in
         let speakReq = try await request.decode(as: SpeakRequest.self, context: context)
         context.logger.info("[Speak] TTS — model: \(speakReq.model), voice: \(speakReq.voiceId)")

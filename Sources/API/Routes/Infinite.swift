@@ -1,15 +1,15 @@
 //
 //  Infinite.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation
 import Hummingbird
 
 /// Registers all routes under `/v1/infinite`.
-func registerInfiniteRoutes(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
-    registerInfiniteLeaderboardRoute(router, seer)
-    registerInfiniteSearchRoute(router, seer)
+func registerInfiniteRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
+    registerInfiniteLeaderboardRoute(router, sewn)
+    registerInfiniteSearchRoute(router, sewn)
 }
 
 /// `GET /v1/infinite/leaderboard`
@@ -22,12 +22,12 @@ func registerInfiniteRoutes(_ router: some RouterMethods<SeerRequestContext>, _ 
 /// Query parameters:
 /// - `page`      Int  — 1-indexed page number (default 1)
 /// - `page_size` Int  — entries per page, clamped to [1, 100] (default 20)
-private func registerInfiniteLeaderboardRoute(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
+private func registerInfiniteLeaderboardRoute(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
     router.get("/v1/infinite/leaderboard") { request, context async throws -> InfiniteLeaderboardResponse in
         let page     = request.uri.queryParameters.get("page").flatMap(Int.init(_:))      ?? 1
         let pageSize = request.uri.queryParameters.get("page_size").flatMap(Int.init(_:)) ?? 20
 
-        let (entries, total) = await seer.leaderboard(page: page, pageSize: pageSize)
+        let (entries, total) = await sewn.leaderboard(page: page, pageSize: pageSize)
 
         return InfiniteLeaderboardResponse(
             entries:  entries,
@@ -44,8 +44,8 @@ private func registerInfiniteLeaderboardRoute(_ router: some RouterMethods<SeerR
 /// contain or match the provided `query` string (case-insensitive). Results are
 /// sorted by descending activity score — most active groups first.
 ///
-/// Body: `InfiniteSearchRequest` (query, optional limit, seer identity)
-private func registerInfiniteSearchRoute(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
+/// Body: `InfiniteSearchRequest` (query, optional limit, sewn identity)
+private func registerInfiniteSearchRoute(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
     router.post("/v1/infinite/search") { request, context async throws -> InfiniteSearchResponse in
         let searchRequest = try await request.decode(as: InfiniteSearchRequest.self, context: context)
         let limit = searchRequest.limit ?? 20
@@ -54,7 +54,7 @@ private func registerInfiniteSearchRoute(_ router: some RouterMethods<SeerReques
             "Received infinite-search request: query='\(searchRequest.query)' limit=\(limit)"
         )
 
-        let groups = await seer.searchGroups(query: searchRequest.query, limit: limit)
+        let groups = await sewn.searchGroups(query: searchRequest.query, limit: limit)
 
         return InfiniteSearchResponse(groups: groups, total: groups.count)
     }

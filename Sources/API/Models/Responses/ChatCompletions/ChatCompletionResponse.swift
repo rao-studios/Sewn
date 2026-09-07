@@ -17,7 +17,7 @@ struct ChatCompletionResponse: Codable {
     let usage: CompletionUsage
     let systemFingerprint: String? = nil
     var serviceTier: String? = "default"
-    let references: [Seer.DocumentReference]
+    let references: [Sewn.DocumentReference]
     let contribution: Gita.Contribution?
     let autoMemory: Bool
     let tone: SinatraTone?
@@ -33,7 +33,7 @@ struct ChatCompletionResponse: Codable {
         choices: [ChatCompletionChoice],
         usage: CompletionUsage,
         serviceTier: String? = "default",
-        references: [Seer.DocumentReference] = [],
+        references: [Sewn.DocumentReference] = [],
         contribution: Gita.Contribution? = nil,
         autoMemory: Bool = false,
         tone: SinatraTone? = nil,

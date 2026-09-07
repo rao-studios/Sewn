@@ -1,6 +1,6 @@
 //
 //  PersistenceActor.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 3/20/26.
 //
@@ -16,7 +16,7 @@ import Foundation
 /// runtime handles the hop.
 ///
 /// One `PersistenceActor` is created per logical file:
-///   - `SeerCache<Value>` owns one for the table and one for the registry.
+///   - `SewnCache<Value>` owns one for the table and one for the registry.
 ///   - `PersonalHNSWMutator` owns one per `ownerId`.
 actor PersistenceActor {
     private let persistence: FilePersistence

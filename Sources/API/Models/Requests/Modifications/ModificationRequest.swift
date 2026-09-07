@@ -1,6 +1,6 @@
 //
 //  ModificationRequest.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 11/8/25.
 //
@@ -9,15 +9,15 @@ import Foundation
 
 
 struct ModificationRequest: Codable {
-    let documentAccess: SeerRegistry.Access?
-    let groupAccess: SeerRegistry.Access?
-    let update: SeerUpdate
-    let seer: SeerRequest
+    let documentAccess: SewnRegistry.Access?
+    let groupAccess: SewnRegistry.Access?
+    let update: SewnUpdate
+    let sewn: SewnRequest
     
     enum CodingKeys: String, CodingKey {
         case documentAccess = "document_access"
         case groupAccess = "group_access"
         case update
-        case seer
+        case sewn
     }
 }

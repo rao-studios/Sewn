@@ -1,6 +1,6 @@
 //
 //  Gita.CreditExchange.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 4/23/26.
 //
@@ -27,19 +27,19 @@ extension Gita {
         /// documents themselves. Zero when there is no self-referential overlap.
         /// Invariant: netCost + selfReferentialSavings == totalCost
         let selfReferentialSavings: Credits
-        let totemIds: [String]
+        let threadIds: [String]
 
-        init(contribution: Gita.Contribution, totemIds: [String] = [], timestamp: Date = Date()) {
+        init(contribution: Gita.Contribution, threadIds: [String] = [], timestamp: Date = Date()) {
             self.id = UUID().uuidString
             self.timestamp = timestamp
             self.documentIds = contribution.owners.reduce(into: Set<String>()) { $0.formUnion($1.documentIds) }
             self.serviceCharge = contribution.serviceCharge
-            self.totemIds = totemIds
+            self.threadIds = threadIds
             var payouts = [OwnerID: [DocumentID: Credits]]()
             for owner in contribution.owners {
                 // For self-referential owners, set payout to 0 to avoid circular credit
                 let actualEarning = (owner.ownerId == contribution.spenderId) ? 0 : owner.earning
-                payouts[owner.ownerId ?? owner.totemId] = owner.influence.mapValues { influence in actualEarning * influence }
+                payouts[owner.ownerId ?? owner.threadId] = owner.influence.mapValues { influence in actualEarning * influence }
             }
             self.payouts = payouts
             // totalCost is the gross cost: llmCost + serviceCharge, regardless of self-referential
@@ -58,7 +58,7 @@ extension Gita {
             case payouts
             case netCost                  = "net_cost"
             case selfReferentialSavings   = "self_referential_savings"
-            case totemIds                 = "totem_ids"
+            case threadIds                 = "thread_ids"
         }
     }
 }

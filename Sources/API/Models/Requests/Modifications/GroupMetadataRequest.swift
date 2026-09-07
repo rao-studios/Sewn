@@ -1,6 +1,6 @@
 //
 //  GroupMetadataRequest.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation
@@ -9,13 +9,13 @@ import Foundation
 struct GroupMetadataRequest: Codable {
     let groupId: String
     let label: String?
-    let metadata: Seer.Group.Metadata
-    let seer: SeerRequest
+    let metadata: Sewn.Group.Metadata
+    let sewn: SewnRequest
 
     enum CodingKeys: String, CodingKey {
         case groupId = "group_id"
         case label
         case metadata
-        case seer
+        case sewn
     }
 }

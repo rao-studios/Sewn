@@ -15,7 +15,7 @@ struct ChatCompletionChunkResponse: Codable {
     let model: String
     let systemFingerprint: String?
     let choices: [ChatCompletionChoiceDelta]
-    let references: [Seer.DocumentReference]
+    let references: [Sewn.DocumentReference]
     let contribution: Gita.Contribution?
     let autoMemory: Bool
     /// Personality id serving this stream — set on the first chunk only.
@@ -29,7 +29,7 @@ struct ChatCompletionChunkResponse: Codable {
         model: String,
         systemFingerprint: String? = nil,
         choices: [ChatCompletionChoiceDelta],
-        references: [Seer.DocumentReference],
+        references: [Sewn.DocumentReference],
         contribution: Gita.Contribution? = nil,
         autoMemory: Bool = false,
         personality: String? = nil

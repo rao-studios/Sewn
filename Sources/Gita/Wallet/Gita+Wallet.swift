@@ -1,6 +1,6 @@
 //
 //  Gita+Wallet.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 4/19/26.
 //

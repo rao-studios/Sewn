@@ -1,6 +1,6 @@
 //
 //  Sinatra+Park.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 1/25/26.
 //
@@ -14,11 +14,11 @@ extension Sinatra {
     /// - Parameters:
     ///   - data: The last partition search result for a context-engineered response.
     ///   - embedding: The embeddings of the query.
-    func park(data: [(score: Float, partition: Seer.Partition)],
+    func park(data: [(score: Float, partition: Sewn.Partition)],
               forQuery embedding: [Float],
-              request: SeerRequest) {
+              request: SewnRequest) {
 
-        let owner: SeerRegistry.Owner = .init(id: request.ownerId)
+        let owner: SewnRegistry.Owner = .init(id: request.ownerId)
         // logger.debug("Park", "⚜️ Starting park for owner: \(owner.id), partitionResults: \(data.count), queryEmbeddingDim: \(embedding.count)", service: .sinatra, request: request)
 
         // Compile into `SinatraDataSet`
@@ -54,7 +54,7 @@ extension Sinatra {
         }
         // logger.debug("Park", "⚜️ Registry saved", service: .sinatra, request: request)
 
-        SeerMetrics.sinatraParked.record(Double(newCount))
+        SewnMetrics.sinatraParked.record(Double(newCount))
 
         let distanceRange = dataSets.map(\.distance).sorted()
         let minDist = distanceRange.first.map { String(format: "%.4f", $0) } ?? "n/a"
@@ -74,10 +74,10 @@ extension Sinatra {
     /// Rolling window: same `maxParkedEntries` cap as partition-level parking.
     func parkIndices(
         data: [(documentId: DocumentID, tagDistance: Float?, wasIncluded: Bool)],
-        request: SeerRequest
+        request: SewnRequest
     ) {
         guard !data.isEmpty else { return }
-        let owner = SeerRegistry.Owner(id: request.ownerId)
+        let owner = SewnRegistry.Owner(id: request.ownerId)
         let entries = data.map {
             SinatraTrainingData.ParkedIndex(
                 documentId: $0.documentId,

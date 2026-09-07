@@ -1,6 +1,6 @@
 // swift-tools-version: 6.0
-// SeerClient — mission control for the Seer network: start/manage Seer and
-// Totem servers, inspect and edit the knowledge graph, chat with cited
+// SewnClient — mission control for the Sewn network: start/manage Sewn and
+// Thread servers, inspect and edit the knowledge graph, chat with cited
 // sources, and run the ThinkingMachines (Tinker) research lab.
 //
 // Standalone SwiftPM executable (mirrors Fleet/Client). Talks to the servers
@@ -9,11 +9,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "SeerClient",
+    name: "SewnClient",
     platforms: [.macOS(.v15)],
     targets: [
         .executableTarget(
-            name: "SeerClient",
+            name: "SewnClient",
             path: "Sources",
             resources: [.copy("Resources/python")],
             swiftSettings: [.swiftLanguageMode(.v5)]

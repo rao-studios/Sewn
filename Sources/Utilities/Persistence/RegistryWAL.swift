@@ -8,11 +8,11 @@ import Glibc
 
 // MARK: - RegistryWALRecord
 
-/// One billing mutation to the `SeerRegistry`. Emitted on every hot-path billing write
+/// One billing mutation to the `SewnRegistry`. Emitted on every hot-path billing write
 /// and replayed at startup to restore mutations since the last checkpoint.
 ///
 /// Document registration records (documentRegistered, ownerLinked) have been removed —
-/// Totem is now the source of truth for document/group data.
+/// Thread is now the source of truth for document/group data.
 enum RegistryWALRecord {
 
     // MARK: - Nested types
@@ -24,9 +24,9 @@ enum RegistryWALRecord {
         let sentimentSum: Double
         let lastRetrieved: Date?
         let partitionRetrievalCount: [String: Int]
-        let partitionSentiments: [String: Seer.DocumentStats.PartitionSentiment]
+        let partitionSentiments: [String: Sewn.DocumentStats.PartitionSentiment]
 
-        init(from stats: Seer.DocumentStats) {
+        init(from stats: Sewn.DocumentStats) {
             documentId              = stats.id
             retrievalCount          = stats.retrievalCount
             sentimentSum            = stats.sentimentSum
@@ -48,16 +48,16 @@ enum RegistryWALRecord {
 // MARK: - Replay
 
 extension RegistryWALRecord {
-    func apply(to registry: inout SeerRegistry) {
+    func apply(to registry: inout SewnRegistry) {
         switch self {
         case .earningsAccumulated(let items):
             let earnings: [DocumentID: Gita.Credits] = Dictionary(uniqueKeysWithValues: items)
             registry.addEarnings(earnings)
 
         case .performanceAccumulated(let stats):
-            var updates: [DocumentID: Seer.DocumentStats] = [:]
+            var updates: [DocumentID: Sewn.DocumentStats] = [:]
             for s in stats {
-                updates[s.documentId] = Seer.DocumentStats(
+                updates[s.documentId] = Sewn.DocumentStats(
                     id:                      s.documentId,
                     retrievalCount:          s.retrievalCount,
                     sentimentSum:            s.sentimentSum,
@@ -159,11 +159,11 @@ extension RegistryWALRecord {
                 }
 
                 let psCount = Int(try r.uint16())
-                var ps: [String: Seer.DocumentStats.PartitionSentiment] = [:]
+                var ps: [String: Sewn.DocumentStats.PartitionSentiment] = [:]
                 ps.reserveCapacity(psCount)
                 for _ in 0..<psCount {
                     let partitionId  = try r.string()
-                    var sentiment    = Seer.DocumentStats.PartitionSentiment()
+                    var sentiment    = Sewn.DocumentStats.PartitionSentiment()
                     sentiment.retrievalCount = Int(try r.int32())
                     sentiment.sentimentSum   = try r.double()
                     sentiment.lastRetrieved  = try r.optionalDate()
@@ -171,7 +171,7 @@ extension RegistryWALRecord {
                 }
 
                 stats.append(WALStats(
-                    from: Seer.DocumentStats(
+                    from: Sewn.DocumentStats(
                         id:                      documentId,
                         retrievalCount:          retrievalCount,
                         sentimentSum:            sentimentSum,

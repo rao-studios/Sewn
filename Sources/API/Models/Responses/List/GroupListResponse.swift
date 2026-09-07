@@ -1,6 +1,6 @@
 //
 //  GroupListResponse.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 12/10/25.
 //
@@ -10,8 +10,8 @@ import Foundation
 
 struct GroupListResponse: Codable {
     var object: String = "list"
-    let groups: [Seer.Group]
-    let access: [GroupID: SeerRegistry.Access]
+    let groups: [Sewn.Group]
+    let access: [GroupID: SewnRegistry.Access]
     var hasMore: Bool = false
     var nextAfterId: String? = nil
 

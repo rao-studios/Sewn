@@ -1,6 +1,6 @@
 //
 //  Gita+MarkerSpans.swift
-//  seer-server
+//  sewn-server
 //
 //  Exact contribution tracking from citation markers.
 //
@@ -103,7 +103,7 @@ extension Gita {
     static func annotate(
         responseText: String,
         contribution: Gita.Contribution,
-        partitions: [Seer.Partition],
+        partitions: [Sewn.Partition],
         compactCitations: [CompactCitation],
         sourceIndex: [Int: DocumentID]
     ) -> (visibleText: String, contribution: Gita.Contribution) {

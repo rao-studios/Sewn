@@ -15,14 +15,14 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 280)
         } detail: {
             detail
-                .background(Color.seerBG)
+                .background(Color.sewnBG)
         }
         .navigationSplitViewStyle(.balanced)
         .environmentObject(appState)
         .preferredColorScheme(.light)  // palette is light-only; lock it
         .task { appState.autoSignIn() }
         .onChange(of: appState.servers.readyEpoch) {
-            // A Seer just came up (or prod became reachable) — establish the
+            // A Sewn just came up (or prod became reachable) — establish the
             // session so data screens load signed-in immediately.
             appState.autoSignIn()
         }
@@ -31,14 +31,14 @@ struct ContentView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
-                SeerMark(size: 24)
+                SewnMark(size: 24)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Seer")
-                        .font(.seerSerif(20, weight: .light, italic: true))
-                        .foregroundStyle(Color.seerInk)
+                    Text("Sewn")
+                        .font(.sewnSerif(20, weight: .light, italic: true))
+                        .foregroundStyle(Color.sewnInk)
                     Text("mission control")
-                        .font(.seerSans(9, weight: .medium))
-                        .foregroundStyle(Color.seerInk.opacity(0.4))
+                        .font(.sewnSans(9, weight: .medium))
+                        .foregroundStyle(Color.sewnInk.opacity(0.4))
                 }
             }
             .padding(.horizontal, 14)
@@ -52,10 +52,10 @@ struct ContentView: View {
                     HStack(spacing: 10) {
                         Image(systemName: screen.symbol)
                             .frame(width: 18)
-                            .foregroundStyle(appState.screen == screen ? Color.seerGold : Color.seerInk.opacity(0.6))
+                            .foregroundStyle(appState.screen == screen ? Color.sewnGold : Color.sewnInk.opacity(0.6))
                         Text(screen.rawValue)
-                            .font(.seerSans(13, weight: appState.screen == screen ? .semibold : .regular))
-                            .foregroundStyle(Color.seerInk)
+                            .font(.sewnSans(13, weight: appState.screen == screen ? .semibold : .regular))
+                            .foregroundStyle(Color.sewnInk)
                         Spacer()
                         sidebarBadge(for: screen)
                     }
@@ -63,7 +63,7 @@ struct ContentView: View {
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(appState.screen == screen ? Color.seerGold.opacity(0.12) : .clear)
+                            .fill(appState.screen == screen ? Color.sewnGold.opacity(0.12) : .clear)
                     )
                 }
                 .buttonStyle(.plain)
@@ -72,13 +72,13 @@ struct ContentView: View {
 
             Spacer()
 
-            Text("seer · totem · tinker")
-                .font(.seerMono(8.5))
-                .foregroundStyle(Color.seerInk.opacity(0.3))
+            Text("sewn · thread · tinker")
+                .font(.sewnMono(8.5))
+                .foregroundStyle(Color.sewnInk.opacity(0.3))
                 .padding(12)
         }
         // Translucent warm wash over the glass — blends without killing vibrancy.
-        .background(Color.seerBG.opacity(0.45))
+        .background(Color.sewnBG.opacity(0.45))
     }
 
     @ViewBuilder
@@ -86,14 +86,14 @@ struct ContentView: View {
         if screen == .servers {
             switch appState.servers.environment {
             case .local:
-                let running = (appState.servers.seerStatus == .running ? 1 : 0)
-                    + appState.servers.totemStatus.values.filter { $0 == .running }.count
+                let running = (appState.servers.sewnStatus == .running ? 1 : 0)
+                    + appState.servers.threadStatus.values.filter { $0 == .running }.count
                 if running > 0 {
-                    SeerPill(text: "\(running)", tint: .seerGreen)
+                    SewnPill(text: "\(running)", tint: .sewnGreen)
                 }
             case .prod:
-                SeerPill(text: "prod",
-                         tint: appState.servers.prodSeerHealthy ? .seerGreen : .seerError)
+                SewnPill(text: "prod",
+                         tint: appState.servers.prodSewnHealthy ? .sewnGreen : .sewnError)
             }
         }
     }

@@ -1,6 +1,6 @@
 //
 //  TextChunker.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation

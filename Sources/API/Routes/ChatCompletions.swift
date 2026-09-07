@@ -5,8 +5,8 @@ import Logging
 import Hummingbird
 
 func registerChatCompletionsRoute(
-    _ router: some RouterMethods<SeerRequestContext>,
-    _ seer: Seer,
+    _ router: some RouterMethods<SewnRequestContext>,
+    _ sewn: Sewn,
     modelProvider: ModelProvider,
     isVLM: Bool = false
 ) throws {
@@ -17,7 +17,7 @@ func registerChatCompletionsRoute(
                 request: request,
                 context: context,
                 chatRequest: chatRequest,
-                seer: seer,
+                sewn: sewn,
                 isVLM: isVLM,
                 modelProvider: modelProvider
             )
@@ -26,7 +26,7 @@ func registerChatCompletionsRoute(
                 request: request,
                 context: context,
                 chatRequest: chatRequest,
-                seer: seer,
+                sewn: sewn,
                 isVLM: isVLM,
                 modelProvider: modelProvider
             )
@@ -134,29 +134,29 @@ private func _processVLMMessages(_ chatRequest: ChatCompletionRequest) -> ChatRe
     return .init(input: userInput, references: [], contribution: nil, tone: nil, autoMemory: false)
 }
 
-/// Processes a user message using seer. Seer handles contribution tracking.
+/// Processes a user message using sewn. Sewn handles contribution tracking.
 /// - Parameters:
 ///   - chatRequest: The completion request.
-///   - seer: The isntance of Seer.
+///   - sewn: The isntance of Sewn.
 ///   - embeddingModelProvider: The embeddingModel, if nil Mistral API is used.
 ///   - isVLM: VLM flag.
 /// - Throws: Errors.
 /// - Returns: ChatResult with `UserInput`.
 func _processUserMessages(
     _ chatRequest: ChatCompletionRequest,
-    _ seer: Seer,
+    _ sewn: Sewn,
     modelProvider: ModelProvider,
     isVLM: Bool,
-    seerRequest: SeerRequest? = nil
+    sewnRequest: SewnRequest? = nil
 ) async throws -> ChatResult {
     if isVLM {
         return _processVLMMessages(chatRequest)
     } else {
-        return try await seer
+        return try await sewn
             .handleChat(
                 request: chatRequest,
                 modelProvider: modelProvider,
-                seerRequest: seerRequest,
+                sewnRequest: sewnRequest,
                 queryExpansion: chatRequest.resonate ?? false
             )
     }

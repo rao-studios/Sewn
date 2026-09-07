@@ -1,6 +1,6 @@
 //
 //  NodeIdentity.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 3/30/26.
 //
@@ -20,11 +20,11 @@ import Logging
 ///      the storage identity and the network identity are always the same value —
 ///      no coordination required between the persistence layer and the mesh overlay.
 ///
-/// The identity file lives at `seer-db/node-id`.
+/// The identity file lives at `sewn-db/node-id`.
 struct NodeIdentity {
     let nodeId: UUID
 
-    /// Load (or create) the node identity from `seer-db/node-id`.
+    /// Load (or create) the node identity from `sewn-db/node-id`.
     /// Synchronous — safe to call from a non-async context at server startup,
     /// before the cooperative thread pool is active.
     static func load(logger: Logger) -> NodeIdentity {

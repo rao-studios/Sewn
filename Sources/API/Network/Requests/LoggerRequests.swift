@@ -1,6 +1,6 @@
 //
 //  LoggerRequests.swift
-//  Seer
+//  Sewn
 //
 //  Created by Ritesh Pakala on 2/15/26.
 //
@@ -47,7 +47,7 @@ extension Requests.Logger {
             eventMetadata: String,
             eventType: String,
             userID: String,
-            services: SeerLogger.ServicesType,
+            services: SewnLogger.ServicesType,
             requestID: String? = nil
         ) {
             self.records = [
@@ -133,7 +133,7 @@ extension Requests.Logger {
             eventMetadata: String,
             eventType: String,
             userID: String,
-            services: SeerLogger.ServicesType,
+            services: SewnLogger.ServicesType,
             requestID: String? = nil
         ) {
             self.eventName = eventName

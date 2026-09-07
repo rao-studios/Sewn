@@ -1,6 +1,6 @@
 //
 //  Stats.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 5/12/26.
 //
@@ -41,7 +41,7 @@ private actor StatsRateLimiter {
     }
 }
 
-func registerStatsRoute(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
+func registerStatsRoute(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
     let limiter = StatsRateLimiter()
 
     router.get("/v1/stats") { request, context async throws -> StatsResponse in
@@ -55,7 +55,7 @@ func registerStatsRoute(_ router: some RouterMethods<SeerRequestContext>, _ seer
             throw HTTPError(.tooManyRequests)
         }
 
-        let (groups, _, _) = await seer.fanoutLibrary(ownerId: "")
+        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: "")
         let publicGroups = groups.filter { $0.access == .available }
         let groupCount    = publicGroups.count
         let documentCount = publicGroups.reduce(0) { $0 + $1.documents.count }

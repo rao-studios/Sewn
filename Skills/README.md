@@ -1,6 +1,6 @@
-# Seer Skills
+# Sewn Skills
 
-Maintenance, reference, and operational knowledge for every system in the Seer server. Use these when building new features, auditing existing behavior, writing tests, or preparing for deployment.
+Maintenance, reference, and operational knowledge for every system in the Sewn server. Use these when building new features, auditing existing behavior, writing tests, or preparing for deployment.
 
 ---
 
@@ -11,25 +11,25 @@ Skills/
 ├── SystemReference/          — Architecture, routes, data models
 │   ├── Architecture.md       — Component map, request lifecycle, design decisions
 │   ├── RouteReference.md     — Every endpoint: method, auth, schema, business logic
-│   └── DataModels.md         — All Swift types across Seer, Sinatra, Gita
+│   └── DataModels.md         — All Swift types across Sewn, Sinatra, Gita
 │
-├── Seer/                     — Orchestration layer internals
+├── Sewn/                     — Orchestration layer internals
 │   └── README.md             — Fan-out, registry, search flow, auth, RAG pipeline
 │
-├── Totem/                    — Distributed vector search integration
+├── Thread/                    — Distributed vector search integration
 │   └── README.md             — Registration, session stream, fan-out primitives, gRPC services
 │
-├── HNSW/                     — HNSW proxy routes (graphs live on Totem nodes)
+├── HNSW/                     — HNSW proxy routes (graphs live on Thread nodes)
 │   └── README.md             — Route list, routing helpers, how to add HNSW features
 │
-├── PartitionTable/           — Moved to Totem
-│   └── README.md             — Migration note, what was here, current Seer fan-out API
+├── PartitionTable/           — Moved to Thread
+│   └── README.md             — Migration note, what was here, current Sewn fan-out API
 │
 ├── Concurrency/              — Actor design, mutators
 │   └── README.md             — RegistryMutator, actor design
 │
 ├── Caching/                  — Synchronization primitives and caching layer
-│   └── README.md             — SeerCache, DocumentCache, ReadWriteValue, LockedValue, PersistenceActor
+│   └── README.md             — SewnCache, DocumentCache, ReadWriteValue, LockedValue, PersistenceActor
 │
 ├── Sinatra/                  — Sentiment & GBT system
 │   └── README.md             — GBT model, IMBHS, technical indicators, tone adjustment
@@ -62,11 +62,11 @@ Skills/
 | Find a route's request/response schema | [SystemReference/RouteReference.md](SystemReference/RouteReference.md) |
 | Understand how all systems connect | [SystemReference/Architecture.md](SystemReference/Architecture.md) |
 | Look up a Swift type | [SystemReference/DataModels.md](SystemReference/DataModels.md) |
-| Understand the Totem integration (gRPC, fan-out, session) | [Totem/README.md](Totem/README.md) |
+| Understand the Thread integration (gRPC, fan-out, session) | [Thread/README.md](Thread/README.md) |
 | Understand HNSW proxy routes | [HNSW/README.md](HNSW/README.md) |
 | Understand where PartitionTable/PQ went | [PartitionTable/README.md](PartitionTable/README.md) |
 | Understand actor design and write serialization | [Concurrency/README.md](Concurrency/README.md) |
-| Choose between ReadWriteValue, LockedValue, SeerCache | [Caching/README.md](Caching/README.md) |
+| Choose between ReadWriteValue, LockedValue, SewnCache | [Caching/README.md](Caching/README.md) |
 | Change how sentiment affects tone | [Sinatra/README.md](Sinatra/README.md) |
 | Change royalty calculation logic | [Gita/README.md](Gita/README.md) |
 | Implement a Marielle personalization feature | [Marielle/README.md](Marielle/README.md) — see "What Needs to Be Done" |
@@ -82,12 +82,12 @@ Skills/
 
 | System | What it does |
 |--------|-------------|
-| **Seer** | Orchestration: auth, RAG search, chat, document lifecycle, Totem fan-out |
-| **Totem** | External vector search nodes: HNSW + PQ storage, gRPC session, fan-out target |
-| **HNSW** | Proxy routes to Totem: graph, stats, node inspection via gRPC |
-| **PartitionTable** | Moved to Totem — PQ codebooks, PartitionIndex, TableMutator |
+| **Sewn** | Orchestration: auth, RAG search, chat, document lifecycle, Thread fan-out |
+| **Thread** | External vector search nodes: HNSW + PQ storage, gRPC session, fan-out target |
+| **HNSW** | Proxy routes to Thread: graph, stats, node inspection via gRPC |
+| **PartitionTable** | Moved to Thread — PQ codebooks, PartitionIndex, TableMutator |
 | **Concurrency** | Actor layer: RegistryMutator, write serialization |
-| **Caching** | Sync primitives: SeerCache, DocumentCache, ReadWriteValue, LockedValue, PersistenceActor |
+| **Caching** | Sync primitives: SewnCache, DocumentCache, ReadWriteValue, LockedValue, PersistenceActor |
 | **Sinatra** | Per-user GBT + IMBHS sentiment model that adjusts LLM temperature/top_p |
 | **Gita** | Royalty ledger: documents earn credits when they contribute to inferences |
 | **Marielle** | Personalization (not yet implemented): context-aware questions from user's HNSW graph |

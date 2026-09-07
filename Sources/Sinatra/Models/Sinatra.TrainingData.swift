@@ -1,6 +1,6 @@
 //
 //  Sinatra.TrainingData.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 1/25/26.
 //
@@ -12,7 +12,7 @@ struct SinatraTrainingData: Codable {
         // Partition ID (content-addressed SHA-256 hash of the embedding).
         var id: String
         /// The document this partition belongs to.
-        /// Used to key performance stats in `SeerRegistry.documentStats` correctly.
+        /// Used to key performance stats in `SewnRegistry.documentStats` correctly.
         /// Backward compat: old persisted entries default to `""`.
         var documentId: String
         var partitionCompressedEmbedding: [UInt16]?

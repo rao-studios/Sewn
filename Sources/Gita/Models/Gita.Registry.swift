@@ -1,6 +1,6 @@
 //
 //  Gita.Registry.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 4/13/26.
 //
@@ -10,7 +10,7 @@ import Foundation
 extension Gita {
     /// Economic registry for documents and partitions.
     ///
-    /// **Market metaphor:** `Gita.Registry` is the stock market API. Each `Seer.Document`
+    /// **Market metaphor:** `Gita.Registry` is the stock market API. Each `Sewn.Document`
     /// is a **security** listed on the network. `Sinatra` is the **prediction engine** that
     /// reads these market signals as features to forecast which securities will perform best
     /// in future retrievals.
@@ -105,12 +105,12 @@ extension Gita.Registry {
     /// - Parameters:
     ///   - contribution: Fully-priced `Gita.Contribution` with `earning` attached to each owner.
     ///   - retrievedPartitions: The partitions from `Gita.Payload.partitions`.
-    ///   - documentStats: Current `Seer.DocumentStats` snapshot keyed by document ID,
-    ///     typically sourced from `SeerRegistry.documentStats`.
+    ///   - documentStats: Current `Sewn.DocumentStats` snapshot keyed by document ID,
+    ///     typically sourced from `SewnRegistry.documentStats`.
     mutating func accumulate(
         contribution: Gita.Contribution,
-        retrievedPartitions: [Seer.Partition],
-        documentStats: [DocumentID: Seer.DocumentStats]
+        retrievedPartitions: [Sewn.Partition],
+        documentStats: [DocumentID: Sewn.DocumentStats]
     ) {
         let partitionsByDocument = Dictionary(grouping: retrievedPartitions, by: \.documentId)
         let docEarnings = Self.earningsPerDocument(from: contribution)
@@ -123,7 +123,7 @@ extension Gita.Registry {
                 // ── Document Record ────────────────────────────────────────────
                 var docRecord = documentRecords[documentId] ?? DocumentRecord(
                     documentId:              documentId,
-                    ownerId:                 owner.ownerId ?? owner.totemId,
+                    ownerId:                 owner.ownerId ?? owner.threadId,
                     totalEarned:             0,
                     inferenceCount:          0,
                     cumulativeRoyaltyWeight: 0,
@@ -134,7 +134,7 @@ extension Gita.Registry {
                 docRecord.totalEarned             += docEarning
                 docRecord.inferenceCount          += 1
                 docRecord.cumulativeRoyaltyWeight += royaltyWeight
-                // Mirror the latest cumulative performance stats from the Seer registry.
+                // Mirror the latest cumulative performance stats from the Sewn registry.
                 // These are set rather than accumulated — DocumentStats is the source of truth.
                 if let stats = documentStats[documentId] {
                     docRecord.retrievalCount = stats.retrievalCount
@@ -153,7 +153,7 @@ extension Gita.Registry {
                     var partRecord = partitionRecords[partition.id] ?? PartitionRecord(
                         partitionId:    partition.id,
                         documentId:     documentId,
-                        ownerId:        owner.ownerId ?? owner.totemId,
+                        ownerId:        owner.ownerId ?? owner.threadId,
                         earnedCredits:  0,
                         retrievalCount: 0,
                         sentimentSum:   0,
@@ -211,15 +211,15 @@ extension Gita.Registry {
         /// **Market metaphor:** cumulative index weight — the security's running presence in the market.
         var cumulativeRoyaltyWeight: Double
 
-        // MARK: Performance (mirrored from Seer.DocumentStats)
+        // MARK: Performance (mirrored from Sewn.DocumentStats)
 
-        /// Total retrieval count across all partitions. Synced from `Seer.DocumentStats`.
+        /// Total retrieval count across all partitions. Synced from `Sewn.DocumentStats`.
         var retrievalCount: Int
 
-        /// Cumulative sentiment sum. Synced from `Seer.DocumentStats`.
+        /// Cumulative sentiment sum. Synced from `Sewn.DocumentStats`.
         var sentimentSum: Double
 
-        /// Timestamp of the most recent partition retrieval. Synced from `Seer.DocumentStats`.
+        /// Timestamp of the most recent partition retrieval. Synced from `Sewn.DocumentStats`.
         var lastRetrieved: Date?
 
         // MARK: Derived
@@ -298,12 +298,12 @@ extension Gita.Registry {
         /// Market metaphor: cumulative dividend paid out to this share across all trades.
         var earnedCredits: Gita.Credits
 
-        // MARK: Performance (mirrored from Seer.DocumentStats.PartitionSentiment)
+        // MARK: Performance (mirrored from Sewn.DocumentStats.PartitionSentiment)
 
         /// Number of times this partition was retrieved and scored.
         var retrievalCount: Int
 
-        /// Cumulative sentiment sum. Synced from `Seer.DocumentStats.PartitionSentiment`.
+        /// Cumulative sentiment sum. Synced from `Sewn.DocumentStats.PartitionSentiment`.
         var sentimentSum: Double
 
         /// Timestamp of the most recent retrieval. Synced from `PartitionSentiment`.

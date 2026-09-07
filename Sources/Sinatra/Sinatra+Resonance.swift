@@ -1,6 +1,6 @@
 //
 //  Sinatra+Resonance.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 4/13/26.
 //
@@ -16,7 +16,7 @@ extension Sinatra {
     /// future retrievals can surface content the user has already engaged with.
     struct ResonancePartition {
         /// Stable identifier derived from the resonant text — same SHA-256 + numeric-string
-        /// strategy as `Seer.computeNumericHash(from:)`.
+        /// strategy as `Sewn.computeNumericHash(from:)`.
         let documentId: String
         /// The exact verbatim excerpt from the assistant response that resonated.
         let text: String
@@ -59,7 +59,7 @@ extension Sinatra {
     func extractResonance(
         userContent: String,
         assistantContent: String,
-        request: SeerRequest,
+        request: SewnRequest,
         modelProvider: ModelProvider,
         provider: LLMProvider = .serverDefault
     ) async throws -> (partition: ResonancePartition?, ledger: Gita.TokenLedger) {
@@ -185,7 +185,7 @@ extension Sinatra {
             return (nil, ledger)
         }
 
-        let documentId = Seer.computeNumericHash(from: result.excerpt)
+        let documentId = Sewn.computeNumericHash(from: result.excerpt)
         let partition = ResonancePartition(
             documentId: documentId,
             text: result.excerpt,

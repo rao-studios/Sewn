@@ -1,6 +1,6 @@
 //
 //  GroupModificationResponse.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 2/28/26.
 //
@@ -10,14 +10,14 @@ import Foundation
 
 struct GroupModificationResponse: Codable {
     let groupId: String
-    let access: SeerRegistry.Access?
+    let access: SewnRegistry.Access?
     let label: String?
-    let user: Seer.User
+    let user: Sewn.User
 
     init(groupId: String,
-         access: SeerRegistry.Access?,
+         access: SewnRegistry.Access?,
          label: String? = nil,
-         user: Seer.User) {
+         user: Sewn.User) {
         self.groupId = groupId
         self.access = access
         self.label = label

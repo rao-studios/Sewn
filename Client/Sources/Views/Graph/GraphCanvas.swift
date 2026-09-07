@@ -18,7 +18,7 @@ struct GraphCanvas: View {
             let center = CGPoint(x: geometry.size.width / 2 + offset.width,
                                  y: geometry.size.height / 2 + offset.height)
             ZStack {
-                Color.seerBG
+                Color.sewnBG
 
                 // Edges
                 Canvas { context, _ in
@@ -44,11 +44,11 @@ struct GraphCanvas: View {
                             && viewModel.traceExpansionEdgeIds.contains(edge.id)
                         let lineWidth = min(1 + weight * 0.6, 4) * effectiveScale
                         if isTraced {
-                            context.stroke(path, with: .color(Color.seerGold.opacity(0.9)),
+                            context.stroke(path, with: .color(Color.sewnGold.opacity(0.9)),
                                            style: StrokeStyle(lineWidth: lineWidth + 1, dash: [6, 4]))
                         } else {
                             let dimmed = viewModel.traceActive
-                            context.stroke(path, with: .color(Color.seerInk.opacity(dimmed ? 0.12 : 0.25)),
+                            context.stroke(path, with: .color(Color.sewnInk.opacity(dimmed ? 0.12 : 0.25)),
                                            lineWidth: lineWidth)
                         }
 
@@ -61,7 +61,7 @@ struct GraphCanvas: View {
                             context.draw(
                                 Text(edge.relationship.predicate)
                                     .font(.system(size: 9 * effectiveScale, design: .monospaced))
-                                    .foregroundColor(Color.seerInk.opacity(0.45)),
+                                    .foregroundColor(Color.sewnInk.opacity(0.45)),
                                 at: labelPoint
                             )
                         }
@@ -137,14 +137,14 @@ struct GraphCanvas: View {
         HStack(spacing: 8) {
             Button { scale = max(0.25, scale - 0.2) } label: { Image(systemName: "minus") }
             Text("\(Int(effectiveScale * 100))%")
-                .font(.seerMono(10))
+                .font(.sewnMono(10))
                 .frame(width: 42)
             Button { scale = min(2.5, scale + 0.2) } label: { Image(systemName: "plus") }
             Button {
                 scale = 1; offset = .zero; dragStart = .zero
             } label: { Image(systemName: "scope") }
         }
-        .buttonStyle(.seerQuiet)
+        .buttonStyle(.sewnQuiet)
         .padding(10)
     }
 }
@@ -164,7 +164,7 @@ struct EntityNodeView: View {
         case "place": return Color(red: 100/255, green: 155/255, blue: 120/255)
         case "event": return Color(red: 190/255, green: 120/255, blue: 100/255)
         case "work": return Color(red: 170/255, green: 140/255, blue: 90/255)
-        default: return .seerGold
+        default: return .sewnGold
         }
     }
 
@@ -177,11 +177,11 @@ struct EntityNodeView: View {
         let tint = Self.hue(for: node.entity.kind)
         VStack(spacing: 3 * scale) {
             Text(node.entity.name)
-                .font(.seerSans(11.5 * scale * sizeTier, weight: node.isSeed ? .semibold : .medium))
-                .foregroundStyle(Color.seerInk)
+                .font(.sewnSans(11.5 * scale * sizeTier, weight: node.isSeed ? .semibold : .medium))
+                .foregroundStyle(Color.sewnInk)
                 .lineLimit(1)
             Text(node.entity.kind)
-                .font(.seerMono(8 * scale))
+                .font(.sewnMono(8 * scale))
                 .foregroundStyle(tint)
         }
         .padding(.horizontal, 11 * scale)
@@ -192,12 +192,12 @@ struct EntityNodeView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 11 * scale)
                         .strokeBorder(
-                            isSelected ? Color.seerInk :
-                                isTraceMatched ? Color.seerGold : tint.opacity(0.5),
+                            isSelected ? Color.sewnInk :
+                                isTraceMatched ? Color.sewnGold : tint.opacity(0.5),
                             lineWidth: isSelected || isTraceMatched ? 2 : 1)
                 )
         )
-        .shadow(color: isTraceMatched ? Color.seerGold.opacity(0.5) : Color.seerInk.opacity(0.08),
+        .shadow(color: isTraceMatched ? Color.sewnGold.opacity(0.5) : Color.sewnInk.opacity(0.08),
                 radius: isTraceMatched ? 9 : 3, y: 1)
         .opacity(traceActive && !isTraceMatched ? 0.75 : 1)
     }

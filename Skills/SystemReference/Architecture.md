@@ -2,7 +2,7 @@
 
 ## Overview
 
-Seer is a local-first AI assistant server written in Swift using the Vapor 4 web framework. It combines a custom vector database, sentiment-aware LLM parameter tuning, a royalty ledger, and an optional P2P mesh into a single process. All heavy state (graphs, registries, ledgers) lives in Swift actors — no external database process.
+Sewn is a local-first AI assistant server written in Swift using the Vapor 4 web framework. It combines a custom vector database, sentiment-aware LLM parameter tuning, a royalty ledger, and an optional P2P mesh into a single process. All heavy state (graphs, registries, ledgers) lives in Swift actors — no external database process.
 
 ---
 
@@ -29,7 +29,7 @@ HTTP Request
     │                                          │
     ▼                                          ▼
 ┌──────────────┐                    ┌──────────────────┐
-│    SEER      │                    │    SINATRA       │
+│    SEWN      │                    │    SINATRA       │
 │  (Database   │◄──────────────────►│  (GBT Sentiment) │
 │   Actor)     │  sentiment weights │                  │
 │              │                    │  IMBHS (Harmony  │
@@ -63,7 +63,7 @@ HTTP Request
 
 | Actor | File | Responsibility |
 |-------|------|---------------|
-| `Seer` | `Database/Seer.swift` | Database coordinator — coordinates all HNSW, PQ, registry ops |
+| `Sewn` | `Database/Sewn.swift` | Database coordinator — coordinates all HNSW, PQ, registry ops |
 | `TableMutator` | `Database/TableMutator.swift` | Serializes mutations to global HNSW graph (add/delete nodes) |
 | `RegistryMutator` | `Database/RegistryMutator.swift` | Serializes metadata updates (document/group ownership) |
 | `PersonalHNSWMutator` | `Database/PersonalHNSWMutator.swift` | Serializes per-owner personal graph mutations |
@@ -74,7 +74,7 @@ HTTP Request
 
 ### Why multiple mutator actors?
 
-HNSW graph mutations are not reentrant-safe (they walk the graph while adding/removing nodes). The actor model serializes these safely, but because `Seer` itself also needs to await results from mutations, direct recursion would deadlock. The separate `TableMutator`, `RegistryMutator`, and `PersonalHNSWMutator` actors break the call chain.
+HNSW graph mutations are not reentrant-safe (they walk the graph while adding/removing nodes). The actor model serializes these safely, but because `Sewn` itself also needs to await results from mutations, direct recursion would deadlock. The separate `TableMutator`, `RegistryMutator`, and `PersonalHNSWMutator` actors break the call chain.
 
 ---
 
@@ -89,8 +89,8 @@ POST /v1/chat/completions
     │
     ├─ ChatCompletions handler
     │   ├─ Embed the last user message (EmbeddingModelProvider)
-    │   ├─ Seer.search() → HNSW traversal → PQ rerank → top-K partitions
-    │   │   └─ If Oracle enabled: also fan out to peers (Seer+Peer.swift)
+    │   ├─ Sewn.search() → HNSW traversal → PQ rerank → top-K partitions
+    │   │   └─ If Oracle enabled: also fan out to peers (Sewn+Peer.swift)
     │   ├─ Sinatra.infer() → GBT scores sentiment → returns Tone
     │   │   └─ Tone adjusts: temperature, top_p, repetition_penalty
     │   ├─ Build system prompt with retrieved partitions
@@ -114,7 +114,7 @@ POST /v1/embeddings
     │
     ├─ Embeddings handler
     │   ├─ EmbeddingModelProvider.embed(text) → float32 vector
-    │   ├─ Seer.put(document, partition) 
+    │   ├─ Sewn.put(document, partition) 
     │   │   ├─ RegistryMutator: add document/partition ownership
     │   │   ├─ TableMutator: insert node into global HNSW
     │   │   ├─ PersonalHNSWMutator: insert node into owner's personal graph
@@ -146,7 +146,7 @@ Two indices serve different access patterns:
 ## Storage Layout
 
 ```
-~/.seer/
+~/.sewn/
 ├── documents/{documentId}              # Document JSON metadata
 ├── conversations/{documentId}          # Conversation history JSON
 ├── sinatra/registry                    # Sinatra actor state (GBT models, datasets, harmony memories)
@@ -170,7 +170,7 @@ Two indices serve different access patterns:
 ## Access Control Model
 
 ```
-SeerRegistry.Access:
+SewnRegistry.Access:
   .available   → all owners can search
   .restricted  → only document owner can search
   .unknown     → not in registry (treat as restricted)
@@ -198,11 +198,11 @@ Auth token flow: `Authorization: Bearer <supabase_jwt>` → `SupabaseProvider.ve
 
 ---
 
-## Startup Sequence (SeerServer.swift)
+## Startup Sequence (SewnServer.swift)
 
 1. Parse CLI arguments (model path, host, port, oracle flags, peers)
 2. Configure Vapor application (routes, middleware)
-3. Initialize `Seer` actor (loads persisted graphs from disk)
+3. Initialize `Sewn` actor (loads persisted graphs from disk)
 4. Initialize `Sinatra` actor (loads GBT models from disk)
 5. Initialize `Gita` actor (loads wallet registry from disk)
 6. If `--enable-oracle`: initialize `Oracle`, connect to seed peers via WebSocket
@@ -214,7 +214,7 @@ Auth token flow: `Authorization: Bearer <supabase_jwt>` → `SupabaseProvider.ve
 ## Key Design Decisions & Rationale
 
 ### Why actors instead of locks?
-Swift's actor model gives compile-time data race safety. The mutator pattern (separate actors for each write domain) avoids reentrancy deadlocks while keeping the main `Seer` actor as a coordination hub.
+Swift's actor model gives compile-time data race safety. The mutator pattern (separate actors for each write domain) avoids reentrancy deadlocks while keeping the main `Sewn` actor as a coordination hub.
 
 ### Why HNSW + PQ hybrid?
 HNSW is optimal for global approximate nearest neighbor search (O(log N)). For per-document reranking with small partition counts (5–50), a PQ linear scan beats graph traversal overhead. The two-stage pipeline gets both speed and accuracy.
@@ -233,9 +233,9 @@ Swift-native, high-performance, async/await native. Fits the same process as MLX
 ## P2P Oracle Integration Points
 
 Oracle is currently wired to:
-- `Seer+Peer.swift` — search fan-out during `Seer.search()`
+- `Sewn+Peer.swift` — search fan-out during `Sewn.search()`
 - `OracleNodes.swift` — topology routes
-- `SeerServer.swift` — startup flag + seed peer connection
+- `SewnServer.swift` — startup flag + seed peer connection
 
 **Not yet wired:**
 - Chat completions stream from peer results (peer results join local results but aren't streamed independently)

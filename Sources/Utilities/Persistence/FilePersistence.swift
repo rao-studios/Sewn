@@ -44,7 +44,7 @@ final class FilePersistence : AnyPersistence {
     
     static func getDefaultURL() -> URL {
         let value = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return value.appendingPathComponent("seer-db")
+        return value.appendingPathComponent("sewn-db")
     }
     
     func save<State>(state: State,

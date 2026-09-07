@@ -1,20 +1,20 @@
 # HNSW — Graph Proxy Layer
 
-> HNSW graphs no longer live in Seer. All HNSW data (nodes, vectors, codebooks) is owned and managed by **Totem nodes**. Seer's role is to proxy HNSW requests to the appropriate Totem node via gRPC.
+> HNSW graphs no longer live in Sewn. All HNSW data (nodes, vectors, codebooks) is owned and managed by **Thread nodes**. Sewn's role is to proxy HNSW requests to the appropriate Thread node via gRPC.
 
-For the HNSW implementation itself, see [Totem/README.md](../Totem/README.md) or the Totem repository.
+For the HNSW implementation itself, see [Thread/README.md](../Thread/README.md) or the Thread repository.
 
 ---
 
-## Seer's HNSW Role
+## Sewn's HNSW Role
 
 [HNSW.swift](../../Sources/API/Routes/HNSW.swift) registers all `/v1/hnsw/*` routes as thin gRPC adapters:
 
-**Stats routes** — fan out to **all** active Totem nodes, aggregate results:
+**Stats routes** — fan out to **all** active Thread nodes, aggregate results:
 - `POST /v1/hnsw/stats` — sum live nodes across nodes, max level
 - `POST /v1/hnsw/document/stats` — same, filtered to one document
 
-**Graph routes** — proxy to a **specific** Totem node via `seer.totem_ids[0]`:
+**Graph routes** — proxy to a **specific** Thread node via `sewn.thread_ids[0]`:
 - `POST /v1/hnsw/personal` — personal graph (scope: personal)
 - `POST /v1/hnsw/personal/hubs` — hub-only personal graph
 - `POST /v1/hnsw/personal/document` — personal graph for one document
@@ -32,26 +32,26 @@ For the HNSW implementation itself, see [Totem/README.md](../Totem/README.md) or
 ## Routing Helpers
 
 ```swift
-// Resolve the target Totem node from seer.totem_ids[0]
-private func targetNode(_ seerRequest: SeerRequest, seer: Seer) async throws -> (TotemQueryClient, TotemNode)
+// Resolve the target Thread node from sewn.thread_ids[0]
+private func targetNode(_ sewnRequest: SewnRequest, sewn: Sewn) async throws -> (ThreadQueryClient, ThreadNode)
 
-// Fan out stats to ALL active Totem nodes
-private func fanoutStats(seer: Seer, statReq: Totem_V1_TotemHNSWStatsRequest) async throws -> HNSWStatsResponse
+// Fan out stats to ALL active Thread nodes
+private func fanoutStats(sewn: Sewn, statReq: Thread_V1_ThreadHNSWStatsRequest) async throws -> HNSWStatsResponse
 ```
 
-`targetNode` throws `400 Bad Request` if `totem_ids` is missing or the UUID doesn't match a registered node. Always include `totem_ids` in graph route requests.
+`targetNode` throws `400 Bad Request` if `thread_ids` is missing or the UUID doesn't match a registered node. Always include `thread_ids` in graph route requests.
 
 ---
 
 ## Admin HNSW Routes
 
-All admin HNSW routes (`/v1/admin/hnsw/*`) return `503 Service Unavailable` with reason "HNSW is managed by Totem nodes". Compact, dedup, and rebuild operations must be triggered directly on Totem nodes via their HTTP API.
+All admin HNSW routes (`/v1/admin/hnsw/*`) return `503 Service Unavailable` with reason "HNSW is managed by Thread nodes". Compact, dedup, and rebuild operations must be triggered directly on Thread nodes via their HTTP API.
 
 ---
 
 ## Adding an HNSW Feature
 
-1. Add the RPC to the Totem proto (`Totem_V1_TotemHNSWService`) in the shared proto file.
-2. Implement it in Totem's `TotemHNSWServiceImpl`.
-3. Add the gRPC call to `TotemQueryClient` in Seer's `Sources/GRPC/`.
+1. Add the RPC to the Thread proto (`Thread_V1_ThreadHNSWService`) in the shared proto file.
+2. Implement it in Thread's `ThreadHNSWServiceImpl`.
+3. Add the gRPC call to `ThreadQueryClient` in Sewn's `Sources/GRPC/`.
 4. Register the route in `HNSW.swift` using `targetNode()` or `fanoutStats()`.

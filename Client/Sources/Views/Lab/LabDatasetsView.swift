@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Datasets tab: build SFT/DPO JSONL from Seer data or import existing JSONL.
+/// Datasets tab: build SFT/DPO JSONL from Sewn data or import existing JSONL.
 struct LabDatasetsView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject var venv: VenvManager
@@ -31,35 +31,35 @@ struct LabDatasetsView: View {
     private var buildersPane: some View {
         ScrollView {
             VStack(spacing: 14) {
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionLabel("DPO from Sinatra (Self-RLHF)")
-                        Text("Exports your Sinatra state from Seer and pairs highest-vs-lowest sentiment-weight responses per query into {prompt, chosen, rejected} rows. Unpaired positives spill into an SFT file.")
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerInk.opacity(0.55))
+                        Text("Exports your Sinatra state from Sewn and pairs highest-vs-lowest sentiment-weight responses per query into {prompt, chosen, rejected} rows. Unpaired positives spill into an SFT file.")
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnInk.opacity(0.55))
                         HStack(spacing: 12) {
                             Text("weight margin ≥ \(String(format: "%.2f", dpoMargin))")
-                                .font(.seerMono(10.5))
-                                .foregroundStyle(Color.seerInk.opacity(0.65))
+                                .font(.sewnMono(10.5))
+                                .foregroundStyle(Color.sewnInk.opacity(0.65))
                                 .frame(width: 150, alignment: .leading)
                                 .fixedSize()
                             Slider(value: $dpoMargin, in: 0.05...0.6)
                                 .controlSize(.small)
                             Button("Build") { buildDPO() }
-                                .buttonStyle(.seer)
+                                .buttonStyle(.sewn)
                         }
-                        Text("Requires sign-in (Settings) and a running Seer.")
-                            .font(.seerSans(10.5))
-                            .foregroundStyle(Color.seerInk.opacity(0.4))
+                        Text("Requires sign-in (Settings) and a running Sewn.")
+                            .font(.sewnSans(10.5))
+                            .foregroundStyle(Color.sewnInk.opacity(0.4))
                     }
                 }
 
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionLabel("Personality SFT (voice + citations)")
                         Text("Builds SFT rows from the current chat transcript, trained as the chosen personality: its voice fragment + citation protocol as the system message, and [[n]] source markers re-inserted into the assistant targets from their exact document spans.")
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerInk.opacity(0.55))
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnInk.opacity(0.55))
                         HStack(spacing: 12) {
                             Picker("", selection: $sftPersonalityId) {
                                 ForEach(personalities) { personality in
@@ -70,30 +70,30 @@ struct LabDatasetsView: View {
                             .fixedSize()
                             Spacer()
                             Button("Build from chat") { buildPersonalitySFT() }
-                                .buttonStyle(.seer)
+                                .buttonStyle(.sewn)
                                 .disabled(personalities.isEmpty)
                         }
                         Text("Chat first (marked responses give the strongest rows), then build.")
-                            .font(.seerSans(10.5))
-                            .foregroundStyle(Color.seerInk.opacity(0.4))
+                            .font(.sewnSans(10.5))
+                            .foregroundStyle(Color.sewnInk.opacity(0.4))
                     }
                 }
 
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionLabel("Import JSONL")
                         Text("Bring your own rows — {messages: […]} for SFT or {prompt, chosen, rejected} for DPO (name the file with 'dpo' to tag it).")
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerInk.opacity(0.55))
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnInk.opacity(0.55))
                         Button("Choose file…") { importJSONL() }
-                            .buttonStyle(.seerQuiet)
+                            .buttonStyle(.sewnQuiet)
                     }
                 }
 
                 if let status {
                     Text(status)
-                        .font(.seerSans(11))
-                        .foregroundStyle(Color.seerInk.opacity(0.6))
+                        .font(.sewnSans(11))
+                        .foregroundStyle(Color.sewnInk.opacity(0.6))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)
                 }
@@ -110,7 +110,7 @@ struct LabDatasetsView: View {
                 Button { datasets = DatasetBuilder.listDatasets() } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.seerQuiet)
+                .buttonStyle(.sewnQuiet)
             }
             .padding(14)
 
@@ -120,33 +120,33 @@ struct LabDatasetsView: View {
             } else {
                 List(datasets) { dataset in
                     HStack(spacing: 8) {
-                        SeerPill(text: dataset.kind.rawValue.uppercased(),
-                                 tint: dataset.kind == .dpo ? .seerGold : .seerGreen)
-                        Text(dataset.name).font(.seerMono(11))
+                        SewnPill(text: dataset.kind.rawValue.uppercased(),
+                                 tint: dataset.kind == .dpo ? .sewnGold : .sewnGreen)
+                        Text(dataset.name).font(.sewnMono(11))
                         Spacer()
                         Text("\(dataset.rows) rows")
-                            .font(.seerSans(10.5))
-                            .foregroundStyle(Color.seerInk.opacity(0.5))
+                            .font(.sewnSans(10.5))
+                            .foregroundStyle(Color.sewnInk.opacity(0.5))
                         Button {
                             NSWorkspace.shared.activateFileViewerSelecting([dataset.url])
                         } label: {
                             Image(systemName: "magnifyingglass")
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(Color.seerInk.opacity(0.4))
+                        .foregroundStyle(Color.sewnInk.opacity(0.4))
                     }
                 }
                 .scrollContentBackground(.hidden)
             }
         }
-        .background(Color.seerBG)
+        .background(Color.sewnBG)
     }
 
     private func buildDPO() {
         status = "exporting Sinatra state…"
         Task {
             do {
-                let data = try await appState.seerAPI.frankExport()
+                let data = try await appState.sewnAPI.frankExport()
                 let (dpo, spillover) = try DatasetBuilder.buildDPO(
                     fromFrankExport: data,
                     name: "sinatra-\(Int(Date().timeIntervalSince1970) % 100000)",
@@ -166,7 +166,7 @@ struct LabDatasetsView: View {
     }
 
     private func loadPersonalities() async {
-        personalities = (try? await appState.seerAPI.personalities()) ?? []
+        personalities = (try? await appState.sewnAPI.personalities()) ?? []
         if sftPersonalityId.isEmpty { sftPersonalityId = personalities.first?.id ?? "" }
     }
 
@@ -222,9 +222,9 @@ struct TestChatView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 TextField("model A (base or tinker://…)", text: $modelA)
-                    .textFieldStyle(.roundedBorder).font(.seerMono(11))
+                    .textFieldStyle(.roundedBorder).font(.sewnMono(11))
                 TextField("model B (optional — A/B compare)", text: $modelB)
-                    .textFieldStyle(.roundedBorder).font(.seerMono(11))
+                    .textFieldStyle(.roundedBorder).font(.sewnMono(11))
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
@@ -238,15 +238,15 @@ struct TestChatView: View {
 
             if let error {
                 Text(error)
-                    .font(.seerSans(11))
-                    .foregroundStyle(Color.seerError)
+                    .font(.sewnSans(11))
+                    .foregroundStyle(Color.sewnError)
                     .padding(.horizontal, 24)
             }
 
             HStack(spacing: 10) {
                 TextField("prompt…", text: $prompt, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.seerSerif(14, weight: .regular, italic: true))
+                    .font(.sewnSerif(14, weight: .regular, italic: true))
                     .lineLimit(1...4)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
@@ -254,7 +254,7 @@ struct TestChatView: View {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color.white.opacity(0.8))
                             .overlay(RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(Color.seerBorder, lineWidth: 1))
+                                .strokeBorder(Color.sewnBorder, lineWidth: 1))
                     )
                     .onSubmit { send() }
                 Button {
@@ -264,7 +264,7 @@ struct TestChatView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 34, height: 34)
-                        .background(Circle().fill(Color.seerGold))
+                        .background(Circle().fill(Color.sewnGold))
                 }
                 .buttonStyle(.plain)
                 .disabled(isStreaming || prompt.isEmpty)
@@ -281,13 +281,13 @@ struct TestChatView: View {
                 .padding(.vertical, 8)
             ScrollView {
                 Text(text.isEmpty ? "…" : text)
-                    .font(.seerSans(13))
-                    .foregroundStyle(Color.seerInk)
+                    .font(.sewnSans(13))
+                    .foregroundStyle(Color.sewnInk)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(18)
             }
-            .background(Color.seerFill)
+            .background(Color.sewnFill)
         }
     }
 

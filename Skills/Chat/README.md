@@ -30,7 +30,7 @@ POST /v1/chat/completions
     │
     ├─ EmbeddingModelProvider.embed(last_user_message) → query_vector
     │
-    ├─ Seer.search(query_vector, owner_id, scope: .personal + .global)
+    ├─ Sewn.search(query_vector, owner_id, scope: .personal + .global)
     │   ├─ HNSW traversal (local)
     │   ├─ Oracle fan-out (if enabled)
     │   └─ Returns [SearchResult] sorted by score
@@ -87,7 +87,7 @@ When `stream: false` (or omitted), returns a complete `ChatCompletionResponse`:
   "id": "cmpl-xxx",
   "object": "chat.completion",
   "created": 1700000000,
-  "model": "seer-local",
+  "model": "sewn-local",
   "choices": [{
     "index": 0,
     "message": { "role": "assistant", "content": "..." },
@@ -174,7 +174,7 @@ Partition count in context is capped at `top_k` (default 5). If Oracle is enable
 
 Simpler path — no message history:
 1. Embed prompt
-2. Search Seer for relevant context (same as chat)
+2. Search Sewn for relevant context (same as chat)
 3. Build prompt: `[CONTEXT]\n...\n[END CONTEXT]\n\n{prompt}`
 4. Generate completion (non-streaming by default)
 5. Return `text/plain` or JSON depending on `Accept` header

@@ -67,8 +67,8 @@ extension SummarizeResponse: ResponseCodable {}
 // MARK: - Wallet
 extension WalletResponse: ResponseCodable {}
 
-// MARK: - Totem
-extension TotemNodesResponse: ResponseCodable {}
+// MARK: - Thread
+extension ThreadNodesResponse: ResponseCodable {}
 
 // MARK: - Health
 extension HealthResponse: ResponseCodable {}
@@ -80,7 +80,7 @@ extension StatsResponse: ResponseCodable {}
 extension ModelListResponse: ResponseCodable {}
 
 // MARK: - Profile
-extension SeerProfile: ResponseCodable {}
+extension SewnProfile: ResponseCodable {}
 
 // MARK: - Feedback
 extension FeedbackResponse: ResponseCodable {}

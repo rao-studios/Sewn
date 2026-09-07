@@ -112,8 +112,8 @@ actor EmbeddingModelProvider: EmbeddingProviding {
                     totalUsage = totalUsage.adding(response.usage)
                 }
 
-                SeerMetrics.embeddingDuration.recordMilliseconds(Date().timeIntervalSince(embedStart) * 1000)
-                SeerMetrics.embeddingRequests.increment(by: chunks.count)
+                SewnMetrics.embeddingDuration.recordMilliseconds(Date().timeIntervalSince(embedStart) * 1000)
+                SewnMetrics.embeddingRequests.increment(by: chunks.count)
                 logger.debug("Received embeddings successfully (\(chunks.count) batch(es))")
                 outcome = .success((allData, totalUsage))
             } catch {
@@ -139,7 +139,7 @@ actor EmbeddingModelProvider: EmbeddingProviding {
             activeCount += 1
             return
         }
-        SeerMetrics.embeddingQueueDepth.record(Double(priorityWaiters.count + normalWaiters.count + 1))
+        SewnMetrics.embeddingQueueDepth.record(Double(priorityWaiters.count + normalWaiters.count + 1))
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             if priority {
                 priorityWaiters.append(continuation)
@@ -161,7 +161,7 @@ actor EmbeddingModelProvider: EmbeddingProviding {
         } else {
             activeCount -= 1
         }
-        SeerMetrics.embeddingQueueDepth.record(Double(priorityWaiters.count + normalWaiters.count))
+        SewnMetrics.embeddingQueueDepth.record(Double(priorityWaiters.count + normalWaiters.count))
     }
 
     private func removeInflight(key: String) {

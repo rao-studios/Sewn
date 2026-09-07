@@ -1,6 +1,6 @@
 //
 //  SinatraRoutes.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation
@@ -26,16 +26,16 @@ import Hummingbird
 /// - `POST /v1/frank/import` — restores a `SinatraExport` into the requesting
 ///   owner's slot, replacing any existing state. The `owner_id` in the export
 ///   payload is metadata only — the auth'd requester's ID is always applied.
-func registerFrankRoutes(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
+func registerFrankRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
 
     // MARK: POST /v1/frank/gbt
 
     router.post("/v1/frank/gbt") { request, context async throws -> FrankGBTResponse in
         let body    = try await request.decode(as: FrankGBTRequest.self, context: context)
-        let seerReq = try body.seer.from(context)
-        let owner   = SeerRegistry.Owner(id: seerReq.ownerId)
+        let sewnReq = try body.sewn.from(context)
+        let owner   = SewnRegistry.Owner(id: sewnReq.ownerId)
 
-        let sinatra      = seer.sinatra
+        let sinatra      = sewn.sinatra
         let registry     = sinatra.registry
         let model        = registry?.models[owner]
         let collector    = registry?.collectors[owner]
@@ -87,10 +87,10 @@ func registerFrankRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
 
     router.post("/v1/frank/parking") { request, context async throws -> FrankParkingResponse in
         let body    = try await request.decode(as: FrankGBTRequest.self, context: context)
-        let seerReq = try body.seer.from(context)
-        let owner   = SeerRegistry.Owner(id: seerReq.ownerId)
+        let sewnReq = try body.sewn.from(context)
+        let owner   = SewnRegistry.Owner(id: sewnReq.ownerId)
 
-        let sinatra           = seer.sinatra
+        let sinatra           = sewn.sinatra
         let registry          = sinatra.registry
         let parked            = registry?.parked[owner] ?? []
         let collector         = registry?.collectors[owner]
@@ -100,7 +100,7 @@ func registerFrankRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
         let lastSentiment     = registry?.lastSentiments[owner]
         let lastSearchEntries = registry?.lastSearchEntries[owner] ?? []
         let lastTrajectory    = registry?.lastTrajectories[owner]
-        let documentStats     = seer.registry?.documentStats ?? [:]
+        let documentStats     = sewn.registry?.documentStats ?? [:]
 
         let featureNames: [String] = [
             "ema_wa", "sma_wa",
@@ -168,24 +168,24 @@ func registerFrankRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
 
     router.post("/v1/frank/reset") { request, context async throws -> FrankResetResponse in
         let body    = try await request.decode(as: FrankGBTRequest.self, context: context)
-        let seerReq = try body.seer.from(context)
+        let sewnReq = try body.sewn.from(context)
 
-        let hadData = seer.sinatra.removeOwner(id: seerReq.ownerId)
+        let hadData = sewn.sinatra.removeOwner(id: sewnReq.ownerId)
 
-        return FrankResetResponse(reset: hadData, ownerId: seerReq.ownerId)
+        return FrankResetResponse(reset: hadData, ownerId: sewnReq.ownerId)
     }
 
     // MARK: POST /v1/frank/export
 
     router.post("/v1/frank/export") { request, context async throws -> SinatraExport in
         let body    = try await request.decode(as: FrankGBTRequest.self, context: context)
-        let seerReq = try body.seer.from(context)
-        let owner   = SeerRegistry.Owner(id: seerReq.ownerId)
+        let sewnReq = try body.sewn.from(context)
+        let owner   = SewnRegistry.Owner(id: sewnReq.ownerId)
 
-        let registry = seer.sinatra.registry
+        let registry = sewn.sinatra.registry
 
         return SinatraExport(
-            ownerId:           seerReq.ownerId,
+            ownerId:           sewnReq.ownerId,
             parked:            registry?.parked[owner] ?? [],
             collector:         registry?.collectors[owner],
             dataSet:           registry?.dataSets[owner],
@@ -201,13 +201,13 @@ func registerFrankRoutes(_ router: some RouterMethods<SeerRequestContext>, _ see
 
     router.post("/v1/frank/import") { request, context async throws -> FrankImportResponse in
         let body    = try await request.decode(as: FrankImportRequest.self, context: context)
-        let seerReq = try body.seer.from(context)
+        let sewnReq = try body.sewn.from(context)
 
-        seer.sinatra.importOwner(id: seerReq.ownerId, from: body.export)
+        sewn.sinatra.importOwner(id: sewnReq.ownerId, from: body.export)
 
         return FrankImportResponse(
             imported: true,
-            ownerId:  seerReq.ownerId,
+            ownerId:  sewnReq.ownerId,
             summary:  body.export.summary
         )
     }

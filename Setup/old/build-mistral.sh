@@ -16,7 +16,7 @@ mkdir -p "$INSTALL_DIR"
 # Build the package in release mode
 echo "Building $EXECUTABLE_NAME in release mode..."
 swift build -c release
-# xcodebuild build -scheme seer-server-release -destination 'platform=OS X' -derivedDataPath ".dist/"
+# xcodebuild build -scheme sewn-server-release -destination 'platform=OS X' -derivedDataPath ".dist/"
 
 # Check if build succeeded
 if [ $? -ne 0 ]; then

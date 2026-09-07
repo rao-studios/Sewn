@@ -1,6 +1,6 @@
 //
 //  HarmonyMemory.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 2/18/26.
 //

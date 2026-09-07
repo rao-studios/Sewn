@@ -1,6 +1,6 @@
 //
 //  Marielle.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 3/25/26.
 //
@@ -10,8 +10,8 @@ import Hummingbird
 
 /*
 The point of these routes are for personalized experiences that improve
-or change based on the user's profile. Seer is the A.I. agent user-facing.
-"Marielle" is the internal name for this compartmentalized facet of Seer.
+or change based on the user's profile. Sewn is the A.I. agent user-facing.
+"Marielle" is the internal name for this compartmentalized facet of Sewn.
 */
 
 /// Registers the `/v1/marielle/` routes:
@@ -21,12 +21,12 @@ or change based on the user's profile. Seer is the A.I. agent user-facing.
 /// - `POST /v1/marielle/interject`  — mid-session lateral question scored against live context
 /// - `POST /v1/marielle/bridge`     — question that bridges two profiles' HNSW worlds
 func registerMarielleRoutes(
-    _ router: some RouterMethods<SeerRequestContext>,
-    _ seer:          Seer,
+    _ router: some RouterMethods<SewnRequestContext>,
+    _ sewn:          Sewn,
     modelProvider:   ModelProvider
 ) {
 
-    let unavailable = HTTPError(.serviceUnavailable, message: "Marielle requires Totem-hosted HNSW graph — not yet implemented")
+    let unavailable = HTTPError(.serviceUnavailable, message: "Marielle requires Thread-hosted HNSW graph — not yet implemented")
     router.post("/v1/marielle/open")      { _, _ async throws -> MarielleOpenResponse      in throw unavailable }
     router.post("/v1/marielle/proactive") { _, _ async throws -> MarielleProactiveResponse in throw unavailable }
     router.post("/v1/marielle/interject") { _, _ async throws -> MarielleInterjectResponse in throw unavailable }
@@ -38,7 +38,7 @@ func registerMarielleRoutes(
 fileprivate enum MariellePrompts {
     static func openSystemPrompt(context: String) -> String {
         """
-        You are Seer, an attentive presence. You have been shown fragments of what someone has been thinking about lately — their recent documents, memories, and ideas. Your task is to ask one question that opens a conversation naturally.
+        You are Sewn, an attentive presence. You have been shown fragments of what someone has been thinking about lately — their recent documents, memories, and ideas. Your task is to ask one question that opens a conversation naturally.
 
         Rules:
         - One question only. No preamble, no explanation, no quoting back what you read.
@@ -55,7 +55,7 @@ fileprivate enum MariellePrompts {
 
     static func interjectSystemPrompt(recentTurns: String, candidateContext: String) -> String {
         """
-        You are Seer, a thoughtful listener. You are observing an ongoing conversation and have noticed something nearby that hasn't come up yet. Your task is to ask one question that opens a new angle without interrupting the flow.
+        You are Sewn, a thoughtful listener. You are observing an ongoing conversation and have noticed something nearby that hasn't come up yet. Your task is to ask one question that opens a new angle without interrupting the flow.
 
         Rules:
         - One question only. No preamble, no explanation.
@@ -75,7 +75,7 @@ fileprivate enum MariellePrompts {
     static func bridgeSystemPrompt(hasOverlap: Bool, contextBlock: String) -> String {
         if hasOverlap {
             return """
-            You are Seer. Two people share an overlapping interest that neither may have discussed together yet. Given fragments from both their recent thinking, write one question that invites them into that shared space.
+            You are Sewn. Two people share an overlapping interest that neither may have discussed together yet. Given fragments from both their recent thinking, write one question that invites them into that shared space.
 
             Rules:
             - One question only. No preamble, no explanation.
@@ -89,7 +89,7 @@ fileprivate enum MariellePrompts {
             """
         } else {
             return """
-            You are Seer. Two people are currently living in quite different intellectual or creative spaces. Given fragments from each of their recent worlds, write one question that bridges them — something one would find genuinely useful to ask the other.
+            You are Sewn. Two people are currently living in quite different intellectual or creative spaces. Given fragments from each of their recent worlds, write one question that bridges them — something one would find genuinely useful to ask the other.
 
             Rules:
             - One question only. No preamble, no explanation.

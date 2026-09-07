@@ -1,6 +1,6 @@
 //
 //  GroupRemoveResponse.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation
@@ -11,7 +11,7 @@ struct GroupRemoveResponse: Codable {
     let groupId: String?
     /// IDs of every document that was removed with the group.
     let documentIds: [String]
-    let user: Seer.User
+    let user: Sewn.User
 
     enum CodingKeys: String, CodingKey {
         case groupId = "group_id"

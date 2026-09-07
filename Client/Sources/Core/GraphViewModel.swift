@@ -40,9 +40,9 @@ final class GraphViewModel: ObservableObject {
     @Published var traceActive = false
 
     // Node selection target (environment-aware: local config or prod endpoint)
-    @Published var target: TotemTarget?
+    @Published var target: ThreadTarget?
 
-    private(set) var api: TotemAPI?
+    private(set) var api: ThreadAPI?
     var ownerId: String = ""
 
     var selectedEntity: GraphEntity? {
@@ -53,9 +53,9 @@ final class GraphViewModel: ObservableObject {
         Array(Set(nodes.map { $0.entity.kind })).sorted()
     }
 
-    func attach(target: TotemTarget, ownerId: String) {
+    func attach(target: ThreadTarget, ownerId: String) {
         self.target = target
-        api = TotemAPI(baseURL: target.baseURL)
+        api = ThreadAPI(baseURL: target.baseURL)
         self.ownerId = ownerId
     }
 
@@ -66,7 +66,7 @@ final class GraphViewModel: ObservableObject {
         isLoading = true
         error = nil
         defer { isLoading = false }
-        // No entity/text query → browse mode: the totem returns the whole
+        // No entity/text query → browse mode: the thread returns the whole
         // graph capped by mention count, so allow a much larger cap.
         let browsing = entityQuery.isEmpty && textQuery.isEmpty
         do {
@@ -124,7 +124,7 @@ final class GraphViewModel: ObservableObject {
 
     /// Applies a trace overlay from an already-fetched search response — the
     /// Library pane's search shares its single `/v1/search` call with the graph
-    /// when both panes target the same totem.
+    /// when both panes target the same thread.
     func applyTrace(query: String, response: SearchResponseBody) {
         traceQuery = query
         traceMatchedIds = Set(response.graph?.matchedEntityIds ?? [])

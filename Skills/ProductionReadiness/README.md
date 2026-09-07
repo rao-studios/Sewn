@@ -1,6 +1,6 @@
 # Production Readiness
 
-Checklists, deployment procedures, and operational guidance for Seer in production.
+Checklists, deployment procedures, and operational guidance for Sewn in production.
 
 ---
 
@@ -18,10 +18,10 @@ Checklists, deployment procedures, and operational guidance for Seer in producti
 
 - [ ] `MISTRAL_API_KEY` is in environment, NOT in source or docker-compose
 - [ ] Supabase anon/service keys are in environment, NOT in source
-- [ ] `~/.seer/` data directory is NOT world-readable: `chmod 700 ~/.seer`
+- [ ] `~/.sewn/` data directory is NOT world-readable: `chmod 700 ~/.sewn`
 - [ ] Admin owner_id allowlist is configured correctly (not empty, not wildcard)
 - [ ] `GET /metrics` is not publicly accessible (firewall or reverse proxy gate)
-- [ ] TLS is terminated at the reverse proxy (Seer itself runs HTTP internally)
+- [ ] TLS is terminated at the reverse proxy (Sewn itself runs HTTP internally)
 
 ### Data Integrity
 
@@ -51,16 +51,16 @@ Checklists, deployment procedures, and operational guidance for Seer in producti
 
 ```bash
 # Build
-docker build -t seer-server:latest .
+docker build -t sewn-server:latest .
 
 # Run with environment
 docker run -d \
-  --name seer \
+  --name sewn \
   -p 8080:8080 \
-  -v ~/.seer:/root/.seer \
+  -v ~/.sewn:/root/.sewn \
   -e MISTRAL_API_KEY=sk-... \
   -e MLX_ENV=production \
-  seer-server:latest \
+  sewn-server:latest \
   --model /models/mistral-7b \
   --host 0.0.0.0 \
   --port 8080
@@ -69,7 +69,7 @@ docker run -d \
 curl http://localhost:8080/health
 
 # Tail logs
-docker logs -f seer
+docker logs -f sewn
 ```
 
 ### docker-compose (development)
@@ -85,7 +85,7 @@ docker-compose down
 ## Startup Arguments Reference
 
 ```bash
-./seer-server \
+./sewn-server \
   --model <path>                    # Required: path to MLX model OR model name for Mistral
   --host 0.0.0.0                    # Default: localhost (change for external access)
   --port 8080                        # Default: 8080
@@ -215,16 +215,16 @@ done
 
 | Metric | Alert If |
 |--------|---------|
-| `seer_inference_count_total` | Drops to 0 (server stopped processing) |
-| `seer_hnsw_node_count` | Decreases unexpectedly without delete operations |
-| `seer_index_queue_depth` | Stays > 100 for > 5 minutes (indexing backlog) |
-| `seer_sinatra_park_queue_depth` | > 500 per owner (GBT training not keeping up) |
+| `sewn_inference_count_total` | Drops to 0 (server stopped processing) |
+| `sewn_hnsw_node_count` | Decreases unexpectedly without delete operations |
+| `sewn_index_queue_depth` | Stays > 100 for > 5 minutes (indexing backlog) |
+| `sewn_sinatra_park_queue_depth` | > 500 per owner (GBT training not keeping up) |
 | `http_request_duration_seconds` p99 | > 5s for chat completions |
-| `seer_oracle_peer_failures_total` | Rapid increase (peer connectivity issue) |
+| `sewn_oracle_peer_failures_total` | Rapid increase (peer connectivity issue) |
 
 ### Log Levels
 
-Seer uses `SeerLogger`. In production:
+Sewn uses `SewnLogger`. In production:
 - Set `MLX_ENV=production` → info-level logging only
 - Set `MLX_ENV=development` → debug-level (verbose, not for production)
 
@@ -232,14 +232,14 @@ Seer uses `SeerLogger`. In production:
 
 ## Security Hardening
 
-- [ ] Reverse proxy (nginx/caddy) with TLS in front of Seer (Seer serves HTTP)
+- [ ] Reverse proxy (nginx/caddy) with TLS in front of Sewn (Sewn serves HTTP)
 - [ ] Rate limiting at reverse proxy (e.g. 60 req/min per IP for /v1/chat/completions)
 - [ ] `GET /metrics` blocked externally (internal-only scrape from Prometheus)
-- [ ] `~/.seer/` data encrypted at rest (disk-level or application-level)
+- [ ] `~/.sewn/` data encrypted at rest (disk-level or application-level)
   - **Note**: Application-level encryption is a TODO in `Storage.swift`
 - [ ] Supabase RLS (Row Level Security) policies reviewed for any Supabase tables used by backup/restore
 - [ ] Admin owner_id is a service account, not a user-facing account
-- [ ] Logs do not contain full JWT tokens (check `SeerLogger` redaction)
+- [ ] Logs do not contain full JWT tokens (check `SewnLogger` redaction)
 
 ---
 
@@ -254,14 +254,14 @@ Seer uses `SeerLogger`. In production:
 ### Scenario: Corrupt HNSW graph
 
 1. Stop server
-2. Delete `~/.seer/global_graph` and `~/.seer/personal_graphs/`
+2. Delete `~/.sewn/global_graph` and `~/.sewn/personal_graphs/`
 3. Run `POST /v1/storage/restore` for each owner to re-index from Supabase backup
 4. Alternatively: rebuild from scratch via batch embeddings if backup is unavailable
 
 ### Scenario: Corrupt Sinatra registry
 
 1. Stop server
-2. Delete `~/.seer/sinatra/registry`
+2. Delete `~/.sewn/sinatra/registry`
 3. Restart — Sinatra initializes fresh (no GBT models, will retrain from next inferences)
 4. No data loss — GBT models are learned, not user data
 

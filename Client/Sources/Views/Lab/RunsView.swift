@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Runs & checkpoints browser (via the tinker_helper JSON bridge), with
-/// copy-URI and deploy-to-Seer actions for sampler checkpoints.
+/// copy-URI and deploy-to-Sewn actions for sampler checkpoints.
 struct RunsView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject var venv: VenvManager
@@ -44,8 +44,8 @@ struct RunsView: View {
         .task { await refresh() }
         .onChange(of: appState.sessionEpoch) {
             Task {
-                deployedModel = try? await appState.seerAPI.adminModel().chatModel
-                personalities = (try? await appState.seerAPI.personalities()) ?? []
+                deployedModel = try? await appState.sewnAPI.adminModel().chatModel
+                personalities = (try? await appState.sewnAPI.personalities()) ?? []
             }
         }
     }
@@ -56,30 +56,30 @@ struct RunsView: View {
                 SectionLabel("Training runs")
                 Spacer()
                 if let status {
-                    Text(status).font(.seerSans(10.5)).foregroundStyle(Color.seerInk.opacity(0.5))
+                    Text(status).font(.sewnSans(10.5)).foregroundStyle(Color.sewnInk.opacity(0.5))
                         .lineLimit(1)
                 }
                 Button { Task { await refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.seerQuiet)
+                    .buttonStyle(.sewnQuiet)
             }
             .padding(14)
 
             List(runs, selection: $selectedRunId) { run in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(run.id)
-                        .font(.seerMono(10.5))
+                        .font(.sewnMono(10.5))
                         .lineLimit(1).truncationMode(.middle)
                     if !run.summary.isEmpty {
                         Text(run.summary)
-                            .font(.seerSans(10.5))
-                            .foregroundStyle(Color.seerInk.opacity(0.5))
+                            .font(.sewnSans(10.5))
+                            .foregroundStyle(Color.sewnInk.opacity(0.5))
                     }
                 }
                 .tag(run.id)
             }
             .scrollContentBackground(.hidden)
         }
-        .background(Color.seerBG)
+        .background(Color.sewnBG)
         .onChange(of: selectedRunId) { _, runId in
             if let runId { Task { await loadCheckpoints(runId: runId) } }
         }
@@ -91,7 +91,7 @@ struct RunsView: View {
                 SectionLabel("Checkpoints")
                 Spacer()
                 if let deployedModel {
-                    SeerPill(text: "serving: \(deployedModel.suffix(28))", tint: .seerGreen)
+                    SewnPill(text: "serving: \(deployedModel.suffix(28))", tint: .sewnGreen)
                 }
             }
             .padding(14)
@@ -105,9 +105,9 @@ struct RunsView: View {
                 List(checkpoints) { checkpoint in
                     HStack(spacing: 8) {
                         Image(systemName: checkpoint.isSampler ? "waveform" : "internaldrive")
-                            .foregroundStyle(checkpoint.isSampler ? Color.seerGold : Color.seerInk.opacity(0.4))
+                            .foregroundStyle(checkpoint.isSampler ? Color.sewnGold : Color.sewnInk.opacity(0.4))
                         Text(checkpoint.id)
-                            .font(.seerMono(10))
+                            .font(.sewnMono(10))
                             .lineLimit(1).truncationMode(.middle)
                             .textSelection(.enabled)
                         Spacer()
@@ -115,12 +115,12 @@ struct RunsView: View {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(checkpoint.id, forType: .string)
                         }
-                        .buttonStyle(.seerQuiet)
+                        .buttonStyle(.sewnQuiet)
                         if checkpoint.isSampler {
-                            Button("Deploy to Seer") {
+                            Button("Deploy to Sewn") {
                                 Task { await deploy(checkpoint.id) }
                             }
-                            .buttonStyle(.seer)
+                            .buttonStyle(.sewn)
                             if !personalities.isEmpty {
                                 Menu("Deploy to…") {
                                     ForEach(personalities) { personality in
@@ -138,7 +138,7 @@ struct RunsView: View {
                 .scrollContentBackground(.hidden)
             }
         }
-        .background(Color.seerBG)
+        .background(Color.sewnBG)
     }
 
     // MARK: Data
@@ -150,8 +150,8 @@ struct RunsView: View {
             runs = Self.extractRecords(result, idKeys: ["training_run_id", "run_id", "id"])
                 .map { RunRow(id: $0.id, raw: $0.raw) }
             status = "\(runs.count) run(s)"
-            deployedModel = try? await appState.seerAPI.adminModel().chatModel
-            personalities = (try? await appState.seerAPI.personalities()) ?? []
+            deployedModel = try? await appState.sewnAPI.adminModel().chatModel
+            personalities = (try? await appState.sewnAPI.personalities()) ?? []
         } catch {
             status = error.localizedDescription
             runs = []
@@ -171,7 +171,7 @@ struct RunsView: View {
 
     private func deploy(_ tinkerPath: String) async {
         do {
-            let response = try await appState.seerAPI.setAdminModel(chatModel: tinkerPath)
+            let response = try await appState.sewnAPI.setAdminModel(chatModel: tinkerPath)
             deployedModel = response.chatModel
             status = "deployed"
         } catch {
@@ -186,7 +186,7 @@ struct RunsView: View {
         var updated = personalities
         updated[index].modelOverride = tinkerPath
         do {
-            personalities = try await appState.seerAPI.updatePersonalities(updated)
+            personalities = try await appState.sewnAPI.updatePersonalities(updated)
             status = "deployed to \(personality.name)"
         } catch {
             status = "deploy failed: \(error.localizedDescription)"

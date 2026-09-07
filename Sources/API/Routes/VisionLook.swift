@@ -1,6 +1,6 @@
 //
 //  VisionLook.swift
-//  Seer
+//  Sewn
 //
 //  ONE LOOK AT WHAT THE USER IS SEEING. Bonnie captures the region of the
 //  screen the user is attending to — a page in any browser, an image, a
@@ -92,7 +92,7 @@ func visionLookUserText(pageTitle: String?, pageText: String?, direction: String
 // MARK: - Route registration
 
 func registerVisionLookRoute(
-    _ router: some RouterMethods<SeerRequestContext>
+    _ router: some RouterMethods<SewnRequestContext>
 ) {
     router.post("/v1/vision/look") { request, context async throws -> VisionLookResponse in
         let look = try await request.decode(as: VisionLookRequest.self, context: context)

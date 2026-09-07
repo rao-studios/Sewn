@@ -1,6 +1,6 @@
 //
 //  Documents.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 11/13/25.
 //
@@ -8,19 +8,19 @@
 import Foundation
 import Hummingbird
 
-func registerListDocumentsRoute(_ router: some RouterMethods<SeerRequestContext>,
-                                _ seer: Seer) {
+func registerListDocumentsRoute(_ router: some RouterMethods<SewnRequestContext>,
+                                _ sewn: Sewn) {
     router.post("/v1/list/documents") { request, context async throws -> DocumentListResponse in
         let documentRequest = try await request.decode(as: DocumentListRequest.self, context: context)
-        let seerReq = try documentRequest.seer.from(context)
-        let ownerId = seerReq.ownerId
+        let sewnReq = try documentRequest.sewn.from(context)
+        let ownerId = sewnReq.ownerId
 
         context.logger.info("Received documents request for owner: \(ownerId)")
 
-        let (groups, _, _) = await seer.fanoutLibrary(ownerId: ownerId)
+        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId)
 
         var seen = Set<String>()
-        var documents: [Seer.Document] = []
+        var documents: [Sewn.Document] = []
         for group in groups {
             for doc in group.documents where seen.insert(doc.id).inserted {
                 documents.append(doc)
@@ -31,44 +31,44 @@ func registerListDocumentsRoute(_ router: some RouterMethods<SeerRequestContext>
     }
 }
 
-func registerListGroupsByDocumentsRoute(_ router: some RouterMethods<SeerRequestContext>,
-                                        _ seer: Seer) {
+func registerListGroupsByDocumentsRoute(_ router: some RouterMethods<SewnRequestContext>,
+                                        _ sewn: Sewn) {
     router.post("/v1/list/groups/documents") { request, context async throws -> GroupsByDocumentsResponse in
         let listRequest = try await request.decode(as: GroupsByDocumentsRequest.self, context: context)
-        let seerReq = try listRequest.seer.from(context)
-        let ownerId = seerReq.ownerId
+        let sewnReq = try listRequest.sewn.from(context)
+        let ownerId = sewnReq.ownerId
 
         context.logger.info(
             "Received groups-by-documents request for owner: \(ownerId), documents: \(listRequest.documentIds.count)"
         )
 
-        let (groups, documentGroups) = await seer.fanoutLibraryByDocuments(
+        let (groups, documentGroups) = await sewn.fanoutLibraryByDocuments(
             ownerId: ownerId,
             documentIds: listRequest.documentIds,
-            totemIds: seerReq.totemIds
+            threadIds: sewnReq.threadIds
         )
 
         return GroupsByDocumentsResponse(groups: groups, documentGroups: documentGroups, access: [:])
     }
 }
 
-func registerListGroupsRoute(_ router: some RouterMethods<SeerRequestContext>,
-                             _ seer: Seer) {
+func registerListGroupsRoute(_ router: some RouterMethods<SewnRequestContext>,
+                             _ sewn: Sewn) {
     router.post("/v1/list/groups") { request, context async throws -> GroupListResponse in
         let groupRequest = try await request.decode(as: GroupListRequest.self, context: context)
-        let seerReq = try groupRequest.seer.from(context)
-        let ownerId = seerReq.ownerId
+        let sewnReq = try groupRequest.sewn.from(context)
+        let ownerId = sewnReq.ownerId
 
         context.logger.info("Received groups request for owner: \(ownerId)")
 
         let limit   = groupRequest.limit
         let afterId = groupRequest.afterId ?? ""
-        let totemIds = seerReq.totemIds
-        let (groups, hasMore, nextAfterId) = await seer.fanoutLibrary(
+        let threadIds = sewnReq.threadIds
+        let (groups, hasMore, nextAfterId) = await sewn.fanoutLibrary(
             ownerId: ownerId,
             limit: limit,
             afterId: afterId,
-            totemIds: totemIds
+            threadIds: threadIds
         )
         var resp = GroupListResponse(groups: groups, access: [:])
         resp.hasMore     = hasMore

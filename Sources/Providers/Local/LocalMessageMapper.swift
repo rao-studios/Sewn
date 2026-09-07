@@ -1,6 +1,6 @@
 //
 //  LocalMessageMapper.swift
-//  Seer
+//  Sewn
 //
 //  WHAT: Role mapping and tool rendering for the on-device model. Pure — no
 //        MLX import — so it is unit-tested without a GPU.
@@ -59,7 +59,7 @@ enum LocalMessageMapper {
     }
 
     /// Render one tool as Frigate's ToolSpec — the OpenAI-style function shape
-    /// its `Tool.init` builds. Seer's `JSONValue` parameters go through
+    /// its `Tool.init` builds. Sewn's `JSONValue` parameters go through
     /// Foundation so no MLX type is named here.
     static func toolSpec(from tool: Requests.Chat.Get.Tool) -> [String: any Sendable] {
         var parameters: [String: any Sendable] = [

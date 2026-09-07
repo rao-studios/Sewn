@@ -1,6 +1,6 @@
 //
 //  Metrics.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation
@@ -8,7 +8,7 @@ import Prometheus
 import Hummingbird
 import NIOCore
 
-func registerMetricsRoute(_ router: some RouterMethods<SeerRequestContext>) {
+func registerMetricsRoute(_ router: some RouterMethods<SewnRequestContext>) {
     router.get("/metrics") { request, context async throws -> Response in
         if let token = ProcessInfo.processInfo.environment["METRICS_TOKEN"], !token.isEmpty {
             guard let authHeader = request.headers[.authorization],

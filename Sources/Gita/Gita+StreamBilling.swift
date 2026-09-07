@@ -1,6 +1,6 @@
 //
 //  Gita+StreamBilling.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 4/12/26.
 //
@@ -82,7 +82,7 @@ extension Gita {
         // MARK: - Full Billing Pipeline
 
         /// Runs the complete streaming billing pipeline and returns a priced
-        /// `Gita.Contribution` ready to pass to `seer.accumulateEarnings(_:)`.
+        /// `Gita.Contribution` ready to pass to `sewn.accumulateEarnings(_:)`.
         ///
         /// 1. Awaits the concurrent Sinatra task (already running, zero latency).
         /// 2. Builds an estimated ledger and merges the exact Sinatra tokens.
@@ -111,7 +111,7 @@ extension Gita {
             gita: Gita,
             strategy: ServiceChargeStrategy = .default,
             currentLoad: Int = 1,
-            request: SeerRequest? = nil
+            request: SewnRequest? = nil
         ) async -> Gita.Contribution {
             let ledger = buildLedger(
                 prompt: prompt,

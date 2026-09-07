@@ -1,6 +1,6 @@
 //
 //  Sinatra+Sentiment.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 1/25/26.
 //
@@ -93,11 +93,11 @@ extension Sinatra {
     /// user's words, so they must not reach a vendor the user did not choose:
     /// on-device gates them off (see ModelProvider.run's `background`).
     func prepare(_ data: [ChatMessageRequestData],
-                 request: SeerRequest,
+                 request: SewnRequest,
                  modelProvider: ModelProvider,
                  provider: LLMProvider = .serverDefault) async throws -> Sinatra.PrepareResult {
 
-        let owner = SeerRegistry.Owner(id: request.ownerId)
+        let owner = SewnRegistry.Owner(id: request.ownerId)
         logger.debug("Prepare Sentiment", "⚜️ Starting sentiment analysis for owner: \(owner.id), messages: \(data.count)", service: .sinatra, request: request)
 
         let registry = self.registry
@@ -353,23 +353,23 @@ extension Sinatra {
         }
 
         let responseLength = assistantString.count
-        SeerMetrics.sinatraSentimentWeight.record(effectiveWeight)
-        SeerMetrics.sinatraSentimentConfidence.record(sentiment.confidence)
+        SewnMetrics.sinatraSentimentWeight.record(effectiveWeight)
+        SewnMetrics.sinatraSentimentConfidence.record(sentiment.confidence)
         logger.debug("Sentiment Weight", "⚜️ base=\(String(format: "%.4f", baseWeight)) effective=\(String(format: "%.4f", effectiveWeight)) confidence=\(sentiment.confidence) responseLength=\(responseLength)", service: .sinatra, request: request)
 
         /* Record the interaction in the RetrievalDataCollector, generate a feature vector for each
            parked item, and add it to the dataset with the effective weight as the target label.
            Performance updates (retrievalCount, sentimentSum, lastRetrieved) are accumulated in
-           `localDocStats` and returned to the caller for persistence in SeerRegistry.documentStats. */
+           `localDocStats` and returned to the caller for persistence in SewnRegistry.documentStats. */
 
         var featureVectorsGenerated = 0
         var featureVectorsSkipped = 0
         var newPoints: [(input: [Double], target: Double, label: String)] = []
-        var localDocStats: [DocumentID: Seer.DocumentStats] = [:]
+        var localDocStats: [DocumentID: Sewn.DocumentStats] = [:]
 
         for parkedItem in parked {
             // Key by documentId so stats are persisted to the correct DocumentStats
-            // entry in SeerRegistry. The partitionId (parkedItem.id) is tracked
+            // entry in SewnRegistry. The partitionId (parkedItem.id) is tracked
             // inside partitionRetrievalCount and partitionSentiments for per-partition granularity.
             let docKey      = parkedItem.documentId.isEmpty ? parkedItem.id : parkedItem.documentId
             let partitionId = parkedItem.id
@@ -407,8 +407,8 @@ extension Sinatra {
             }
         }
 
-        SeerMetrics.sinatraFeatureVectorsGenerated.increment(by: featureVectorsGenerated)
-        SeerMetrics.sinatraFeatureVectorsSkipped.increment(by: featureVectorsSkipped)
+        SewnMetrics.sinatraFeatureVectorsGenerated.increment(by: featureVectorsGenerated)
+        SewnMetrics.sinatraFeatureVectorsSkipped.increment(by: featureVectorsSkipped)
         logger.info("Record Interaction", "⚜️ Recorded \(parked.count) interactions | featureVectors: \(featureVectorsGenerated) generated, \(featureVectorsSkipped) skipped | dataSet size: \(dataSet.size)", service: .sinatra, request: request, flow: .chat)
 
         updatedRegistry.collectors[owner]     = collector
@@ -426,7 +426,7 @@ extension Sinatra {
             let trainStart = Date()
             gbtModel.train(data: dataSet)
             let trainElapsedNs = UInt64(max(0, Date().timeIntervalSince(trainStart) * 1_000_000_000))
-            SeerMetrics.sinatraTrainingDuration.recordNanoseconds(trainElapsedNs)
+            SewnMetrics.sinatraTrainingDuration.recordNanoseconds(trainElapsedNs)
             let tier: String
             switch dataSet.size {
             case ..<30: tier = "small"
@@ -434,9 +434,9 @@ extension Sinatra {
             default: tier = "full"
             }
             Counter(label: "sinatra.training_runs_total", dimensions: [("tier", tier)]).increment()
-            SeerMetrics.sinatraDatasetSize.record(Double(dataSet.size))
-            SeerMetrics.sinatraModelTrees.record(Double(gbtModel.totalTrees))
-            SeerMetrics.sinatraModelInitialPrediction.record(gbtModel.initialPrediction)
+            SewnMetrics.sinatraDatasetSize.record(Double(dataSet.size))
+            SewnMetrics.sinatraModelTrees.record(Double(gbtModel.totalTrees))
+            SewnMetrics.sinatraModelInitialPrediction.record(gbtModel.initialPrediction)
             updatedRegistry.models[owner] = gbtModel
             logger.info("GBT Result", "⚜️ Trained for owner: \(owner.id), trees: \(gbtModel.totalTrees), dataSet: \(dataSet.size)pts", service: .gbtTraining, request: request, flow: .chat)
 
@@ -462,12 +462,12 @@ extension Sinatra {
                 let candidate      = harmonyMemory.improvise()
                 let candidateFit   = collector.evaluateFitness(periods: candidate, model: gbtModel, documentStats: localDocStats)
                 let periodsChanged = harmonyMemory.update(candidate: candidate, candidateFitness: candidateFit)
-                SeerMetrics.sinatraImbhsGeneration.record(Double(harmonyMemory.generation))
+                SewnMetrics.sinatraImbhsGeneration.record(Double(harmonyMemory.generation))
                 if candidateFit.isFinite {
-                    SeerMetrics.sinatraImbhsFitness.record(candidateFit)
+                    SewnMetrics.sinatraImbhsFitness.record(candidateFit)
                 }
                 if periodsChanged {
-                    SeerMetrics.sinatraImbhsTunings.increment()
+                    SewnMetrics.sinatraImbhsTunings.increment()
                 }
 
                 // Build a single summary line covering schedule state, candidate, HM, and outcome
@@ -508,7 +508,7 @@ extension Sinatra {
             logger.debug("Skipped GBT", "⚜️ Skipping GBT training: dataSet size \(dataSet.size) < required \(requiredSize), interactionHistory: \(collector.interactionHistoryCount)", service: .gbtTraining, request: request)
         }
 
-        SeerMetrics.sinatraParked.record(0)
+        SewnMetrics.sinatraParked.record(0)
 
         updatedRegistry.lastTrajectories[owner] = SinatraTrajectorySnapshot(
             paceScore: paceScore,

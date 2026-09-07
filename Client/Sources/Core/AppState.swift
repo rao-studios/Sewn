@@ -42,17 +42,17 @@ final class AppState: ObservableObject {
     let servers = ServerController()
 
     // API clients (Phase 3 wires these to auth + chat)
-    lazy var seerAPI = SeerAPI(baseURL: { [servers] in servers.seerBaseURLSnapshot })
+    lazy var sewnAPI = SewnAPI(baseURL: { [servers] in servers.sewnBaseURLSnapshot })
 
     private var cancellables = Set<AnyCancellable>()
     private var autoSignInTask: Task<Void, Never>?
 
     init() {
         // Seed the base-URL snapshot with the restored config.
-        servers.seerConfig = servers.seerConfig
+        servers.sewnConfig = servers.sewnConfig
 
         // ServerController is a nested ObservableObject — its @Published
-        // changes (server status, environment, discovered totems) don't fire
+        // changes (server status, environment, discovered threads) don't fire
         // this object's objectWillChange on their own, which left views stale
         // until a tab switch re-evaluated them. Forward the publisher.
         servers.objectWillChange
@@ -61,18 +61,18 @@ final class AppState: ObservableObject {
     }
 
     /// Signs in with the test credentials when no session exists. Safe to call
-    /// repeatedly — retried whenever a Seer becomes reachable (readyEpoch).
+    /// repeatedly — retried whenever a Sewn becomes reachable (readyEpoch).
     func autoSignIn() {
         guard autoSignInTask == nil else { return }
         autoSignInTask = Task { [weak self] in
             defer { self?.autoSignInTask = nil }
-            guard let self, await !self.seerAPI.isSignedIn else { return }
+            guard let self, await !self.sewnAPI.isSignedIn else { return }
             do {
-                try await self.seerAPI.signIn(email: TestCredentials.email,
+                try await self.sewnAPI.signIn(email: TestCredentials.email,
                                               password: TestCredentials.password)
                 self.sessionEpoch += 1
             } catch {
-                // Seer not up yet or auth unavailable — retried on next readyEpoch.
+                // Sewn not up yet or auth unavailable — retried on next readyEpoch.
             }
         }
     }

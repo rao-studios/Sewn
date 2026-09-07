@@ -6,10 +6,10 @@ Gita tracks how each document contributes to LLM inferences and distributes roya
 
 ## Market Metaphor
 
-| Market Term | Seer Equivalent | Meaning |
+| Market Term | Sewn Equivalent | Meaning |
 |-------------|-----------------|---------|
-| Security | `Seer.Document` | A tradeable asset (contributes to inferences) |
-| Share | `Seer.Partition` | A unit of value within a document |
+| Security | `Sewn.Document` | A tradeable asset (contributes to inferences) |
+| Share | `Sewn.Partition` | A unit of value within a document |
 | Trade | LLM Inference | An event that consumes document knowledge |
 | Dividend | Royalty credit | Payment to document owners after a trade |
 | Market cap | `DocumentRecord.market_weight` | Relative contribution weight across all owners |
@@ -179,8 +179,8 @@ The `Web3.swift` package is already in `Package.swift` dependencies — the scaf
 
 ## Gita Registry Persistence
 
-- `Gita.Registry` → `~/.seer/gita/registry`
-- `Gita.WalletRegistry` → `~/.seer/wallet_registry`
+- `Gita.Registry` → `~/.sewn/gita/registry`
+- `Gita.WalletRegistry` → `~/.sewn/wallet_registry`
 - Both serialized as JSON via `PersistenceActor`
 - Loaded at startup, written after each mutation
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JSON bridge over the Tinker SDK for the SeerClient app.
+"""JSON bridge over the Tinker SDK for the SewnClient app.
 
 Every subcommand prints exactly one JSON object to stdout. Errors print
 {"error": "..."} and exit 1. Requires TINKER_API_KEY in the environment.

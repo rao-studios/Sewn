@@ -1,6 +1,6 @@
 # Sinatra — Sentiment & GBT System
 
-Sinatra is the emotional intelligence layer of Seer. It analyzes conversation sentiment using a per-user Gradient Boosted Tree (GBT) model and adjusts LLM generation parameters accordingly. It also stores sentiment patterns in an Iterated Memory-Based Harmony Search (IMBHS) memory structure.
+Sinatra is the emotional intelligence layer of Sewn. It analyzes conversation sentiment using a per-user Gradient Boosted Tree (GBT) model and adjusts LLM generation parameters accordingly. It also stores sentiment patterns in an Iterated Memory-Based Harmony Search (IMBHS) memory structure.
 
 ---
 
@@ -9,7 +9,7 @@ Sinatra is the emotional intelligence layer of Seer. It analyzes conversation se
 ```
 User sends message
     │
-    ├─ Retrieve partitions via Seer.search()
+    ├─ Retrieve partitions via Sewn.search()
     │
     ├─ Sinatra.infer(partitions, owner_id)
     │   ├─ Score each partition's sentiment (positive/negative/neutral)
@@ -187,7 +187,7 @@ Resonance measures how "in sync" the current conversation is with the user's his
 
 ## Sinatra Registry
 
-`Sinatra.Registry` is persisted to `~/.seer/sinatra/registry`. It contains ALL Sinatra state for all owners.
+`Sinatra.Registry` is persisted to `~/.sewn/sinatra/registry`. It contains ALL Sinatra state for all owners.
 
 **Watch for**: The registry serializes GBT model trees as JSON. Large model (100 trees × depth 5) ≈ ~500KB per owner. With many owners, this can get large. Compaction of old training data is a future optimization.
 

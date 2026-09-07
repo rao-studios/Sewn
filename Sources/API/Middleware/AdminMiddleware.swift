@@ -1,6 +1,6 @@
 //
 //  AdminMiddleware.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 3/20/26.
 //
@@ -15,15 +15,15 @@ import Hummingbird
 /// additionally asserts that the authenticated user is the designated
 /// admin account. Returns 403 Forbidden for any other valid user.
 struct AdminMiddleware: RouterMiddleware {
-    typealias Context = SeerRequestContext
+    typealias Context = SewnRequestContext
 
     private static let adminUserId =
         ProcessInfo.processInfo.environment["ADMIN_USER_ID"] ?? ""
 
     func handle(
         _ request: Request,
-        context: SeerRequestContext,
-        next: (Request, SeerRequestContext) async throws -> Response
+        context: SewnRequestContext,
+        next: (Request, SewnRequestContext) async throws -> Response
     ) async throws -> Response {
         guard let authHeader = request.headers[.authorization],
               authHeader.hasPrefix("Bearer "),

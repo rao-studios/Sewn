@@ -1,6 +1,6 @@
 //
 //  Summarize.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 1/10/26.
 //
@@ -8,8 +8,8 @@
 import Foundation
 import Hummingbird
 
-func registerSummarizeRoute(_ router: some RouterMethods<SeerRequestContext>,
-                            _ seer: Seer,
+func registerSummarizeRoute(_ router: some RouterMethods<SewnRequestContext>,
+                            _ sewn: Sewn,
                             modelProvider: ModelProvider,
                             isAPI: Bool = false) {
     router.post("/v1/tools/summarize") { request, context async throws -> SummarizeResponse in
@@ -18,7 +18,7 @@ func registerSummarizeRoute(_ router: some RouterMethods<SeerRequestContext>,
         let toolReqId = "tools-summarize-\(UUID().uuidString)"
         logger
             .info(
-                "Received tools-summarize request (ID: \(toolReqId)) for owner: \(summarizeRequest.seer.ownerId)"
+                "Received tools-summarize request (ID: \(toolReqId)) for owner: \(summarizeRequest.sewn.ownerId)"
             )
         
         let systemPrompt: String = """

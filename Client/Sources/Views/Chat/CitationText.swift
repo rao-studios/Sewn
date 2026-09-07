@@ -3,7 +3,7 @@ import SwiftUI
 /// Stable per-owner accent tints for citation highlights.
 enum CitationPalette {
     private static let tints: [Color] = [
-        .seerGold,
+        .sewnGold,
         Color(red: 110/255, green: 140/255, blue: 180/255),
         Color(red: 140/255, green: 110/255, blue: 170/255),
         Color(red: 100/255, green: 155/255, blue: 120/255),
@@ -16,7 +16,7 @@ enum CitationPalette {
         let owners = (contribution?.owners ?? [])
             .compactMap { $0.ownerId }
             .sorted()
-        guard let index = owners.firstIndex(of: ownerId) else { return .seerGold }
+        guard let index = owners.firstIndex(of: ownerId) else { return .sewnGold }
         return tints[index % tints.count]
     }
 }
@@ -35,8 +35,8 @@ struct CitationText: View {
 
     var body: some View {
         Text(attributed)
-            .font(.seerSans(13.5))
-            .foregroundStyle(Color.seerInk)
+            .font(.sewnSans(13.5))
+            .foregroundStyle(Color.sewnInk)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

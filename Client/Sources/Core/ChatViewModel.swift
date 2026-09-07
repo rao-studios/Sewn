@@ -29,8 +29,8 @@ final class ChatViewModel: ObservableObject {
     @Published var draft = ""
     @Published var isStreaming = false
     @Published var isSignedIn = false
-    @Published var totems: [TotemNodeEntry] = []
-    @Published var personalTotemId: String?
+    @Published var threads: [ThreadNodeEntry] = []
+    @Published var personalThreadId: String?
     @Published var activeModel: String?
     @Published var personalities: [Personality] = []
     @Published var selectedPersonality: String {
@@ -39,23 +39,23 @@ final class ChatViewModel: ObservableObject {
     @Published var streamTick = 0
     @Published var error: String?
 
-    private static let personalityKey = "seer.client.personality"
+    private static let personalityKey = "sewn.client.personality"
 
-    private var api: SeerAPI?
+    private var api: SewnAPI?
     private var streamTask: Task<Void, Never>?
 
     init() {
-        selectedPersonality = UserDefaults.standard.string(forKey: Self.personalityKey) ?? "seer"
+        selectedPersonality = UserDefaults.standard.string(forKey: Self.personalityKey) ?? "sewn"
     }
 
-    func attach(api: SeerAPI) {
+    func attach(api: SewnAPI) {
         self.api = api
     }
 
     func refreshState() async {
         guard let api else { return }
         isSignedIn = await api.isSignedIn
-        totems = (try? await api.totems())?.nodes.filter { $0.isActive } ?? []
+        threads = (try? await api.threads())?.nodes.filter { $0.isActive } ?? []
         activeModel = try? await api.adminModel().chatModel
         if isSignedIn {
             personalities = (try? await api.personalities()) ?? personalities
@@ -85,7 +85,7 @@ final class ChatViewModel: ObservableObject {
             ["role": $0.role == .user ? "user" : "assistant", "content": $0.text]
         }
 
-        let personalTotem = personalTotemId
+        let personalThread = personalThreadId
         let personality = selectedPersonality.isEmpty ? nil : selectedPersonality
         streamTask = Task { [weak self] in
             guard let self else { return }
@@ -93,7 +93,7 @@ final class ChatViewModel: ObservableObject {
                 let stream = try await api.chatStream(
                     messages: history,
                     personality: personality,
-                    personalTotemId: personalTotem
+                    personalThreadId: personalThread
                 )
                 for try await event in stream {
                     if Task.isCancelled { break }

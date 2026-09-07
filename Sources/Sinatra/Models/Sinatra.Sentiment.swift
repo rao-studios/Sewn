@@ -1,6 +1,6 @@
 //
 //  Sinatra.Sentiment.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 1/30/26.
 //

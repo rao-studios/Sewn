@@ -18,24 +18,24 @@ struct PersonalitiesSection: View {
                 Spacer()
                 if isDirty {
                     Button("Save to server") { save() }
-                        .buttonStyle(.seer)
+                        .buttonStyle(.sewn)
                 }
                 Button {
                     Task { await load() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.seerQuiet)
+                .buttonStyle(.sewnQuiet)
             }
 
             Text("Personas for chat: a voice fragment, generation parameters, and an optional fine-tuned model. Citation emphasis strengthens the source-marker discipline for that persona.")
-                .font(.seerSans(11))
-                .foregroundStyle(Color.seerInk.opacity(0.45))
+                .font(.sewnSans(11))
+                .foregroundStyle(Color.sewnInk.opacity(0.45))
 
             if personalities.isEmpty && !isLoading {
                 Text("Sign in and refresh to load personalities.")
-                    .font(.seerSans(11))
-                    .foregroundStyle(Color.seerInk.opacity(0.45))
+                    .font(.sewnSans(11))
+                    .foregroundStyle(Color.sewnInk.opacity(0.45))
             }
 
             ForEach(personalities) { personality in
@@ -60,12 +60,12 @@ struct PersonalitiesSection: View {
                 } label: {
                     Label("Add personality", systemImage: "plus")
                 }
-                .buttonStyle(.seerQuiet)
+                .buttonStyle(.sewnQuiet)
                 if let status {
                     Text(status)
-                        .font(.seerSans(11))
+                        .font(.sewnSans(11))
                         .foregroundStyle(status.hasPrefix("Saved")
-                            ? Color.seerGreen : Color.seerError)
+                            ? Color.sewnGreen : Color.sewnError)
                 }
             }
         }
@@ -88,24 +88,24 @@ struct PersonalitiesSection: View {
     private func personalityRow(_ personality: Personality) -> some View {
         HStack(spacing: 8) {
             Text(personality.name)
-                .font(.seerSans(12, weight: .medium))
-                .foregroundStyle(Color.seerInk)
+                .font(.sewnSans(12, weight: .medium))
+                .foregroundStyle(Color.sewnInk)
                 .frame(width: 90, alignment: .leading)
                 .fixedSize()
             Text(personality.tagline)
-                .font(.seerSans(11))
-                .foregroundStyle(Color.seerInk.opacity(0.5))
+                .font(.sewnSans(11))
+                .foregroundStyle(Color.sewnInk.opacity(0.5))
                 .lineLimit(1)
             Spacer(minLength: 8)
             if personality.citationEmphasis {
-                SeerPill(text: "cites")
+                SewnPill(text: "cites")
             }
             if let model = personality.modelOverride {
-                SeerPill(text: String(model.suffix(24)))
+                SewnPill(text: String(model.suffix(24)))
                     .lineLimit(1)
             }
             Button("Edit") { editing = personality }
-                .buttonStyle(.seerQuiet)
+                .buttonStyle(.sewnQuiet)
             Button {
                 personalities.removeAll { $0.id == personality.id }
                 isDirty = true
@@ -113,7 +113,7 @@ struct PersonalitiesSection: View {
                 Image(systemName: "xmark.circle")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.seerInk.opacity(0.3))
+            .foregroundStyle(Color.sewnInk.opacity(0.3))
             .disabled(personalities.count <= 1)
         }
     }
@@ -122,7 +122,7 @@ struct PersonalitiesSection: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            personalities = try await appState.seerAPI.personalities()
+            personalities = try await appState.sewnAPI.personalities()
             isDirty = false
             status = nil
         } catch {
@@ -134,7 +134,7 @@ struct PersonalitiesSection: View {
         status = nil
         Task {
             do {
-                personalities = try await appState.seerAPI.updatePersonalities(personalities)
+                personalities = try await appState.sewnAPI.updatePersonalities(personalities)
                 isDirty = false
                 status = "Saved."
             } catch {
@@ -154,13 +154,13 @@ private struct PersonalityEditorSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Edit personality")
-                .font(.seerSerif(18, weight: .light, italic: true))
-                .foregroundStyle(Color.seerInk)
+                .font(.sewnSerif(18, weight: .light, italic: true))
+                .foregroundStyle(Color.sewnInk)
 
             fieldRow("Id") {
                 TextField("scholar", text: $personality.id)
                     .textFieldStyle(.roundedBorder)
-                    .font(.seerMono(11))
+                    .font(.sewnMono(11))
             }
             fieldRow("Name") {
                 TextField("Scholar", text: $personality.name)
@@ -174,14 +174,14 @@ private struct PersonalityEditorSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 SectionLabel("Voice (system fragment)")
                 TextEditor(text: $personality.systemFragment)
-                    .font(.seerSans(12))
+                    .font(.sewnSans(12))
                     .frame(height: 110)
                     .overlay(RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(Color.seerBorder, lineWidth: 1))
+                        .strokeBorder(Color.sewnBorder, lineWidth: 1))
             }
 
             Toggle("Citation emphasis — stronger [[n]] marker discipline", isOn: $personality.citationEmphasis)
-                .font(.seerSans(12))
+                .font(.sewnSans(12))
 
             fieldRow("Temperature") {
                 slider(value: $personality.temperature, range: 0...1.5, default: 0.8)
@@ -194,28 +194,28 @@ private struct PersonalityEditorSheet: View {
                     get: { personality.modelOverride ?? "" },
                     set: { personality.modelOverride = $0.isEmpty ? nil : $0 }))
                     .textFieldStyle(.roundedBorder)
-                    .font(.seerMono(11))
+                    .font(.sewnMono(11))
             }
 
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
-                    .buttonStyle(.seerQuiet)
+                    .buttonStyle(.sewnQuiet)
                 Button("Apply") { onSave(personality) }
-                    .buttonStyle(.seer)
+                    .buttonStyle(.sewn)
                     .disabled(personality.id.isEmpty || personality.name.isEmpty)
             }
         }
         .padding(22)
         .frame(width: 460)
-        .background(Color.seerBG)
+        .background(Color.sewnBG)
     }
 
     private func fieldRow(_ label: String, @ViewBuilder content: () -> some View) -> some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.seerSans(12, weight: .medium))
-                .foregroundStyle(Color.seerInk)
+                .font(.sewnSans(12, weight: .medium))
+                .foregroundStyle(Color.sewnInk)
                 .frame(width: 90, alignment: .leading)
                 .fixedSize()
             content()
@@ -230,7 +230,7 @@ private struct PersonalityEditorSheet: View {
                 set: { value.wrappedValue = $0 }
             ), in: range)
             Text(value.wrappedValue.map { String(format: "%.2f", $0) } ?? "auto")
-                .font(.seerMono(10.5))
+                .font(.sewnMono(10.5))
                 .frame(width: 38, alignment: .trailing)
                 .fixedSize()
             Button {
@@ -239,7 +239,7 @@ private struct PersonalityEditorSheet: View {
                 Image(systemName: "arrow.uturn.backward.circle")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.seerInk.opacity(0.3))
+            .foregroundStyle(Color.sewnInk.opacity(0.3))
             .help("Reset to auto (tone/defaults decide)")
         }
     }

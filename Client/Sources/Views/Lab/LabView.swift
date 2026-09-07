@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The ThinkingMachines research lab: manage the Python environment, build
-/// datasets from Seer data, run SFT/DPO training on Tinker, browse runs and
-/// checkpoints, test-chat models, and deploy checkpoints to Seer.
+/// datasets from Sewn data, run SFT/DPO training on Tinker, browse runs and
+/// checkpoints, test-chat models, and deploy checkpoints to Sewn.
 struct LabScreen: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var venv = VenvManager()
@@ -17,7 +17,7 @@ struct LabScreen: View {
         var id: String { rawValue }
     }
 
-    @AppStorage("seer.client.labTab") private var tabRaw = Tab.environment.rawValue
+    @AppStorage("sewn.client.labTab") private var tabRaw = Tab.environment.rawValue
     private var tab: Tab { Tab(rawValue: tabRaw) ?? .environment }
 
     var body: some View {
@@ -29,13 +29,13 @@ struct LabScreen: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .tint(Color.seerGold)
+                .tint(Color.sewnGold)
                 .frame(maxWidth: 420)
             } trailing: {
                 venvBadge
             }
 
-            Divider().overlay(Color.seerBorder)
+            Divider().overlay(Color.sewnBorder)
 
             switch tab {
             case .environment: VenvPanel(venv: venv)
@@ -45,7 +45,7 @@ struct LabScreen: View {
             case .testChat: TestChatView(venv: venv)
             }
         }
-        .background(Color.seerBG)
+        .background(Color.sewnBG)
         .task { await venv.detect() }
     }
 
@@ -53,20 +53,20 @@ struct LabScreen: View {
         HStack(spacing: 6) {
             switch venv.state {
             case .ready(let version):
-                StatusDot(color: .seerGreen)
-                Text("tinker \(version)").font(.seerMono(10))
+                StatusDot(color: .sewnGreen)
+                Text("tinker \(version)").font(.sewnMono(10))
             case .installing:
-                StatusDot(color: .seerGold)
-                Text("installing…").font(.seerMono(10))
+                StatusDot(color: .sewnGold)
+                Text("installing…").font(.sewnMono(10))
             case .missing, .unknown:
-                StatusDot(color: Color.seerInk.opacity(0.25))
-                Text("no venv").font(.seerMono(10))
+                StatusDot(color: Color.sewnInk.opacity(0.25))
+                Text("no venv").font(.sewnMono(10))
             case .broken(let reason):
-                StatusDot(color: .seerError)
-                Text(reason).font(.seerMono(10)).lineLimit(1)
+                StatusDot(color: .sewnError)
+                Text(reason).font(.sewnMono(10)).lineLimit(1)
             }
         }
-        .foregroundStyle(Color.seerInk.opacity(0.6))
+        .foregroundStyle(Color.sewnInk.opacity(0.6))
     }
 }
 
@@ -77,25 +77,25 @@ struct VenvPanel: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            SeerCard {
+            SewnCard {
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel("Python environment")
                     Text(VenvManager.venvURL.path)
-                        .font(.seerMono(10))
-                        .foregroundStyle(Color.seerInk.opacity(0.5))
+                        .font(.sewnMono(10))
+                        .foregroundStyle(Color.sewnInk.opacity(0.5))
                     HStack {
                         switch venv.state {
                         case .ready(let version):
                             Label("tinker \(version) ready", systemImage: "checkmark.circle")
-                                .foregroundStyle(Color.seerGreen)
+                                .foregroundStyle(Color.sewnGreen)
                         case .missing:
                             Text("Virtualenv not found — install to enable training and run management.")
-                                .font(.seerSans(12))
+                                .font(.sewnSans(12))
                         case .broken(let reason):
-                            Text(reason).font(.seerSans(12)).foregroundStyle(Color.seerError)
+                            Text(reason).font(.sewnSans(12)).foregroundStyle(Color.sewnError)
                         case .installing:
                             ProgressView().controlSize(.small)
-                            Text("Installing tinker + tinker-cookbook…").font(.seerSans(12))
+                            Text("Installing tinker + tinker-cookbook…").font(.sewnSans(12))
                         case .unknown:
                             ProgressView().controlSize(.small)
                         }
@@ -103,13 +103,13 @@ struct VenvPanel: View {
                         Button(venv.state == .missing ? "Install" : "Reinstall") {
                             Task { await venv.install() }
                         }
-                        .buttonStyle(.seer)
+                        .buttonStyle(.sewn)
                         .disabled(venv.state == .installing)
                     }
                     if venv.apiKey.isEmpty {
-                        Text("⚠︎ No TINKER_API_KEY found (Keychain or Seer/.env) — chat and helper calls will fail.")
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerError)
+                        Text("⚠︎ No TINKER_API_KEY found (Keychain or Sewn/.env) — chat and helper calls will fail.")
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnError)
                     }
                 }
             }

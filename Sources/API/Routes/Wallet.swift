@@ -1,6 +1,6 @@
 //
 //  Wallet.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 4/19/26.
 //
@@ -20,7 +20,7 @@ struct WalletResponse: Codable {
     /// Credits the owner has already cashed out (sum of all wallet transactions).
     let totalCashedOut: Gita.Credits
     /// Groups with per-group earnings populated.
-    let groups: [Seer.Group]
+    let groups: [Sewn.Group]
     /// Inference credit exchange history.
     let exchanges: [Gita.CreditExchange]
     /// Cashout transaction history.
@@ -43,7 +43,7 @@ struct WalletResponse: Codable {
 /// cumulative earnings (aggregated live from groups), cashout history from the
 /// WalletRegistry, and the full group list so the client can break down earnings
 /// per group.
-func registerWalletRoute(_ router: some RouterMethods<SeerRequestContext>, _ seer: Seer) {
+func registerWalletRoute(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
     router.get("/v1/wallet") { request, context async throws -> WalletResponse in
         guard let ownerId = context.authUserId else {
             throw HTTPError(.unauthorized, message: "Missing authenticated user ID")
@@ -51,9 +51,9 @@ func registerWalletRoute(_ router: some RouterMethods<SeerRequestContext>, _ see
 
         let normalizedId = ownerId.lowercased()
 
-        let (rawGroups, _, _) = await seer.fanoutLibrary(ownerId: normalizedId)
-        let docStats = seer.registry?.documentStats ?? [:]
-        let groups: [Seer.Group] = rawGroups.map { group in
+        let (rawGroups, _, _) = await sewn.fanoutLibrary(ownerId: normalizedId)
+        let docStats = sewn.registry?.documentStats ?? [:]
+        let groups: [Sewn.Group] = rawGroups.map { group in
             var g = group
             g.totalEarnings = group.documents
                 .reduce(0.0) { $0 + (docStats[$1.id]?.totalEarned ?? 0) }
@@ -62,7 +62,7 @@ func registerWalletRoute(_ router: some RouterMethods<SeerRequestContext>, _ see
 
         let totalEarnings = groups.reduce(0.0) { $0 + ($1.totalEarnings ?? 0) }
 
-        let wallet         = await seer.gitaWallet(for: normalizedId)
+        let wallet         = await sewn.gitaWallet(for: normalizedId)
 
         return WalletResponse(
             totalEarnings:  totalEarnings,

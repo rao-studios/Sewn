@@ -1,6 +1,6 @@
 //
 //  MarielleBridgeRequest.swift
-//  Seer
+//  Sewn
 //
 //  Created by Ritesh Pakala on 3/25/26.
 //
@@ -12,13 +12,13 @@
 /// generates a question that bridges both worlds, weighted by the recency
 /// of each person's documents.
 struct MarielleBridgeRequest: Codable {
-    let seer: SeerRequest
+    let sewn: SewnRequest
     /// UUID of the second profile to bridge with.
     /// That profile must have bridging enabled in the registry.
     let targetProfileId: String
 
     enum CodingKeys: String, CodingKey {
-        case seer
+        case sewn
         case targetProfileId = "target_profile_id"
     }
 }

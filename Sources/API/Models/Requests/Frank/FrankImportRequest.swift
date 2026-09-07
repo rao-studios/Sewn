@@ -1,11 +1,11 @@
 //
 //  FrankImportRequest.swift
-//  seer-server
+//  sewn-server
 //
 
 
 
 struct FrankImportRequest: Codable {
-    let seer: SeerRequest
+    let sewn: SewnRequest
     let export: SinatraExport
 }

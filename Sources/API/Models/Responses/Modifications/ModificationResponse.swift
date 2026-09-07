@@ -1,6 +1,6 @@
 //
 //  ModificationResponse.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 11/8/25.
 //
@@ -9,11 +9,11 @@ import Foundation
 
 
 struct ModificationResponse: Codable {
-    var document: Seer.Document?
-    var documentAccess: SeerRegistry.Access?
-    var groupAccess: SeerRegistry.Access?
+    var document: Sewn.Document?
+    var documentAccess: SewnRegistry.Access?
+    var groupAccess: SewnRegistry.Access?
     var groupId: String?
-    var user: Seer.User
+    var user: Sewn.User
     
     enum CodingKeys: String, CodingKey {
         case document

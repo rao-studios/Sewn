@@ -1,10 +1,10 @@
 //
 //  SinatraGBTRequest.swift
-//  seer-server
+//  sewn-server
 //
 
 
 
 struct FrankGBTRequest: Codable {
-    let seer: SeerRequest
+    let sewn: SewnRequest
 }

@@ -1,6 +1,6 @@
 //
 //  AuthMiddleware.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 2/23/26.
 //
@@ -12,12 +12,12 @@ import Hummingbird
 // MARK: - Middleware
 
 struct AuthMiddleware: RouterMiddleware {
-    typealias Context = SeerRequestContext
+    typealias Context = SewnRequestContext
 
     func handle(
         _ request: Request,
-        context: SeerRequestContext,
-        next: (Request, SeerRequestContext) async throws -> Response
+        context: SewnRequestContext,
+        next: (Request, SewnRequestContext) async throws -> Response
     ) async throws -> Response {
         guard let authHeader = request.headers[.authorization],
               authHeader.hasPrefix("Bearer "),

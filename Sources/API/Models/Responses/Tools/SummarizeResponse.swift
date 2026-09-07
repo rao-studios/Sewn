@@ -1,6 +1,6 @@
 //
 //  SummarizeResponse.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 1/10/26.
 //

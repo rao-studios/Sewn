@@ -2,11 +2,11 @@ import Foundation
 
 
 struct GroupsByDocumentsRequest: Codable {
-    let seer: SeerRequest
+    let sewn: SewnRequest
     let documentIds: [DocumentID]
 
     enum CodingKeys: String, CodingKey {
-        case seer
+        case sewn
         case documentIds = "document_ids"
     }
 }

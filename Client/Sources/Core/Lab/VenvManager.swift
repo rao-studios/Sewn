@@ -8,7 +8,7 @@ final class VenvManager: ObservableObject {
 
     nonisolated static var appSupport: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SeerClient")
+            .appendingPathComponent("SewnClient")
     }
 
     nonisolated static var venvURL: URL { appSupport.appendingPathComponent("tinker-venv") }
@@ -27,11 +27,11 @@ final class VenvManager: ObservableObject {
     @Published var state: State = .unknown
     let log = LogBuffer()
 
-    /// Tinker API key for direct Lab use — mirrored from Seer's .env when present.
+    /// Tinker API key for direct Lab use — mirrored from Sewn's .env when present.
     var apiKey: String {
         if let key = KeychainStore.get("tinker_api_key"), !key.isEmpty { return key }
-        // Fallback: read from the Seer repo's .env so one configuration serves both.
-        let envPath = (SeerServerConfig.defaultRepoPath as NSString)
+        // Fallback: read from the Sewn repo's .env so one configuration serves both.
+        let envPath = (SewnServerConfig.defaultRepoPath as NSString)
             .appendingPathComponent(".env")
         if let content = try? String(contentsOfFile: envPath, encoding: .utf8) {
             for line in content.components(separatedBy: .newlines)

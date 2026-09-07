@@ -7,7 +7,7 @@ import Foundation
 /// source (`TestCredentials`), so the Keychain added prompts without adding
 /// protection. Keeps the KeychainStore name/API so call sites are unchanged.
 enum KeychainStore {
-    private static let prefix = "seer.client.secure."
+    private static let prefix = "sewn.client.secure."
 
     static func set(_ value: String, for key: String) {
         UserDefaults.standard.set(value, forKey: prefix + key)

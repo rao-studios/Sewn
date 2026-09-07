@@ -2,7 +2,7 @@
 
 # Nuclear rebuild - complete teardown, volume wipe, and rebuild with no cache
 #
-# Wipes seer-volume-dev entirely (seer-db/ — registry, HNSW, documents).
+# Wipes sewn-volume-dev entirely (sewn-db/ — registry, HNSW, documents).
 # Use before deploying the HNSW storage redesign to start from a clean slate
 # rather than exercising the legacy migration path.
 
@@ -16,13 +16,13 @@ docker compose down
 echo "Removing dangling images..."
 docker image prune -f
 
-# seer-volume-dev is declared `external: true` in docker-compose.yml, so
+# sewn-volume-dev is declared `external: true` in docker-compose.yml, so
 # `docker compose down -v` does NOT remove it. We do it explicitly here.
-echo "Removing seer-volume-dev (wipes seer-db/)..."
-docker volume rm seer-volume-dev 2>/dev/null || echo "  (volume did not exist — skipping)"
+echo "Removing sewn-volume-dev (wipes sewn-db/)..."
+docker volume rm sewn-volume-dev 2>/dev/null || echo "  (volume did not exist — skipping)"
 
-echo "Recreating seer-volume-dev..."
-docker volume create seer-volume-dev
+echo "Recreating sewn-volume-dev..."
+docker volume create sewn-volume-dev
 
 echo "Building from scratch (no cache)..."
 docker compose build --no-cache

@@ -4,7 +4,7 @@ import SwiftUI
 /// A floating card surface in the warm design language. Fills its container's
 /// width by construction — cards stacked in a column are always equal width,
 /// never sized to their content (constrain the column, not the card).
-struct SeerCard<Content: View>: View {
+struct SewnCard<Content: View>: View {
     var padding: CGFloat = 18
     @ViewBuilder var content: Content
 
@@ -14,12 +14,12 @@ struct SeerCard<Content: View>: View {
             .padding(padding)
             .background(
                 RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.seerCard)
+                    .fill(Color.sewnCard)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18)
-                            .strokeBorder(Color.seerBorder, lineWidth: 1))
+                            .strokeBorder(Color.sewnBorder, lineWidth: 1))
             )
-            .shadow(color: Color.seerInk.opacity(0.06), radius: 5, y: 2)
+            .shadow(color: Color.sewnInk.opacity(0.06), radius: 5, y: 2)
     }
 }
 
@@ -30,60 +30,60 @@ struct SectionLabel: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         Text(text.uppercased())
-            .font(.seerSans(10, weight: .semibold))
+            .font(.sewnSans(10, weight: .semibold))
             .tracking(0.8)
-            .foregroundStyle(Color.seerInk.opacity(0.45))
+            .foregroundStyle(Color.sewnInk.opacity(0.45))
             .lineLimit(1)
     }
 }
 
 /// Gold primary-action button style. Fixed minimum height so every button in
 /// a row (Start/Logs, Search/Ingest, Query/Trace…) lands at the same size.
-struct SeerButtonStyle: ButtonStyle {
+struct SewnButtonStyle: ButtonStyle {
     var prominent: Bool = true
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.seerSans(12.5, weight: .medium))
+            .font(.sewnSans(12.5, weight: .medium))
             .lineLimit(1)
             .padding(.horizontal, 14)
-            .frame(minHeight: SeerMetrics.controlHeight)
-            .foregroundStyle(prominent ? Color.white : Color.seerInk)
+            .frame(minHeight: SewnMetrics.controlHeight)
+            .foregroundStyle(prominent ? Color.white : Color.sewnInk)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(prominent ? Color.seerGold : Color.seerFill)
+                    .fill(prominent ? Color.sewnGold : Color.sewnFill)
                     .opacity(configuration.isPressed ? 0.8 : 1)
             )
             .shadow(
-                color: prominent ? Color.seerGold.opacity(0.30) : .clear,
+                color: prominent ? Color.sewnGold.opacity(0.30) : .clear,
                 radius: 4, y: 2)
     }
 }
 
-extension ButtonStyle where Self == SeerButtonStyle {
-    static var seer: SeerButtonStyle { SeerButtonStyle(prominent: true) }
-    static var seerQuiet: SeerButtonStyle { SeerButtonStyle(prominent: false) }
+extension ButtonStyle where Self == SewnButtonStyle {
+    static var sewn: SewnButtonStyle { SewnButtonStyle(prominent: true) }
+    static var sewnQuiet: SewnButtonStyle { SewnButtonStyle(prominent: false) }
 }
 
 /// Uniform square icon button (refresh, close, remove…) — one size everywhere.
-struct SeerIconButtonStyle: ButtonStyle {
-    var tint: Color = Color.seerInk.opacity(0.65)
+struct SewnIconButtonStyle: ButtonStyle {
+    var tint: Color = Color.sewnInk.opacity(0.65)
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(tint)
-            .frame(width: SeerMetrics.iconButton, height: SeerMetrics.iconButton)
+            .frame(width: SewnMetrics.iconButton, height: SewnMetrics.iconButton)
             .background(
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(Color.seerFill)
+                    .fill(Color.sewnFill)
                     .opacity(configuration.isPressed ? 0.6 : 1)
             )
             .contentShape(Rectangle())
     }
 }
 
-extension ButtonStyle where Self == SeerIconButtonStyle {
-    static var seerIcon: SeerIconButtonStyle { SeerIconButtonStyle() }
-    static func seerIcon(tint: Color) -> SeerIconButtonStyle { SeerIconButtonStyle(tint: tint) }
+extension ButtonStyle where Self == SewnIconButtonStyle {
+    static var sewnIcon: SewnIconButtonStyle { SewnIconButtonStyle() }
+    static func sewnIcon(tint: Color) -> SewnIconButtonStyle { SewnIconButtonStyle(tint: tint) }
 }
 
 // MARK: - Shared bars
@@ -107,15 +107,15 @@ struct ScreenHeader<Leading: View, Trailing: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(title)
-                .font(.seerSerif(22, weight: .light, italic: true))
-                .foregroundStyle(Color.seerInk)
+                .font(.sewnSerif(22, weight: .light, italic: true))
+                .foregroundStyle(Color.sewnInk)
                 .fixedSize()
             leading
             Spacer(minLength: 12)
             trailing
         }
         .padding(.horizontal, 24)
-        .frame(height: SeerMetrics.screenHeaderHeight)
+        .frame(height: SewnMetrics.screenHeaderHeight)
     }
 }
 
@@ -132,11 +132,11 @@ struct PaneHeader<Content: View>: View {
         .controlSize(.small)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: SeerMetrics.paneHeaderHeight)
+        .frame(height: SewnMetrics.paneHeaderHeight)
     }
 }
 
-/// Slim pane footer (trace bar, status bar) at a fixed height on `seerFill`.
+/// Slim pane footer (trace bar, status bar) at a fixed height on `sewnFill`.
 struct PaneFooter<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -147,8 +147,8 @@ struct PaneFooter<Content: View>: View {
         .controlSize(.small)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: SeerMetrics.footerBarHeight)
-        .background(Color.seerFill)
+        .frame(height: SewnMetrics.footerBarHeight)
+        .background(Color.sewnFill)
     }
 }
 
@@ -164,34 +164,34 @@ struct StatusDot: View {
 /// middle-truncating by construction so long values (model names, ids) can
 /// never wrap or force a row past its bounds — cap width at the call site
 /// with `.frame(maxWidth:)` when the content is unbounded.
-struct SeerPill: View {
+struct SewnPill: View {
     let text: String
-    var tint: Color = .seerGold
+    var tint: Color = .sewnGold
     var body: some View {
         Text(text)
-            .font(.seerMono(10))
+            .font(.sewnMono(10))
             .lineLimit(1)
             .truncationMode(.middle)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(Capsule().fill(tint.opacity(0.14)))
-            .foregroundStyle(Color.seerInk.opacity(0.75))
+            .foregroundStyle(Color.sewnInk.opacity(0.75))
     }
 }
 
-/// Empty-state hero with the Seer emblem.
+/// Empty-state hero with the Sewn emblem.
 struct EmptyHero: View {
     let title: String
     let subtitle: String
     var body: some View {
         VStack(spacing: 16) {
-            SeerEmblem(iconSize: 56)
+            SewnEmblem(iconSize: 56)
             Text(title)
-                .font(.seerSerif(20, weight: .light, italic: true))
-                .foregroundStyle(Color.seerInk)
+                .font(.sewnSerif(20, weight: .light, italic: true))
+                .foregroundStyle(Color.sewnInk)
             Text(subtitle)
-                .font(.seerSans(12))
-                .foregroundStyle(Color.seerInk.opacity(0.45))
+                .font(.sewnSans(12))
+                .foregroundStyle(Color.sewnInk.opacity(0.45))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
         }

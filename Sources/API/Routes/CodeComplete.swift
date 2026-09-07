@@ -1,11 +1,11 @@
 //
 //  CodeComplete.swift
-//  Seer
+//  Sewn
 //
-//  ONE BOUNDED CODING-INVOCATION SYNTHESIS, no persona, no Totem RAG, no
+//  ONE BOUNDED CODING-INVOCATION SYNTHESIS, no persona, no Thread RAG, no
 //  Gita. Sibling of `/v1/skills/complete`: that route is Mary's ability
 //  roster. This one is the pair-coding file-tool roster. Mary never sends
-//  a model id — `ModelConfig.codingModel` is Seer's pin (Codestral by default).
+//  a model id — `ModelConfig.codingModel` is Sewn's pin (Codestral by default).
 //
 
 import Foundation
@@ -20,7 +20,7 @@ func codeCompleteMaxTokens(_ requested: Int?) -> Int {
 }
 
 func registerCodeCompleteRoute(
-    _ router: some RouterMethods<SeerRequestContext>,
+    _ router: some RouterMethods<SewnRequestContext>,
     modelProvider: ModelProvider
 ) {
     router.post("/v1/code/complete") { request, context async throws -> CodeCompleteResponse in

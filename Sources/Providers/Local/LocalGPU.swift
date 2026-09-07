@@ -1,6 +1,6 @@
 //
 //  LocalGPU.swift
-//  Seer
+//  Sewn
 //
 //  WHAT: Whether MLX can reach the GPU (`mlx.metallib` where MLX looks).
 //  OUT:  reachable / honest miss, for GET /v1/providers
@@ -60,7 +60,7 @@ enum LocalGPU {
     /// What to tell a person when the GPU cannot start.
     static func remedy() -> String {
         """
-        No MLX Metal library found beside seer-server. Run \
+        No MLX Metal library found beside sewn-server. Run \
         ./scripts/build-metallib.sh release, which compiles Frigate's vendored \
         shaders into .build/release/mlx.metallib — `swift build` cannot do it, \
         because SwiftPM has no Metal step.

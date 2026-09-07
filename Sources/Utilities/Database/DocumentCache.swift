@@ -1,13 +1,13 @@
 //
 //  DocumentCache.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 3/19/26.
 //
 
 import Foundation
 
-/// Thread-safe in-memory cache for `Seer.Document` objects.
+/// Thread-safe in-memory cache for `Sewn.Document` objects.
 ///
 /// Analogous to `RegistryMutator` and `TableMutator` but without the actor
 /// serialization overhead — document reads are the most frequent operation and
@@ -17,7 +17,7 @@ import Foundation
 /// All mutations go through the typed API (`cache`, `evict`, `seed`).
 /// Never access `_store` directly from outside this file.
 final class DocumentCache: Sendable {
-    private let _store: ReadWriteValue<[DocumentID: Seer.Document]>
+    private let _store: ReadWriteValue<[DocumentID: Sewn.Document]>
 
     init() {
         self._store = ReadWriteValue([:])
@@ -25,13 +25,13 @@ final class DocumentCache: Sendable {
 
     // MARK: - Read
 
-    func get(_ id: DocumentID) -> Seer.Document? {
+    func get(_ id: DocumentID) -> Sewn.Document? {
         _store.withReadLock { $0[id] }
     }
 
     // MARK: - Write
 
-    func cache(_ document: Seer.Document) {
+    func cache(_ document: Sewn.Document) {
         _store.withWriteLock { $0[document.id] = document }
     }
 
@@ -40,12 +40,12 @@ final class DocumentCache: Sendable {
     }
 
     /// Bulk-seeds the cache in a single lock acquisition. Used at startup only.
-    func seed(_ initial: [DocumentID: Seer.Document]) {
+    func seed(_ initial: [DocumentID: Sewn.Document]) {
         _store.withWriteLock { $0 = initial }
     }
 
     /// Inserts multiple documents in a single lock acquisition.
-    func cacheBatch(_ documents: [Seer.Document]) {
+    func cacheBatch(_ documents: [Sewn.Document]) {
         _store.withWriteLock { store in
             for document in documents { store[document.id] = document }
         }

@@ -71,7 +71,7 @@ struct TrainView: View {
     private var configPane: some View {
         ScrollView {
             VStack(spacing: 14) {
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Run configuration")
 
@@ -84,16 +84,16 @@ struct TrainView: View {
                             }
                         }
                         .pickerStyle(.segmented)
-                        .tint(Color.seerGold)
+                        .tint(Color.sewnGold)
                         Text(kind == .sft
                              ? "Supervised fine-tune from {messages: […]} rows."
                              : "Preference tuning from Sinatra-derived {prompt, chosen, rejected} pairs — Self-RLHF.")
-                            .font(.seerSans(10.5))
-                            .foregroundStyle(Color.seerInk.opacity(0.5))
+                            .font(.sewnSans(10.5))
+                            .foregroundStyle(Color.sewnInk.opacity(0.5))
 
                         TextField("base model", text: $baseModel)
                             .textFieldStyle(.roundedBorder)
-                            .font(.seerMono(11))
+                            .font(.sewnMono(11))
 
                         Picker("Dataset", selection: $selectedDataset) {
                             Text("select…").tag(URL?.none)
@@ -109,14 +109,14 @@ struct TrainView: View {
                                 .fixedSize()
                             Spacer(minLength: 0)
                         }
-                        .font(.seerSans(11))
+                        .font(.sewnSans(11))
                         HStack(spacing: 8) {
                             Text("learning rate")
-                                .font(.seerSans(11))
+                                .font(.sewnSans(11))
                                 .fixedSize()
                             TextField("", text: $learningRate)
                                 .textFieldStyle(.roundedBorder)
-                                .font(.seerMono(11))
+                                .font(.sewnMono(11))
                                 .frame(width: 80)
                                 .fixedSize()
                             Spacer(minLength: 0)
@@ -124,41 +124,41 @@ struct TrainView: View {
                     }
                 }
 
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionLabel("Launch")
                         HStack(spacing: 8) {
                             Button("Generate script") { generate() }
-                                .buttonStyle(.seerQuiet)
+                                .buttonStyle(.sewnQuiet)
                                 .disabled(selectedDataset == nil)
                             if let scriptURL {
                                 Button("Open") { NSWorkspace.shared.open(scriptURL) }
-                                    .buttonStyle(.seerQuiet)
+                                    .buttonStyle(.sewnQuiet)
                             }
                             Spacer()
                             if trainer.isRunning {
-                                Button("Stop") { trainer.stop() }.buttonStyle(.seerQuiet)
+                                Button("Stop") { trainer.stop() }.buttonStyle(.sewnQuiet)
                             } else {
                                 Button("Train") {
                                     if scriptURL == nil { generate() }
                                     if let scriptURL { trainer.start(scriptURL: scriptURL, venv: venv) }
                                 }
-                                .buttonStyle(.seer)
+                                .buttonStyle(.sewn)
                                 .disabled(selectedDataset == nil || venv.state == .missing)
                             }
                         }
                         if let status {
-                            Text(status).font(.seerSans(11)).foregroundStyle(Color.seerInk.opacity(0.55))
+                            Text(status).font(.sewnSans(11)).foregroundStyle(Color.sewnInk.opacity(0.55))
                         }
                         if let exitStatus = trainer.lastExitStatus {
                             Text(exitStatus == 0 ? "✓ run finished — see Runs tab for checkpoints"
                                                  : "✗ exited with status \(exitStatus)")
-                                .font(.seerSans(11))
-                                .foregroundStyle(exitStatus == 0 ? Color.seerGreen : Color.seerError)
+                                .font(.sewnSans(11))
+                                .foregroundStyle(exitStatus == 0 ? Color.sewnGreen : Color.sewnError)
                         }
                         Text("The generated train.py is editable — tweak recipe fields the form doesn't expose, then Train.")
-                            .font(.seerSans(10.5))
-                            .foregroundStyle(Color.seerInk.opacity(0.45))
+                            .font(.sewnSans(10.5))
+                            .foregroundStyle(Color.sewnInk.opacity(0.45))
                     }
                 }
             }

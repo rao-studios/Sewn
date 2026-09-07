@@ -81,7 +81,7 @@ Primary chat endpoint. Supports streaming (SSE) and non-streaming responses.
 - **Response (stream)**: `text/event-stream` SSE with `data: {...}` chunks
 - **Business Logic**:
   1. Embed final user message
-  2. Search Seer for relevant partitions (local + Oracle peers if enabled)
+  2. Search Sewn for relevant partitions (local + Oracle peers if enabled)
   3. Sinatra infers GBT sentiment → adjusts temperature/top_p/repetition_penalty
   4. Build system prompt with retrieved context
   5. Call ModelProvider (Mistral API or local MLX)
@@ -114,7 +114,7 @@ Embed and index a single document chunk.
 - **Response**: `{ embedding: [float], document: { id, url }, partition: { id } }`
 - **Business Logic**:
   1. Call EmbeddingModelProvider → float32 vector
-  2. `Seer.put()` → insert into HNSW (global + personal) + PQ partition table
+  2. `Sewn.put()` → insert into HNSW (global + personal) + PQ partition table
   3. `Gita.track(.put)` → register document as market security
   4. Auto-memory: if owner has auto-memory enabled, index in personal HNSW too
 
@@ -157,11 +157,11 @@ Semantic vector search.
   ```
 - **Business Logic**:
   1. Embed query
-  2. `Seer+QueryExpander`: generate N query variants (paraphrase + keyword) to improve recall
+  2. `Sewn+QueryExpander`: generate N query variants (paraphrase + keyword) to improve recall
   3. HNSW traversal for each variant → union candidate set
   4. PQ rerank candidates → cosine similarity on compressed embeddings
   5. Apply access control filter (registry.access)
-  6. If Oracle enabled: fan out to peers via `Seer+Peer`, merge results
+  6. If Oracle enabled: fan out to peers via `Sewn+Peer`, merge results
   7. Return top-K above threshold
 
 ---
@@ -233,7 +233,7 @@ Restore user data from a Supabase backup.
 - **Auth**: Bearer token
 - **Request**: `{ owner_id, manifest_id }`
 - **Response**: `{ restored_count }`
-- **Logic**: Fetches manifest → downloads documents → re-indexes via `Seer.put()` → rebuilds HNSW.
+- **Logic**: Fetches manifest → downloads documents → re-indexes via `Sewn.put()` → rebuilds HNSW.
 
 ### `POST /v1/storage/purge`
 Delete all user data (documents, groups, HNSW nodes, Sinatra state, Gita wallet).

@@ -1,6 +1,6 @@
 //
 //  InfiniteLeaderboardResponse.swift
-//  seer-server
+//  sewn-server
 //
 
 import Foundation
@@ -9,7 +9,7 @@ import Foundation
 /// A single entry in the Infinite group leaderboard.
 struct InfiniteGroupEntry: Codable {
     /// The public group — includes metadata, access, totalEarnings, and documents.
-    let group: Seer.Group
+    let group: Sewn.Group
     /// Composite score in [0, 1]. Derived from earnings, retrieval count, sentiment,
     /// and document count — normalized across all public groups at request time.
     let score: Double

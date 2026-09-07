@@ -4,4 +4,4 @@ import AppKit
 // before App.main() makes macOS treat this as a normal foreground app with a
 // dock icon and windows.
 NSApplication.shared.setActivationPolicy(.regular)
-SeerClientApp.main()
+SewnClientApp.main()

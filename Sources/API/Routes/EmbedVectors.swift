@@ -1,9 +1,9 @@
 //
 //  EmbedVectors.swift
-//  Seer
+//  Sewn
 //
 //  ONE EMBEDDING, RETURNED. `/v1/embeddings` is an INGEST route: it chunks the
-//  text, hashes a document id and fans out into Totem, and answers
+//  text, hashes a document id and fans out into Thread, and answers
 //  `{success: true}`. A caller that needs the vector itself — to score against
 //  its own corpus, in its own process — has nowhere to ask.
 //
@@ -14,12 +14,12 @@
 //  vector space, reached over the local stack it already talks to.
 //
 //  Sibling of `/v1/complete`: one POST, one JSON body, no SSE trailer, no
-//  `seer` scope object on the wire — nothing here is stored, so nothing here
+//  `sewn` scope object on the wire — nothing here is stored, so nothing here
 //  needs an owner or a group.
 //
 //  PIN: NO STORAGE SIDE EFFECT. If this route ever indexes, a caller warming a
 //  corpus of a few hundred trigger sentences would silently fill the user's
-//  totem with them.
+//  thread with them.
 //
 
 import Foundation
@@ -34,7 +34,7 @@ struct EmbedVectorsRequest: Codable {
     /// RESERVED, AND CURRENTLY IGNORED. `runAPIEmbedding` pins the vendor
     /// model, so accepting a name here and honouring it are different things —
     /// the response reports what actually ran, never what was asked for.
-    /// Wire this through when Seer has a second model to offer.
+    /// Wire this through when Sewn has a second model to offer.
     let model: String?
 }
 
@@ -64,7 +64,7 @@ struct EmbedVector: Codable {
 // MARK: - Route
 
 func registerEmbedVectorsRoute(
-    _ router: some RouterMethods<SeerRequestContext>
+    _ router: some RouterMethods<SewnRequestContext>
 ) {
     router.post("/v1/embed") { request, context async throws -> EmbedVectorsResponse in
         let body = try await request.decode(as: EmbedVectorsRequest.self, context: context)

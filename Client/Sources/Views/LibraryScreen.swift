@@ -1,8 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Library pane: ingest files into a Totem node and search its corpus directly.
-/// Lives as the left pane of the Workspace; keeps its own totem target picker.
+/// Library pane: ingest files into a Thread node and search its corpus directly.
+/// Lives as the left pane of the Workspace; keeps its own thread target picker.
 struct LibraryPane: View {
     @EnvironmentObject private var appState: AppState
     /// Fired after a successful search so the workspace can drive the graph trace
@@ -16,8 +16,8 @@ struct LibraryPane: View {
     @State private var isWorking = false
     @State private var groupId = "library"
 
-    private var selectedTarget: TotemTarget? {
-        let targets = appState.servers.totemTargets
+    private var selectedTarget: ThreadTarget? {
+        let targets = appState.servers.threadTargets
         return targets.first { $0.id == selectedTargetId } ?? targets.first
     }
 
@@ -28,20 +28,20 @@ struct LibraryPane: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(Color.seerBorder)
+            Divider().overlay(Color.sewnBorder)
 
             if selectedTarget == nil {
                 EmptyHero(title: "Library",
                           subtitle: appState.servers.environment == .local
-                              ? "Add a Totem node on the Servers screen first."
-                              : "No prod Totems reachable — check the Servers screen or add a manual endpoint in Settings.")
+                              ? "Add a Thread node on the Servers screen first."
+                              : "No prod Threads reachable — check the Servers screen or add a manual endpoint in Settings.")
             } else {
                 content
             }
 
             statusBar
         }
-        .background(Color.seerBG)
+        .background(Color.sewnBG)
     }
 
     private var header: some View {
@@ -49,7 +49,7 @@ struct LibraryPane: View {
             HStack(spacing: 8) {
                 SectionLabel("Library")
                 Picker("", selection: $selectedTargetId) {
-                    ForEach(appState.servers.totemTargets) { target in
+                    ForEach(appState.servers.threadTargets) { target in
                         Text(target.label).tag(String?.some(target.id))
                     }
                 }
@@ -59,14 +59,14 @@ struct LibraryPane: View {
             HStack(spacing: 8) {
                 TextField("group id", text: $groupId)
                     .textFieldStyle(.roundedBorder)
-                    .font(.seerMono(11))
+                    .font(.sewnMono(11))
                     .frame(width: 110)
                 Button {
                     ingestFiles()
                 } label: {
                     Label("Ingest…", systemImage: "square.and.arrow.down")
                 }
-                .buttonStyle(.seer)
+                .buttonStyle(.sewn)
                 .disabled(isWorking)
                 Spacer(minLength: 8)
             }
@@ -78,8 +78,8 @@ struct LibraryPane: View {
     private var statusBar: some View {
         PaneFooter {
             Text(status ?? "\(results.count) result(s)")
-                .font(.seerSans(11))
-                .foregroundStyle(Color.seerInk.opacity(status == nil ? 0.35 : 0.55))
+                .font(.sewnSans(11))
+                .foregroundStyle(Color.sewnInk.opacity(status == nil ? 0.35 : 0.55))
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -92,22 +92,22 @@ struct LibraryPane: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { runSearch() }
                 Button("Search") { runSearch() }
-                    .buttonStyle(.seerQuiet)
+                    .buttonStyle(.sewnQuiet)
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
 
             if results.isEmpty {
                 EmptyHero(title: "Search the corpus",
-                          subtitle: "Results show the retrieved partition texts from the selected Totem node.")
+                          subtitle: "Results show the retrieved partition texts from the selected Thread node.")
             } else {
                 ScrollView {
                     VStack(spacing: 10) {
                         ForEach(Array(results.enumerated()), id: \.offset) { _, text in
-                            SeerCard(padding: 14) {
+                            SewnCard(padding: 14) {
                                 Text(text)
-                                    .font(.seerSans(12.5))
-                                    .foregroundStyle(Color.seerInk)
+                                    .font(.sewnSans(12.5))
+                                    .foregroundStyle(Color.sewnInk)
                                     .textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -121,7 +121,7 @@ struct LibraryPane: View {
 
     private func runSearch() {
         guard let target = selectedTarget, !searchQuery.isEmpty else { return }
-        let api = TotemAPI(baseURL: target.baseURL)
+        let api = ThreadAPI(baseURL: target.baseURL)
         let owner = ownerId
         let query = searchQuery
         Task {
@@ -136,18 +136,18 @@ struct LibraryPane: View {
         }
     }
 
-    /// Ingest goes through Seer (`/v1/embeddings`), which relays to the selected
-    /// totem over its Conduit gRPC session — the production path. The Totem's
-    /// direct REST route stays available for standalone (Seer-less) nodes.
+    /// Ingest goes through Sewn (`/v1/embeddings`), which relays to the selected
+    /// thread over its Conduit gRPC session — the production path. The Thread's
+    /// direct REST route stays available for standalone (Sewn-less) nodes.
     private func ingestFiles() {
         guard let target = selectedTarget else { return }
         let urls = FilePicker.pickFiles().filter { !$0.hasDirectoryPath }
         guard !urls.isEmpty else { return }
-        let api = appState.seerAPI
+        let api = appState.sewnAPI
         let group = groupId
-        let totemNodeId = target.nodeId
+        let threadNodeId = target.nodeId
         isWorking = true
-        status = "ingesting \(urls.count) file(s) via Seer → \(target.label)…"
+        status = "ingesting \(urls.count) file(s) via Sewn → \(target.label)…"
         Task {
             var ingested = 0
             for url in urls {
@@ -159,14 +159,14 @@ struct LibraryPane: View {
                     if try await api.ingest(texts: [text],
                                             names: [url.lastPathComponent],
                                             groupId: group,
-                                            personalTotemId: totemNodeId) {
+                                            personalThreadId: threadNodeId) {
                         ingested += 1
                     }
                 } catch {
                     status = "\(url.lastPathComponent): \(error.localizedDescription)"
                 }
             }
-            status = "ingested \(ingested)/\(urls.count) via Seer → Conduit — extraction continues in the background"
+            status = "ingested \(ingested)/\(urls.count) via Sewn → Conduit — extraction continues in the background"
             isWorking = false
         }
     }

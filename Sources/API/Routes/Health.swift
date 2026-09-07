@@ -1,6 +1,6 @@
 //
 //  Health.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 2/7/26.
 //
@@ -13,7 +13,7 @@ struct HealthResponse: Codable {
     let timestamp: String
 }
 
-func registerHealthRoute(_ router: some RouterMethods<SeerRequestContext>) {
+func registerHealthRoute(_ router: some RouterMethods<SewnRequestContext>) {
     router.get("health") { request, context async throws -> HealthResponse in
         return HealthResponse(
             status: "healthy",

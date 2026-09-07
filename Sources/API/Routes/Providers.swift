@@ -1,8 +1,8 @@
 //
 //  Providers.swift
-//  Seer
+//  Sewn
 //
-//  WHAT: What backends this Seer can actually serve, and a way to warm the
+//  WHAT: What backends this Sewn can actually serve, and a way to warm the
 //        on-device one before a turn waits on it.
 //  OUT:  GET /v1/providers, POST /v1/providers/local/warm
 //  PIN:  Honest about absence. A provider with no key, or an on-device build
@@ -102,7 +102,7 @@ func providerInfo(
 }
 
 func registerProvidersRoutes(
-    _ router: some RouterMethods<SeerRequestContext>,
+    _ router: some RouterMethods<SewnRequestContext>,
     modelProvider: ModelProvider
 ) {
     router.get("/v1/providers") { _, _ async throws -> ProvidersResponse in

@@ -7,15 +7,15 @@
 
 import Foundation
 
-/// The `Gita.Payload` that utilizes certain Seer and Sinatra data types to
+/// The `Gita.Payload` that utilizes certain Sewn and Sinatra data types to
 /// match with relevant contributions in the network returning a shared royalty
 /// tracked set of information.
 extension Gita {
     struct Payload {
         // TODO: dataSets becomes the prediction that is tracked instead.
         var dataSets: [SinatraTrainingData]
-        var partitions: [Seer.Partition]
-        var documents: [Seer.Document]
+        var partitions: [Sewn.Partition]
+        var documents: [Sewn.Document]
         /// Maps partitionId → OracleNodeID for partitions retrieved from peer nodes.
         /// Empty for purely local search results.
         var peerSources: [String: OracleNodeID]
@@ -25,8 +25,8 @@ extension Gita {
         var coOwners: [DocumentID: Set<OwnerID>]
 
         init(dataSets: [SinatraTrainingData] = [],
-             partitions: [Seer.Partition] = [],
-             documents: [Seer.Document] = [],
+             partitions: [Sewn.Partition] = [],
+             documents: [Sewn.Document] = [],
              peerSources: [String: OracleNodeID] = [:],
              coOwners: [DocumentID: Set<OwnerID>] = [:]) {
             // TODO: dataSets becomes the prediction that is tracked instead.
@@ -37,7 +37,7 @@ extension Gita {
             self.coOwners = coOwners
         }
 
-        init(_ partition: Seer.Partition) {
+        init(_ partition: Sewn.Partition) {
             self.dataSets = []
             self.partitions = [partition]
             self.documents = []
@@ -45,7 +45,7 @@ extension Gita {
             self.coOwners = [:]
         }
 
-        init(_ document: Seer.Document) {
+        init(_ document: Sewn.Document) {
             self.dataSets = []
             self.partitions = []
             self.documents = [document]
@@ -55,31 +55,31 @@ extension Gita {
     }
 }
 
-/* Seer.Partition Helpers */
+/* Sewn.Partition Helpers */
 
-extension Seer.Partition {
+extension Sewn.Partition {
     var asGitaPayload: Gita.Payload {
         Gita.Payload(self)
     }
 }
 
-extension Collection where Element == Seer.Partition {
+extension Collection where Element == Sewn.Partition {
     var asGitaPayload: Gita.Payload {
-        Gita.Payload(partitions: self as? [Seer.Partition] ?? [])
+        Gita.Payload(partitions: self as? [Sewn.Partition] ?? [])
     }
 }
 
-/* Seer.Document Helpers */
+/* Sewn.Document Helpers */
 
-extension Seer.Document {
+extension Sewn.Document {
     var asGitaPayload: Gita.Payload {
         Gita.Payload(self)
     }
 }
 
-extension Collection where Element == Seer.Document {
+extension Collection where Element == Sewn.Document {
     var asGitaPayload: Gita.Payload {
-        Gita.Payload(documents: self as? [Seer.Document] ?? [])
+        Gita.Payload(documents: self as? [Sewn.Document] ?? [])
     }
 }
 

@@ -14,4 +14,4 @@ EXPOSE 8080
 RUN chmod +x /app/build-mistral.sh
 
 # Run the server
-CMD ["/app/build-mistral.sh", "seer-server-release"]
+CMD ["/app/build-mistral.sh", "sewn-server-release"]

@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  seer:
+  sewn:
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,10 +9,10 @@ services:
       - .env
     ports:
       - "8080:8080"  # change left side to expose on different host port
-      - "9091:9091"  # gRPC port for Totem node registration
+      - "9091:9091"  # gRPC port for Thread node registration
     restart: unless-stopped
     volumes:
-      - seer-volume-dev:/root/Documents/seer-db
+      - sewn-volume-dev:/root/Documents/sewn-db
     logging:
       driver: json-file
       options:
@@ -29,8 +29,8 @@ services:
       - .env
     command: run /etc/alloy/config.alloy
     depends_on:
-      - seer
+      - sewn
 
 volumes:
-  seer-volume-dev:
+  sewn-volume-dev:
     external: true

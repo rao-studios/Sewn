@@ -18,12 +18,12 @@ class Gita {
         case inference
     }
     
-    internal var logger: SeerLogger
+    internal var logger: SewnLogger
     internal let walletPersistence: FilePersistence
     var walletRegistry: WalletRegistry
 
     init(logger: Logger) {
-        self.logger = SeerLogger(logger)
+        self.logger = SewnLogger(logger)
         let persistence = FilePersistence(key: "wallet_registry", kind: .basic, logger: logger)
         self.walletPersistence = persistence
         self.walletRegistry = persistence.restore() ?? .init()
@@ -36,7 +36,7 @@ class Gita {
     @discardableResult
     func track(_ payload: Gita.Payload,
                command: Command,
-               request: SeerRequest? = nil) -> Gita.Result {
+               request: SewnRequest? = nil) -> Gita.Result {
         switch command {
         case .put:
             // logger.info("Track", "Stored document.", service: .gita, request: request)
@@ -54,7 +54,7 @@ class Gita {
 // MARK: -- Inference
 
 extension Gita {
-    func inference(_ payload: Gita.Payload, request: SeerRequest? = nil) -> Gita.Result {
+    func inference(_ payload: Gita.Payload, request: SewnRequest? = nil) -> Gita.Result {
         let contribution = royalty(
             for: payload.partitions,
             peerSources: payload.peerSources,
@@ -77,7 +77,7 @@ Funding reasons:
    - Similar to an escrow service
  
  - uploads (free)
-   - documents added to the Seer network
+   - documents added to the Sewn network
  - inferences (royalty is based off of magnitude split of text/embeddings used per request)
    - documents used, royalty distribution
  - downloads (cost scales with document stats and usage, that's the stock market parallel)
@@ -97,7 +97,7 @@ Mission Accomplished.
 
 //extension Gita {
 //    /// Register documents on the blockchain
-//    private func registerDocuments(_ documents: [Seer.Document]) async {
+//    private func registerDocuments(_ documents: [Sewn.Document]) async {
 //        for document in documents {
 //            do {
 //                let txHash = try await registerDocument(
@@ -113,7 +113,7 @@ Mission Accomplished.
 //    }
 //    
 //    /// Delete documents from the blockchain
-//    private func deleteDocuments(_ documents: [Seer.Document]) async {
+//    private func deleteDocuments(_ documents: [Sewn.Document]) async {
 //        for document in documents {
 //            do {
 //                let txHash = try await deleteDocument(documentId: document.id)

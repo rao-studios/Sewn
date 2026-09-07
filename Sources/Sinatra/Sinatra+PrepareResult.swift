@@ -1,6 +1,6 @@
 //
 //  Sinatra+PrepareResult.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 4/12/26.
 //
@@ -11,8 +11,8 @@ extension Sinatra {
     /// The result returned by `Sinatra.prepare`.
     ///
     /// Bundles the token ledger for billing with any document-performance
-    /// updates that should be written back to `SeerRegistry.documentStats`.
-    /// The caller (`Seer.handleChat`) persists the updates via
+    /// updates that should be written back to `SewnRegistry.documentStats`.
+    /// The caller (`Sewn.handleChat`) persists the updates via
     /// `RegistryMutator.accumulatePerformance` after the primary generation
     /// completes — keeping Sinatra free of direct registry dependencies.
     struct PrepareResult {
@@ -21,9 +21,9 @@ extension Sinatra {
         let ledger: Gita.TokenLedger
 
         /// Per-document performance updates accumulated during this `prepare` cycle.
-        /// Keyed by `DocumentID` — the same key used in `SeerRegistry.documentStats`.
+        /// Keyed by `DocumentID` — the same key used in `SewnRegistry.documentStats`.
         /// Empty when no interactions were recorded (e.g. early exits or no parked data).
-        let documentStatsUpdates: [DocumentID: Seer.DocumentStats]
+        let documentStatsUpdates: [DocumentID: Sewn.DocumentStats]
 
         /// The resonance partition extracted from this prepare cycle, when a clear
         /// resonance signal was detected. Non-nil only when the user demonstrably

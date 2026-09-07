@@ -1,12 +1,12 @@
 //
 //  Gita.ServiceCharge.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala on 4/13/26.
 //
 
 extension Gita {
-    /// Defines how Seer prices its service on top of the raw LLM token cost.
+    /// Defines how Sewn prices its service on top of the raw LLM token cost.
     ///
     /// The service charge covers: vector search infrastructure, Gita royalty
     /// computation, Oracle peer coordination, and server overhead.

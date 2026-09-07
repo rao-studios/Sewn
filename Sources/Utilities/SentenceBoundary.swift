@@ -1,6 +1,6 @@
 //
 //  SentenceBoundary.swift
-//  seer-server
+//  sewn-server
 //
 //  Created by Ritesh Pakala Rao on 4/11/26.
 //
@@ -66,7 +66,7 @@ enum SentenceBoundary {
 
     /// Returns `text` up to and including the first sentence boundary.
     ///
-    /// Used by `Seer.Partition.fullText` to trim the stored next-chunk completion
+    /// Used by `Sewn.Partition.fullText` to trim the stored next-chunk completion
     /// to just its first sentence for display. If no boundary is found the full
     /// string is returned so the caller always gets something meaningful.
     ///

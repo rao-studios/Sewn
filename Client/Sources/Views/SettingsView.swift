@@ -7,10 +7,10 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Settings")
-                    .font(.seerSerif(22, weight: .light, italic: true))
-                    .foregroundStyle(Color.seerInk)
+                    .font(.sewnSerif(22, weight: .light, italic: true))
+                    .foregroundStyle(Color.sewnInk)
 
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             SectionLabel("Environment")
@@ -18,63 +18,63 @@ struct SettingsView: View {
                             EnvironmentToggle()
                         }
                         Text("Local runs and supervises servers from your repo checkouts. Prod inspects a remote deployment read-only — Chat, Graph, Library, and Lab all follow this switch.")
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerInk.opacity(0.45))
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnInk.opacity(0.45))
                     }
                 }
 
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Production endpoints")
-                        settingsRow("Seer URL") {
+                        settingsRow("Sewn URL") {
                             TextField("https://api.seer.services", text: Binding(
-                                get: { appState.servers.prodSeerURLString },
-                                set: { appState.servers.prodSeerURLString = $0 }))
+                                get: { appState.servers.prodSewnURLString },
+                                set: { appState.servers.prodSewnURLString = $0 }))
                                 .textFieldStyle(.roundedBorder)
-                                .font(.seerMono(11))
+                                .font(.sewnMono(11))
                         }
-                        Text("Totems registered with the prod Seer are discovered automatically from /v1/totems. Add manual endpoints for nodes outside the fleet:")
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerInk.opacity(0.45))
-                        ForEach(appState.servers.prodTotems) { totem in
-                            prodTotemRow(totem)
+                        Text("Threads registered with the prod Sewn are discovered automatically from /v1/threads. Add manual endpoints for nodes outside the fleet:")
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnInk.opacity(0.45))
+                        ForEach(appState.servers.prodThreads) { thread in
+                            prodThreadRow(thread)
                         }
                         Button {
-                            appState.servers.addProdTotem()
+                            appState.servers.addProdThread()
                         } label: {
-                            Label("Add Totem endpoint", systemImage: "plus")
+                            Label("Add Thread endpoint", systemImage: "plus")
                         }
-                        .buttonStyle(.seerQuiet)
+                        .buttonStyle(.sewnQuiet)
                     }
                 }
 
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Repositories (local mode)")
-                        settingsRow("Seer") {
+                        settingsRow("Sewn") {
                             TextField("", text: Binding(
-                                get: { appState.servers.seerConfig.repoPath },
-                                set: { appState.servers.seerConfig.repoPath = $0 }))
+                                get: { appState.servers.sewnConfig.repoPath },
+                                set: { appState.servers.sewnConfig.repoPath = $0 }))
                                 .textFieldStyle(.roundedBorder)
-                                .font(.seerMono(11))
+                                .font(.sewnMono(11))
                             Button("Browse…") {
                                 if let url = FilePicker.pickDirectory() {
-                                    appState.servers.seerConfig.repoPath = url.path
+                                    appState.servers.sewnConfig.repoPath = url.path
                                 }
                             }
-                            .buttonStyle(.seerQuiet)
+                            .buttonStyle(.sewnQuiet)
                         }
-                        Text("Totem repo paths are configured per node on the Servers screen; new nodes default to the first node's path.")
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerInk.opacity(0.45))
+                        Text("Thread repo paths are configured per node on the Servers screen; new nodes default to the first node's path.")
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnInk.opacity(0.45))
                     }
                 }
 
-                SeerCard {
+                SewnCard {
                     PersonalitiesSection()
                 }
 
-                SeerCard {
+                SewnCard {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Account")
                         AccountSection()
@@ -87,7 +87,7 @@ struct SettingsView: View {
         // Center the settings column: pinned-left it reads as a phantom empty
         // pane on wide windows (standard settings pages center their content).
         .frame(maxWidth: .infinity)
-        .background(Color.seerBG)
+        .background(Color.sewnBG)
     }
 
     /// Consistent label-column form row.
@@ -98,44 +98,44 @@ struct SettingsView: View {
     private func settingsRow(_ label: String, @ViewBuilder content: () -> some View) -> some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.seerSans(12, weight: .medium))
-                .foregroundStyle(Color.seerInk)
+                .font(.sewnSans(12, weight: .medium))
+                .foregroundStyle(Color.sewnInk)
                 .frame(width: 76, alignment: .leading)
                 .fixedSize()
             content()
         }
     }
 
-    private func prodTotemRow(_ totem: ProdTotemConfig) -> some View {
+    private func prodThreadRow(_ thread: ProdThreadConfig) -> some View {
         HStack(spacing: 8) {
-            TextField("name", text: bindingForProdTotem(totem, \.name))
+            TextField("name", text: bindingForProdThread(thread, \.name))
                 .textFieldStyle(.roundedBorder)
-                .font(.seerSans(11))
+                .font(.sewnSans(11))
                 .frame(width: 120)
                 .fixedSize()
-            TextField("http://host:8081", text: bindingForProdTotem(totem, \.urlString))
+            TextField("http://host:8081", text: bindingForProdThread(thread, \.urlString))
                 .textFieldStyle(.roundedBorder)
-                .font(.seerMono(11))
+                .font(.sewnMono(11))
             Button {
-                appState.servers.removeProdTotem(totem)
+                appState.servers.removeProdThread(thread)
             } label: {
                 Image(systemName: "xmark.circle")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.seerInk.opacity(0.3))
+            .foregroundStyle(Color.sewnInk.opacity(0.3))
         }
     }
 
-    private func bindingForProdTotem<T>(_ totem: ProdTotemConfig,
-                                        _ keyPath: WritableKeyPath<ProdTotemConfig, T>) -> Binding<T> {
+    private func bindingForProdThread<T>(_ thread: ProdThreadConfig,
+                                        _ keyPath: WritableKeyPath<ProdThreadConfig, T>) -> Binding<T> {
         Binding(
             get: {
-                appState.servers.prodTotems.first { $0.id == totem.id }?[keyPath: keyPath]
-                    ?? totem[keyPath: keyPath]
+                appState.servers.prodThreads.first { $0.id == thread.id }?[keyPath: keyPath]
+                    ?? thread[keyPath: keyPath]
             },
             set: { newValue in
-                guard let index = appState.servers.prodTotems.firstIndex(where: { $0.id == totem.id }) else { return }
-                appState.servers.prodTotems[index][keyPath: keyPath] = newValue
+                guard let index = appState.servers.prodThreads.firstIndex(where: { $0.id == thread.id }) else { return }
+                appState.servers.prodThreads[index][keyPath: keyPath] = newValue
             }
         )
     }
@@ -147,7 +147,7 @@ struct AccountSection: View {
     @State private var email = ""
     @State private var password = ""
     @State private var status: String?
-    @State private var signedInEmail: String? = UserDefaults.standard.string(forKey: "seer.client.email")
+    @State private var signedInEmail: String? = UserDefaults.standard.string(forKey: "sewn.client.email")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -155,7 +155,7 @@ struct AccountSection: View {
         }
         .onChange(of: appState.sessionEpoch) {
             // Auto sign-in may complete after this view appeared.
-            signedInEmail = UserDefaults.standard.string(forKey: "seer.client.email")
+            signedInEmail = UserDefaults.standard.string(forKey: "sewn.client.email")
         }
     }
 
@@ -164,17 +164,17 @@ struct AccountSection: View {
         Group {
             if let signedInEmail {
                 HStack {
-                    StatusDot(color: .seerGreen)
+                    StatusDot(color: .sewnGreen)
                     Text(signedInEmail)
-                        .font(.seerSans(12))
+                        .font(.sewnSans(12))
                     Spacer()
                     Button("Sign out") {
                         Task {
-                            await appState.seerAPI.signOut()
+                            await appState.sewnAPI.signOut()
                             self.signedInEmail = nil
                         }
                     }
-                    .buttonStyle(.seerQuiet)
+                    .buttonStyle(.sewnQuiet)
                 }
             } else {
                 TextField("email", text: $email)
@@ -185,7 +185,7 @@ struct AccountSection: View {
                     Button("Sign in") {
                         Task {
                             do {
-                                try await appState.seerAPI.signIn(email: email, password: password)
+                                try await appState.sewnAPI.signIn(email: email, password: password)
                                 signedInEmail = email
                                 status = nil
                             } catch {
@@ -193,11 +193,11 @@ struct AccountSection: View {
                             }
                         }
                     }
-                    .buttonStyle(.seer)
+                    .buttonStyle(.sewn)
                     if let status {
                         Text(status)
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerError)
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnError)
                     }
                 }
             }

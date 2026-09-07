@@ -8,16 +8,16 @@ struct RenameEntitySheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Rename entity")
-                .font(.seerSerif(18, weight: .light, italic: true))
+                .font(.sewnSerif(18, weight: .light, italic: true))
             TextField("new name", text: $name)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 300)
                 .onSubmit { commit() }
             HStack {
                 Button("Cancel") { viewModel.renamingEntityId = nil }
-                    .buttonStyle(.seerQuiet)
+                    .buttonStyle(.sewnQuiet)
                 Button("Rename") { commit() }
-                    .buttonStyle(.seer)
+                    .buttonStyle(.sewn)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
@@ -53,22 +53,22 @@ struct PolicyEditorView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Extraction Policy")
-                    .font(.seerSerif(20, weight: .light, italic: true))
+                    .font(.sewnSerif(20, weight: .light, italic: true))
                 Spacer()
                 if let status {
                     Text(status)
-                        .font(.seerSans(11))
-                        .foregroundStyle(Color.seerInk.opacity(0.5))
+                        .font(.sewnSans(11))
+                        .foregroundStyle(Color.sewnInk.opacity(0.5))
                 }
                 Button("Close") { dismiss() }
-                    .buttonStyle(.seerQuiet)
+                    .buttonStyle(.sewnQuiet)
                 Button("Save") { save() }
-                    .buttonStyle(.seer)
+                    .buttonStyle(.sewn)
                     .disabled(policy == nil)
             }
             .padding(20)
 
-            Divider().overlay(Color.seerBorder)
+            Divider().overlay(Color.sewnBorder)
 
             if policy != nil {
                 ScrollView {
@@ -82,25 +82,25 @@ struct PolicyEditorView: View {
                 }
             } else {
                 EmptyHero(title: "Loading policy…",
-                          subtitle: status ?? "Fetching the extraction policy from the selected Totem node.")
+                          subtitle: status ?? "Fetching the extraction policy from the selected Thread node.")
             }
         }
-        .background(Color.seerBG)
+        .background(Color.sewnBG)
         .task { await load() }
     }
 
     // MARK: Sections
 
     private var ontologySection: some View {
-        SeerCard {
+        SewnCard {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Ontology — entity kinds")
                 ForEach(policy?.kinds ?? []) { kind in
                     HStack(spacing: 8) {
-                        SeerPill(text: kind.name, tint: EntityNodeView.hue(for: kind.name))
+                        SewnPill(text: kind.name, tint: EntityNodeView.hue(for: kind.name))
                         Text(kind.description)
-                            .font(.seerSans(11))
-                            .foregroundStyle(Color.seerInk.opacity(0.6))
+                            .font(.sewnSans(11))
+                            .foregroundStyle(Color.sewnInk.opacity(0.6))
                         Spacer()
                         Button {
                             policy?.kinds.removeAll { $0.name == kind.name }
@@ -108,7 +108,7 @@ struct PolicyEditorView: View {
                             Image(systemName: "xmark.circle")
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(Color.seerInk.opacity(0.3))
+                        .foregroundStyle(Color.sewnInk.opacity(0.3))
                     }
                 }
                 HStack(spacing: 8) {
@@ -123,24 +123,24 @@ struct PolicyEditorView: View {
                         policy?.kinds.append(.init(name: name, description: newKindDescription))
                         newKindName = ""; newKindDescription = ""
                     }
-                    .buttonStyle(.seerQuiet)
+                    .buttonStyle(.sewnQuiet)
                 }
             }
         }
     }
 
     private var promptSection: some View {
-        SeerCard {
+        SewnCard {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Extraction prompt template")
                 Text("Leave empty for the built-in prompt. Placeholders: {{kinds}}, {{kind_names}}, {{max_entities}}, {{max_relationships}}")
-                    .font(.seerSans(10.5))
-                    .foregroundStyle(Color.seerInk.opacity(0.45))
+                    .font(.sewnSans(10.5))
+                    .foregroundStyle(Color.sewnInk.opacity(0.45))
                 TextEditor(text: Binding(
                     get: { policy?.promptTemplate ?? "" },
                     set: { policy?.promptTemplate = $0.isEmpty ? nil : $0 }
                 ))
-                .font(.seerMono(11))
+                .font(.sewnMono(11))
                 .frame(height: 110)
                 .scrollContentBackground(.hidden)
                 .background(Color.white.opacity(0.7))
@@ -154,21 +154,21 @@ struct PolicyEditorView: View {
                         get: { policy?.maxRelationships ?? 15 },
                         set: { policy?.maxRelationships = $0 }), in: 0...80)
                 }
-                .font(.seerSans(11))
+                .font(.sewnSans(11))
             }
         }
     }
 
     private var aliasSection: some View {
-        SeerCard {
+        SewnCard {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("Predicate aliases")
                 ForEach((policy?.predicateAliases ?? [:]).sorted(by: { $0.key < $1.key }), id: \.key) { alias, canonical in
                     HStack(spacing: 6) {
-                        Text(alias).font(.seerMono(10.5))
+                        Text(alias).font(.sewnMono(10.5))
                         Image(systemName: "arrow.right").font(.system(size: 9))
-                            .foregroundStyle(Color.seerGold)
-                        Text(canonical).font(.seerMono(10.5))
+                            .foregroundStyle(Color.sewnGold)
+                        Text(canonical).font(.sewnMono(10.5))
                         Spacer()
                         Button {
                             policy?.predicateAliases.removeValue(forKey: alias)
@@ -176,7 +176,7 @@ struct PolicyEditorView: View {
                             Image(systemName: "xmark.circle")
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(Color.seerInk.opacity(0.3))
+                        .foregroundStyle(Color.sewnInk.opacity(0.3))
                     }
                 }
                 HStack(spacing: 8) {
@@ -192,14 +192,14 @@ struct PolicyEditorView: View {
                         policy?.predicateAliases[from] = to
                         newAliasFrom = ""; newAliasTo = ""
                     }
-                    .buttonStyle(.seerQuiet)
+                    .buttonStyle(.sewnQuiet)
                 }
             }
         }
     }
 
     private var autoEdgeSection: some View {
-        SeerCard {
+        SewnCard {
             VStack(alignment: .leading, spacing: 12) {
                 SectionLabel("Auto-edges — in-flight edge creation")
 
@@ -215,9 +215,9 @@ struct PolicyEditorView: View {
                     }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Co-mention edges").font(.seerSans(12, weight: .medium))
+                        Text("Co-mention edges").font(.sewnSans(12, weight: .medium))
                         Text("Entities extracted from the same document link with a weighted auto:appears-with edge.")
-                            .font(.seerSans(10.5)).foregroundStyle(Color.seerInk.opacity(0.5))
+                            .font(.sewnSans(10.5)).foregroundStyle(Color.sewnInk.opacity(0.5))
                     }
                 }
 
@@ -233,16 +233,16 @@ struct PolicyEditorView: View {
                     }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Similarity edges").font(.seerSans(12, weight: .medium))
+                        Text("Similarity edges").font(.sewnSans(12, weight: .medium))
                         Text("New entities bridge to semantically-close existing entities (auto:related-to) via embedding cosine.")
-                            .font(.seerSans(10.5)).foregroundStyle(Color.seerInk.opacity(0.5))
+                            .font(.sewnSans(10.5)).foregroundStyle(Color.sewnInk.opacity(0.5))
                     }
                 }
 
                 if policy?.similarity?.enabled == true {
                     HStack(spacing: 14) {
                         Text("cosine ≥ \(String(format: "%.2f", policy?.similarity?.cosineThreshold ?? 0.82))")
-                            .font(.seerMono(10.5))
+                            .font(.sewnMono(10.5))
                         Slider(value: Binding(
                             get: { policy?.similarity?.cosineThreshold ?? 0.82 },
                             set: { policy?.similarity?.cosineThreshold = $0 }
@@ -251,7 +251,7 @@ struct PolicyEditorView: View {
                         Stepper("max edges/entity: \(policy?.similarity?.maxEdgesPerEntity ?? 3)", value: Binding(
                             get: { policy?.similarity?.maxEdgesPerEntity ?? 3 },
                             set: { policy?.similarity?.maxEdgesPerEntity = $0 }), in: 1...10)
-                            .font(.seerSans(11))
+                            .font(.sewnSans(11))
                     }
                     .padding(.leading, 20)
                 }
@@ -259,10 +259,10 @@ struct PolicyEditorView: View {
                 Stepper("hub degree cap: \(policy?.hubDegreeCap ?? 0)", value: Binding(
                     get: { policy?.hubDegreeCap ?? 24 },
                     set: { policy?.hubDegreeCap = $0 }), in: 4...200, step: 4)
-                    .font(.seerSans(11))
+                    .font(.sewnSans(11))
                 Text("Entities at/over this degree receive no new auto-edges (megahub guard). Policy changes apply to future ingests — use per-document re-extract for existing data.")
-                    .font(.seerSans(10.5))
-                    .foregroundStyle(Color.seerInk.opacity(0.5))
+                    .font(.sewnSans(10.5))
+                    .foregroundStyle(Color.sewnInk.opacity(0.5))
             }
         }
     }
@@ -271,7 +271,7 @@ struct PolicyEditorView: View {
 
     private func load() async {
         guard let api = viewModel.api else {
-            status = "no Totem selected"
+            status = "no Thread selected"
             return
         }
         do {

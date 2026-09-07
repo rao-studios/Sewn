@@ -1,6 +1,6 @@
 //
 //  MessagesRequests.swift
-//  Seer
+//  Sewn
 //
 //  Anthropic-compatible Messages API wire types (ThinkingMachines / Tinker).
 //
@@ -202,7 +202,7 @@ extension Requests.Messages {
                 case outputTokens = "output_tokens"
             }
 
-            /// Bridges to the Mistral-shaped usage the rest of Seer accounts with.
+            /// Bridges to the Mistral-shaped usage the rest of Sewn accounts with.
             var asChatUsage: Requests.Chat.Get.Usage {
                 .init(promptTokens: inputTokens,
                       completionTokens: outputTokens,

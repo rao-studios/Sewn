@@ -19,10 +19,10 @@ FROM swift:6.0.0-jammy-slim
 WORKDIR /app
 
 # Copy the actual binary
-COPY --from=builder /build/.build/release/seer-server /app/
+COPY --from=builder /build/.build/release/sewn-server /app/
 
 # Expose port
 EXPOSE 8080
 
 # Run with the correct flags
-CMD ["/app/seer-server", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/app/sewn-server", "--host", "0.0.0.0", "--port", "8080"]

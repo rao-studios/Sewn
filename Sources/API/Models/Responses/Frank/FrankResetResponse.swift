@@ -1,6 +1,6 @@
 //
 //  FrankResetResponse.swift
-//  seer-server
+//  sewn-server
 //
 
 
