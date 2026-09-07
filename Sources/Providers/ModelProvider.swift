@@ -297,6 +297,9 @@ final class ModelProvider {
                     messages: mistralMessages,
                     maxTokens: resolvedMaxTokens,
                     temperature: temperature,
+                    // Mistral rejects greedy sampling (temperature 0) unless
+                    // top_p is exactly 1 — both callers pin temperature to 0.
+                    topP: temperature == 0 ? 1 : 0.9,
                     tools: tools
                 )
             )
