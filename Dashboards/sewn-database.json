@@ -1,0 +1,784 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus / Mimir",
+      "description": "Scaleway Cockpit Mimir datasource",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "gauge", "name": "Gauge", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "Deep diagnostics for the Sewn HNSW graph and PQ index: traversal costs, search path efficiency, and index lifecycle.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["sewn", "hnsw", "index"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Sewn — Database & HNSW",
+  "uid": "sewn-database",
+  "version": 1,
+
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource"
+      }
+    ]
+  },
+
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Index State",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "blue", "value": null }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "The total number of documents filed in Sewn's library. Each search query is a patron asking the librarian to find the most relevant book — this is how many books are on the shelves.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_index_documents_total",
+          "legendFormat": "documents",
+          "refId": "A"
+        }
+      ],
+      "title": "Indexed Documents",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "purple", "value": null }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "The number of intersections on the HNSW city map. More intersections mean richer routes for a query to navigate toward its nearest-neighbour destination. A sudden drop here means nodes were wiped.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_nodes_total",
+          "legendFormat": "nodes",
+          "refId": "A"
+        }
+      ],
+      "title": "Global HNSW Nodes",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 100 },
+            { "color": "red", "value": 500 }
+          ]},
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "description": "The typical commute time for a query. Half of all search requests reach their destination faster than this value — think of it as average traffic on a clear day.",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.50, rate(sewn_search_duration_bucket[5m])) * 1000",
+          "legendFormat": "P50",
+          "refId": "A"
+        }
+      ],
+      "title": "P50 Search Latency",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 50 },
+            { "color": "red", "value": 200 }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "The number of doors the last query knocked on at the ground floor before finding its best match. More doors = more thorough search but a slower trip. If this is always at the ef_search ceiling, the graph may be poorly connected.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_layer0_explored",
+          "legendFormat": "explored",
+          "refId": "A"
+        }
+      ],
+      "title": "Last Layer-0 Explored",
+      "type": "stat"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Search Latency",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "description": "A journey-time report for all queries. P50 is a normal commute; P95 is a bad-traffic day; P99 is the worst gridlock. A widening gap between P50 and P99 means a subset of queries are taking dramatically longer routes — often caused by dense clusters or a sparse section of the graph.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": ["mean", "max", "min"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.50, rate(sewn_search_duration_bucket[5m])) * 1000",
+          "legendFormat": "P50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.90, rate(sewn_search_duration_bucket[5m])) * 1000",
+          "legendFormat": "P90",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.95, rate(sewn_search_duration_bucket[5m])) * 1000",
+          "legendFormat": "P95",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.99, rate(sewn_search_duration_bucket[5m])) * 1000",
+          "legendFormat": "P99",
+          "refId": "D"
+        }
+      ],
+      "title": "HNSW / PQ Search Latency Percentiles",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "HNSW Traversal Cost",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "Three legs of every query's journey — Upper layer hops: express highway exits taken to descend quickly toward the right neighbourhood. Layer 0 explored: local streets walked once inside that neighbourhood. Candidates before filter: everyone who queued outside the shop before the bouncer (owner/access filter) let the right people in. EF used: the size of the candidate shortlist the search is allowed to keep — it is max(k, efSearch). See the EF Budget Utilization panel for the explored ÷ ef efficiency ratio.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_layer0_explored",
+          "legendFormat": "Layer 0 explored",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_candidates_before_filter",
+          "legendFormat": "Candidates before filter",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_upper_layer_hops",
+          "legendFormat": "Upper layer hops (total)",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_ef_used",
+          "legendFormat": "EF ceiling (max(k, efSearch))",
+          "refId": "D"
+        }
+      ],
+      "title": "HNSW Traversal Stats (last query)",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "The city growing over time — indexed documents are new buildings, HNSW nodes are the road intersections connecting them. The two lines should track closely. A divergence where nodes grow faster than documents means HNSW is inserting phantom entries; nodes lagging behind documents means fresh content isn't yet navigable.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_nodes_total",
+          "legendFormat": "Global HNSW nodes",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_index_documents_total",
+          "legendFormat": "Indexed documents",
+          "refId": "B"
+        }
+      ],
+      "title": "Graph & Document Growth",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "description": "How much of the ef beam budget each query consumed: layer0_explored ÷ ef_used. Below 0.8 the search terminated early — the graph is well-connected and the nearest neighbourhood was found without exhausting the candidate list. At 1.0 or above the beam hit the ceiling on every query, meaning ef is too small relative to graph density and relevant neighbours are being discarded from the result buffer mid-traversal. Raise efSearch when this line stays at or above 1.0 consistently.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "id": 10,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_layer0_explored / sewn_hnsw_ef_used",
+          "legendFormat": "explored / ef",
+          "refId": "A"
+        }
+      ],
+      "title": "EF Budget Utilization (explored ÷ ef)",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "min": 0,
+          "max": 300,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 100 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "Current stored efSearch — the adaptive floor the EMA controller has converged to. Distinct from ef_used (max(k, efSearch) per query). Red below 50 = clamped at minimum; yellow 50–100 = still warm-up or light graph; green ≥ 100 = controller has seen real load and widened the beam appropriately.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "id": 11,
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_ef_search",
+          "legendFormat": "efSearch (adaptive floor)",
+          "refId": "A"
+        }
+      ],
+      "title": "Current EF Search (Adaptive)",
+      "type": "gauge"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "id": 12,
+      "title": "EF Adaptation",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "description": "The adaptive efSearch settling over time. ef_search is the stored floor value the EMA controller writes after every query. ema_explored is the smoothed layer-0 exploration depth driving it — ef_search tracks ema_explored × 1.5. Watch ef_search converge from the cold-start default toward the graph's natural exploration depth. A sustained climb means the graph is getting denser and the controller is correctly widening the beam; a drop after compaction or efSearchMin clamping is also expected.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 33 },
+      "id": 13,
+      "options": {
+        "legend": { "calcs": ["mean", "last", "max"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_ef_search",
+          "legendFormat": "efSearch (adapted floor)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_ema_explored",
+          "legendFormat": "EMA explored (driver)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_layer0_explored",
+          "legendFormat": "Layer 0 explored (raw)",
+          "refId": "C"
+        }
+      ],
+      "title": "EF Adaptation Journey (efSearch vs EMA vs raw explored)",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "description": "Rate of efSearch value changes. Each increment means the EMA controller produced a new target different from the previous efSearch. A high rate means the graph is still warming up or load patterns are shifting. Near-zero in steady state is normal — once efSearch converges, only significant changes in graph density or query patterns trigger further adjustments.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 41 },
+      "id": 14,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_hnsw_ef_adaptations_total[5m])",
+          "legendFormat": "efSearch changes/s",
+          "refId": "A"
+        }
+      ],
+      "title": "EF Adaptation Rate",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+      "id": 103,
+      "title": "Search Path & Index Operations",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" }
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "description": "Which navigation style each query used. Global HNSW = motorway (fast, broad). Personal HNSW = a shortcut through a familiar neighbourhood the user has built up over time. Linear Fallback = walking every single street because the map was lost — correct result, but very slow. A rising linear slice is the first sign of HNSW graph degradation.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_search_path_total{path=\"global_hnsw\"}[5m]) / rate(sewn_search_total[5m])",
+          "legendFormat": "Global HNSW %",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_search_path_total{path=\"personal_hnsw\"}[5m]) / rate(sewn_search_total[5m])",
+          "legendFormat": "Personal HNSW %",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_search_path_total{path=\"linear\"}[5m]) / rate(sewn_search_total[5m])",
+          "legendFormat": "Linear Fallback %",
+          "refId": "C"
+        }
+      ],
+      "title": "Search Path Share (stacked %)",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "description": "The pace at the library cataloguing desk. Puts are new book acquisitions, updates are re-catalogued editions, removes are titles being pulled from the shelves. A spike in removes followed by a drop in search quality points to an unintended bulk-delete.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
+      "id": 9,
+      "options": {
+        "legend": { "calcs": ["sum", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_index_operations_total{op=\"put\"}[5m])",
+          "legendFormat": "put",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_index_operations_total{op=\"update\"}[5m])",
+          "legendFormat": "update",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_index_operations_total{op=\"remove\"}[5m])",
+          "legendFormat": "remove",
+          "refId": "C"
+        }
+      ],
+      "title": "Index Operations Rate",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 },
+      "id": 104,
+      "title": "HNSW Graph Health",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "Active residents vs empty lots in the city. Deleted nodes are plots that have been vacated but not yet demolished — they remain in the graph and can slow down queries that stumble across them. The gap between the two lines is the compaction backlog; a widening gap means the demolition crew (compactor) is falling behind.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 61 },
+      "id": 20,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_live_nodes",
+          "legendFormat": "Live nodes",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_deleted_nodes",
+          "legendFormat": "Deleted nodes",
+          "refId": "B"
+        }
+      ],
+      "title": "HNSW Live vs Deleted Nodes",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "Max level is how many floors the HNSW skyscraper has — more floors let a query ride the elevator down from a bird's-eye view to street level quickly instead of walking from the entrance. Avg layer-0 degree is how many neighbours each street corner is directly connected to; below ~4 the neighbourhood becomes a dead-end maze and search quality degrades.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 61 },
+      "id": 21,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_max_level",
+          "legendFormat": "Max level",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_hnsw_avg_layer0_degree",
+          "legendFormat": "Avg layer-0 degree",
+          "refId": "B"
+        }
+      ],
+      "title": "HNSW Hierarchy Depth & Connectivity",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "description": "How often the demolition crew clears empty lots. Each compaction run removes soft-deleted nodes and re-stitches the graph's connections. Zero for an extended period while deleted nodes accumulate means every query is navigating around rubble — expect rising traversal cost and slightly worse recall.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 69 },
+      "id": 22,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_hnsw_compactions_total[5m])",
+          "legendFormat": "Compactions/s",
+          "refId": "A"
+        }
+      ],
+      "title": "HNSW Compaction Rate",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "description": "The time it takes to print a new edition of the PQ pocket atlas. Training compresses a document's full-resolution vector into a compact code so future distance comparisons use a pocket map instead of the full city blueprint — faster lookups at a small accuracy trade-off. A spike here means a document had an unusually complex vector space to quantise.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 69 },
+      "id": 23,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.50, rate(sewn_pq_train_duration_bucket[5m])) * 1000",
+          "legendFormat": "P50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.95, rate(sewn_pq_train_duration_bucket[5m])) * 1000",
+          "legendFormat": "P95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.99, rate(sewn_pq_train_duration_bucket[5m])) * 1000",
+          "legendFormat": "P99",
+          "refId": "C"
+        }
+      ],
+      "title": "PQ Codebook Train Duration",
+      "type": "timeseries"
+    }
+  ]
+}
