@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  sewn:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"  # change left side to expose on different host port
+      - "9091:9091"  # gRPC port for Thread node registration
+    restart: unless-stopped
+    volumes:
+      - sewn-volume-dev:/root/Documents/sewn-db
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  alloy:
+    image: grafana/alloy:latest
+    restart: unless-stopped
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    env_file:
+      - .env
+    command: run /etc/alloy/config.alloy
+    depends_on:
+      - sewn
+
+volumes:
+  sewn-volume-dev:
+    external: true

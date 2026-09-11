@@ -1,0 +1,856 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus / Mimir",
+      "description": "Scaleway Cockpit Mimir datasource",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "Full Sinatra flow: parked-data pipeline → sentiment signal → GBT training health → IMBHS period tuning → inference impact. Use this to tune GBT trees and identify gaps in training data or query coverage per user.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["sewn", "sinatra", "ml"],
+  "time": { "from": "now-3h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Sewn — Sinatra ML Pipeline",
+  "uid": "sewn-sinatra",
+  "version": 1,
+
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource"
+      }
+    ]
+  },
+
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "At a Glance",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Percentage of search inferences where Sinatra successfully applied a GBT adjustment. Low values mean users lack enough interaction history or trained models — the pipeline is warming up. Sustained 0% means no user has reached the minimum training threshold (5 samples).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": null },
+            { "color": "yellow", "value": 5 },
+            { "color": "green",  "value": 20 }
+          ]},
+          "unit": "percent", "min": 0, "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "100 * rate(sinatra_adjustments_total[5m]) / rate(sinatra_inferences_total[5m])",
+          "legendFormat": "applied %",
+          "refId": "A"
+        }
+      ],
+      "title": "Inference Applied Rate",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Most recent sentiment weight output by the LLM analyser. 0 = strongly negative user reaction, 0.5 = neutral, 1 = strongly positive. Sustained values near 0.5 with high confidence mean the user's messages lack enough emotional signal for the GBT to learn from.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": null },
+            { "color": "yellow", "value": 0.35 },
+            { "color": "green",  "value": 0.6 }
+          ]},
+          "unit": "percentunit", "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_sentiment_weight",
+          "legendFormat": "weight",
+          "refId": "A"
+        }
+      ],
+      "title": "Last Sentiment Weight",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Partitions currently parked and waiting for a user follow-up. A persistently non-zero value means users have not sent a reply after a search — no feedback is being harvested. Spikes that never clear mean messages are too short to pass the word-count filter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "blue",   "value": null },
+            { "color": "yellow", "value": 10 },
+            { "color": "red",    "value": 30 }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_parked_records",
+          "legendFormat": "parked",
+          "refId": "A"
+        }
+      ],
+      "title": "Parked Records (awaiting reply)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Training samples currently held in the dataset for the most recently trained user. Thresholds: <5 = no model possible, <30 = small tier (heavy regularisation, 20 trees), 30–79 = medium tier (35 trees), ≥80 = full tier (50 trees). A user stuck below 30 will never get the full model.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": null },
+            { "color": "yellow", "value": 5 },
+            { "color": "orange", "value": 30 },
+            { "color": "green",  "value": 80 }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_dataset_size",
+          "legendFormat": "samples",
+          "refId": "A"
+        }
+      ],
+      "title": "Dataset Size",
+      "type": "stat"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Sentiment Signal Quality",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Sentiment weight (0–1) and LLM confidence (0–1) over time. Watch for low confidence paired with extreme weights — that is noisy training data that will confuse the GBT. Sustained mid-range weights (0.4–0.6) with high confidence signal genuine neutral users who may need a longer observation window before the model can differentiate.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "auto", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "percentunit", "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": ["mean", "min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_sentiment_weight",
+          "legendFormat": "weight (0=neg, 1=pos)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_sentiment_confidence",
+          "legendFormat": "LLM confidence",
+          "refId": "B"
+        }
+      ],
+      "title": "Sentiment Weight & Confidence",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Rate of boost (factor<1, positive sentiment applied), demote (factor>1, negative sentiment applied), and neutral (factor=1 exactly) inference outcomes. A healthy personalised pipeline shows a mix of boosts and demotions as the model discriminates. All-neutral means predictions are clustering at 0.5 — the GBT has not learned enough signal yet.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_boosts_total[5m])",
+          "legendFormat": "boosts (factor < 1)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_demotions_total[5m])",
+          "legendFormat": "demotions (factor > 1)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_adjustments_total[5m]) - rate(sinatra_boosts_total[5m]) - rate(sinatra_demotions_total[5m])",
+          "legendFormat": "neutral (factor = 1)",
+          "refId": "C"
+        }
+      ],
+      "title": "Inference Outcome: Boost / Demote / Neutral",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "Parked Data → Training Pipeline",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Rate of feature vectors generated (added to the dataset) vs skipped (insufficient interaction history, <20 interactions). A high skip rate means users are in cold-start — they have parked data and sentiment labels but not enough interaction history for the 12-feature vector to be computed. The fix is patience: more interactions are needed, not more training data.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["sum", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_feature_vectors_generated_total[5m])",
+          "legendFormat": "generated",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_feature_vectors_skipped_total[5m])",
+          "legendFormat": "skipped (cold-start)",
+          "refId": "B"
+        }
+      ],
+      "title": "Feature Vector Generation Rate",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Dataset size over time for the most recently trained user. The three tier thresholds are marked: <5 = no model, 5–29 = small (20 trees, heavy L2), 30–79 = medium (35 trees), ≥80 = full (50 trees). A plateau below a threshold means no new sentiment cycles are completing — check parked records and word-count filter hits.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_dataset_size",
+          "legendFormat": "dataset size",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "vector(5)",
+          "legendFormat": "threshold: model enabled",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "vector(30)",
+          "legendFormat": "threshold: medium tier",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "vector(80)",
+          "legendFormat": "threshold: full tier",
+          "refId": "D"
+        }
+      ],
+      "title": "Dataset Size & Tier Thresholds",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 103,
+      "title": "GBT Model Health",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Trees in the most recently trained GBT model. Reflects the adaptive tier: 20 (small), 35 (medium), or 50 (full). A step down means the dataset shrank (e.g. data was purged) and the model regressed to a lighter tier. The hysteresis mechanism uses the peak dataset size to prevent thrashing — so a genuine drop means data really was lost.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": null },
+            { "color": "yellow", "value": 20 },
+            { "color": "orange", "value": 35 },
+            { "color": "green",  "value": 50 }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 24 },
+      "id": 9,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_model_trees_total",
+          "legendFormat": "trees",
+          "refId": "A"
+        }
+      ],
+      "title": "GBT Tree Count (tier proxy)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "F₀: the initial prediction of the GBT ensemble — the mean of all training targets (sentiment weights). This is the model's prior before any tree refines it. F₀ near 0.5 means the user's historical sentiment is balanced. F₀ drifting toward 1.0 means the user is generally positive about Sewn's responses; toward 0.0 means chronic dissatisfaction.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": null },
+            { "color": "yellow", "value": 0.3 },
+            { "color": "green",  "value": 0.5 }
+          ]},
+          "unit": "percentunit", "min": 0, "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 24 },
+      "id": 10,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_model_initial_prediction",
+          "legendFormat": "F₀",
+          "refId": "A"
+        }
+      ],
+      "title": "GBT F₀ (baseline sentiment prior)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "P95 wall-clock time for one full GBT training run. At ≤200 points × 12 features × 50 trees this should be sub-millisecond. Any value approaching 10ms means a dataset has grown unusually large or the feature generation step before training is slower than expected.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 5 },
+            { "color": "red",    "value": 15 }
+          ]},
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 24 },
+      "id": 11,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.95, rate(sinatra_training_duration_bucket[10m])) / 1e6",
+          "legendFormat": "P95 ms",
+          "refId": "A"
+        }
+      ],
+      "title": "GBT Training Duration P95",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Most recently applied distance adjustment factor. 0.5 = maximum boost (query predicted very positive, distance halved). 1.0 = no adjustment (neutral). 1.5 = maximum demote (very negative, distance multiplied by 1.5). A value stuck at 1.0 means the model is always predicting exactly 0.5 — the GBT has not differentiated yet.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 0.9 },
+            { "color": "green",  "value": 1.05 },
+            { "color": "orange", "value": 1.2 },
+            { "color": "red",    "value": 1.4 }
+          ]},
+          "unit": "short", "min": 0.5, "max": 1.5
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 24 },
+      "id": 12,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_adjustment_factor",
+          "legendFormat": "factor",
+          "refId": "A"
+        }
+      ],
+      "title": "Last Adjustment Factor (0.5–1.5)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "GBT model tree count and F₀ prior over time. Tree count stepping down means the model regressed to a lighter tier. F₀ trending up over months means the user is genuinely becoming more satisfied with responses — or that negative interactions are being pruned by the word-count filter.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "F₀ prior" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "id": 13,
+      "options": {
+        "legend": { "calcs": ["last", "min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_model_trees_total",
+          "legendFormat": "tree count",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_model_initial_prediction",
+          "legendFormat": "F₀ prior",
+          "refId": "B"
+        }
+      ],
+      "title": "GBT Trees & F₀ Over Time",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Training run rate broken down by adaptive tier. Each training event costs <1ms. The tier distribution shows how far users have progressed: all-small means the entire fleet is in cold-start. A mixture of tiers is healthy. A sudden shift from full to small means data was purged for an active user.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "id": 14,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_training_runs_total{tier=\"small\"}[5m])",
+          "legendFormat": "small (<30 samples, 20 trees)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_training_runs_total{tier=\"medium\"}[5m])",
+          "legendFormat": "medium (30–79 samples, 35 trees)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_training_runs_total{tier=\"full\"}[5m])",
+          "legendFormat": "full (≥80 samples, 50 trees)",
+          "refId": "C"
+        }
+      ],
+      "title": "Training Runs by Tier",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "id": 104,
+      "title": "IMBHS Period Optimizer",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "IMBHS generation count over time for the most recently optimised user. The optimizer starts after 20 training cycles (warmup) and runs every 5 cycles thereafter. A flat line means either warmup is not complete yet, or sentiment cycles have stopped. A rapidly climbing generation with no corresponding tuning events means the candidate period changes are not beating the current best.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 37 },
+      "id": 15,
+      "options": {
+        "legend": { "calcs": ["last", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_imbhs_generation",
+          "legendFormat": "generation",
+          "refId": "A"
+        }
+      ],
+      "title": "IMBHS Generation",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Best MAE fitness score in the harmony memory (lower = better period configuration). The score is leave-recent-out mean absolute error: how well the current indicator periods predict past sentiment weights on the trained GBT. Convergence (score flattening) means IMBHS has found near-optimal periods for this user's interaction pattern. A sharp drop signals a useful period change.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 37 },
+      "id": 16,
+      "options": {
+        "legend": { "calcs": ["last", "min"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_imbhs_fitness",
+          "legendFormat": "best MAE",
+          "refId": "A"
+        }
+      ],
+      "title": "IMBHS Best MAE Fitness",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Rate of IMBHS period tuning events — moments when a new candidate harmony beat the current best by >1% MAE improvement, activePeriods changed, and the dataset was rebuilt and GBT retrained with the new indicator periods. Each event represents a meaningful improvement to the feature engineering for that user. Zero over a long period after warmup means the current periods are near-optimal or the harmony memory is saturated with good solutions.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 37 },
+      "id": 17,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_imbhs_period_tunings_total[10m])",
+          "legendFormat": "period changes/s",
+          "refId": "A"
+        }
+      ],
+      "title": "IMBHS Period Tuning Events",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+      "id": 105,
+      "title": "Inference Effectiveness & Unadjusted Breakdown",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Adjustment factor over time (range 0.5–1.5, neutral at 1.0). Drifting below 1.0 means Sinatra is consistently promoting results — the user's history is positive. Drifting above 1.0 means demotion — the user is frequently dissatisfied. A value oscillating tightly around 1.0 means the GBT hasn't learned strong preferences yet (small dataset or neutral user).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "short", "min": 0.5, "max": 1.5
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 46 },
+      "id": 18,
+      "options": {
+        "legend": { "calcs": ["mean", "min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sinatra_adjustment_factor",
+          "legendFormat": "adjustment factor",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "vector(1)",
+          "legendFormat": "neutral baseline",
+          "refId": "B"
+        }
+      ],
+      "title": "Adjustment Factor Over Time",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Why inferences returned unadjusted — broken down by reason. no_registry: Sinatra registry not initialised yet. no_collector: user has no interaction history at all (first visit). no_model: user has interaction history but not enough training samples for a GBT yet (<5). empty_model: a model object exists but has 0 trees — transient state just after registry load. no_features: model is ready but the feature vector could not be generated because the user has <20 interactions. This breakdown tells you exactly where in the funnel users are stuck.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2,
+            "pointSize": 5, "showPoints": "never", "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" }
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 46 },
+      "id": 19,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_unadjusted_total{reason=\"no_features\"}[5m])",
+          "legendFormat": "no_features (<20 interactions)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_unadjusted_total{reason=\"no_model\"}[5m])",
+          "legendFormat": "no_model (<5 training samples)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_unadjusted_total{reason=\"no_collector\"}[5m])",
+          "legendFormat": "no_collector (new user)",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_unadjusted_total{reason=\"empty_model\"}[5m])",
+          "legendFormat": "empty_model (transient)",
+          "refId": "D"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sinatra_unadjusted_total{reason=\"no_registry\"}[5m])",
+          "legendFormat": "no_registry (startup)",
+          "refId": "E"
+        }
+      ],
+      "title": "Unadjusted Inference Reasons (stacked)",
+      "type": "timeseries"
+    }
+
+  ]
+}

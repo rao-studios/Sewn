@@ -1,0 +1,744 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus / Mimir",
+      "description": "Scaleway Cockpit Mimir datasource",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana",    "id": "grafana",    "name": "Grafana",     "version": "9.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus",  "version": "1.0.0" },
+    { "type": "panel",      "id": "stat",       "name": "Stat",        "version": "" },
+    { "type": "panel",      "id": "timeseries", "name": "Time series", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "End-to-end trace of every batch embedding request: phase durations (preprocess → embed → HNSW index), resident memory correlated to phase 3, IndexQueue backlog, and document dedup hit rate. Use this to pin the root cause of the 95% memory spike to the exact pipeline stage that caused it.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "refresh": "15s",
+  "schemaVersion": 38,
+  "tags": ["sewn", "batch", "embeddings", "memory", "hnsw"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Sewn — Batch Embedding Pipeline",
+  "uid": "sewn-batch-pipeline",
+  "version": 1,
+
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "type": "datasource"
+      }
+    ]
+  },
+
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "At a Glance",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Total raw document inputs received across all batch embedding requests in the window. This is the denominator for all throughput and dedup calculations.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sum(increase(sewn_batch_documents_total{state=\"received\"}[$__range]))",
+          "legendFormat": "received",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Received",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Documents that passed dedup and were sent to the embedding API and HNSW index. Each of these produces a full embedding + HNSW write — the primary driver of phase 2 latency and phase 3 memory.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sum(increase(sewn_batch_documents_total{state=\"prepared\"}[$__range]))",
+          "legendFormat": "indexed",
+          "refId": "A"
+        }
+      ],
+      "title": "Indexed (New)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Documents already present in the registry — skipped before any embedding or HNSW work. High skip counts mean the dedup cache is working and repeat content costs nothing.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background", "graphMode": "area", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sum(increase(sewn_batch_documents_total{state=\"skipped\"}[$__range]))",
+          "legendFormat": "skipped",
+          "refId": "A"
+        }
+      ],
+      "title": "Skipped (Dedup)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Fraction of received documents that were already indexed and skipped. A consistently low rate (< 20 %) means nearly every request is novel content — worst-case load for both the embedding API and HNSW. A rate near 100 % means clients are re-submitting known content and the registry is doing all the work.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": null },
+            { "color": "yellow", "value": 20 },
+            { "color": "green",  "value": 60 }
+          ]},
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "100 * sum(increase(sewn_batch_documents_total{state=\"skipped\"}[$__range])) / sum(increase(sewn_batch_documents_total{state=\"received\"}[$__range]))",
+          "legendFormat": "dedup hit rate",
+          "refId": "A"
+        }
+      ],
+      "title": "Dedup Hit Rate",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Total documents currently held in memory across all pending IndexQueue put jobs. Each queued put job holds its [Float] embedding arrays until the drain task reaches it. Sustained elevation here after a batch burst is the primary cause of the memory plateau between phase 2 completing and phase 3 draining.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 200 },
+            { "color": "red",    "value": 1000 }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 5,
+      "options": {
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_index_queue_items",
+          "legendFormat": "docs queued",
+          "refId": "A"
+        }
+      ],
+      "title": "Queue Backlog (Docs)",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of put/remove/removeAll jobs currently pending in the IndexQueue. Each job is one full batch request. A depth > 1 means a prior batch is still in HNSW insertion and all subsequent batch responses have already been returned to the client — their embeddings are sitting in memory waiting.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 3 },
+            { "color": "red",    "value": 10 }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 6,
+      "options": {
+        "colorMode": "background", "graphMode": "none", "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_index_queue_depth",
+          "legendFormat": "jobs queued",
+          "refId": "A"
+        }
+      ],
+      "title": "Queue Depth (Jobs)",
+      "type": "stat"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Memory vs Phase 3 Correlation",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "THE PRIMARY DIAGNOSTIC CHART. Phase 3 (HNSW insertion) duration on the left axis, process resident memory on the right axis, plotted on the same time axis. The memory curve should track directly with phase 3 duration bursts — confirming that HNSW node allocation during putBatch is the cause of the spike, not phase 1 (preprocessing) or phase 2 (embedding API). If memory stays elevated after phase 3 completes, the IndexQueue still holds pending jobs in memory (see Queue Backlog below).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "series",
+            "axisLabel": "Phase 3 Duration",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "unit": "ms"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Resident Memory" },
+            "properties": [
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.axisLabel",     "value": "Resident Memory" },
+              { "id": "unit",                 "value": "bytes" },
+              { "id": "color",                "value": { "fixedColor": "orange", "mode": "fixed" } },
+              { "id": "custom.fillOpacity",   "value": 5 },
+              { "id": "custom.lineWidth",      "value": 2 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "phase3_index avg (ms)" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+              { "id": "custom.fillOpacity", "value": 20 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 6 },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_batch_phase_duration_sum{phase=\"phase3_index\"}[$__rate_interval]) / rate(sewn_batch_phase_duration_count{phase=\"phase3_index\"}[$__rate_interval])",
+          "legendFormat": "phase3_index avg (ms)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "process_resident_memory_bytes",
+          "legendFormat": "Resident Memory",
+          "refId": "B"
+        }
+      ],
+      "title": "Phase 3 Duration vs Resident Memory",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "id": 102,
+      "title": "Phase Duration Breakdown",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Average wall-clock duration of each pipeline phase over time. Phase 1 (preprocess) is bounded by the concurrency slot cap and LLM sanitize latency. Phase 2 (embed) tracks the Mistral API round-trip. Phase 3 (index) is pure HNSW insertion — unbounded CPU time that grows with corpus size and batch count. A phase 3 bar dwarfing phases 1+2 confirms the HNSW write is the bottleneck.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "ms",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 19 },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max", "sum"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_batch_phase_duration_sum{phase=\"phase1_preprocess\"}[$__rate_interval]) / rate(sewn_batch_phase_duration_count{phase=\"phase1_preprocess\"}[$__rate_interval])",
+          "legendFormat": "phase1 — preprocess (avg ms)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_batch_phase_duration_sum{phase=\"phase2_embed\"}[$__rate_interval]) / rate(sewn_batch_phase_duration_count{phase=\"phase2_embed\"}[$__rate_interval])",
+          "legendFormat": "phase2 — embed (avg ms)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_batch_phase_duration_sum{phase=\"phase3_index\"}[$__rate_interval]) / rate(sewn_batch_phase_duration_count{phase=\"phase3_index\"}[$__rate_interval])",
+          "legendFormat": "phase3 — HNSW index (avg ms)",
+          "refId": "C"
+        }
+      ],
+      "title": "All Phases — Average Duration",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Latency percentiles for phase 3 (HNSW insertion) only. p50 is the typical batch; p99 is the worst-case insertion burst. A large p50→p99 gap means occasional very large batches or HNSW graph compaction events are inflating the tail. If p99 regularly exceeds 60 s, tune compactThreshold or reduce batch size to keep single insertions under the actor-hold budget.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "ms",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 19 },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.50, rate(sewn_batch_phase_duration_bucket{phase=\"phase3_index\"}[$__rate_interval]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.95, rate(sewn_batch_phase_duration_bucket{phase=\"phase3_index\"}[$__rate_interval]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "histogram_quantile(0.99, rate(sewn_batch_phase_duration_bucket{phase=\"phase3_index\"}[$__rate_interval]))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "title": "Phase 3 — HNSW Latency Percentiles",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+      "id": 103,
+      "title": "IndexQueue Backlog",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Total documents in memory across all pending IndexQueue put jobs over time. Spike here = multiple batch responses have been returned to clients but their embeddings are still queued waiting for HNSW. This is the memory held between phase 2 ending and phase 3 draining. The area under this curve is proportional to peak memory overhead above the baseline graph size.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "documents",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "line", "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "red", "value": 1000 }
+            ]}
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red",   "value": 1000 }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "id": 10,
+      "options": {
+        "legend": { "calcs": ["max", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_index_queue_items",
+          "legendFormat": "queued documents",
+          "refId": "A"
+        }
+      ],
+      "title": "Queue Document Backlog",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Number of put/remove/removeAll jobs queued in the IndexQueue over time. Each job corresponds to one batch embedding request that has completed phase 2 but not yet started phase 3. A depth > 1 means batch requests are arriving faster than HNSW can consume them — the queue is the buffer between API throughput and graph write throughput.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "jobs",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "line", "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "red", "value": 5 }
+            ]}
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red",   "value": 5 }
+          ]},
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "id": 11,
+      "options": {
+        "legend": { "calcs": ["max", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "sewn_index_queue_depth",
+          "legendFormat": "queued jobs",
+          "refId": "A"
+        }
+      ],
+      "title": "Queue Job Depth",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+      "id": 104,
+      "title": "Document Throughput & Dedup",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Rate of documents flowing through each pipeline stage per second. 'received' is raw input. 'prepared' is what passed dedup and went to the embedding API. 'skipped' is the dedup hit. 'failed' is content that was empty after sanitize. When 'prepared' ≈ 'received', every document is novel and the full HNSW write path is exercised for each one.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "docs/s",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 38 },
+      "id": 12,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_batch_documents_total{state=\"received\"}[$__rate_interval])",
+          "legendFormat": "received",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_batch_documents_total{state=\"prepared\"}[$__rate_interval])",
+          "legendFormat": "prepared (→ HNSW)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_batch_documents_total{state=\"skipped\"}[$__rate_interval])",
+          "legendFormat": "skipped (dedup)",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "rate(sewn_batch_documents_total{state=\"failed\"}[$__rate_interval])",
+          "legendFormat": "failed (empty)",
+          "refId": "D"
+        }
+      ],
+      "title": "Documents by Pipeline Stage",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Dedup hit rate over time: skipped / received. When this is consistently low (< 20 %), nearly all incoming content is novel — every request drives a full embedding API call plus HNSW insertions with no shortcuts. A sustained low rate during a burst is the worst-case load scenario that produces the 95% memory spike: 0% dedup × 500 docs × N concurrent requests = N × 500 full HNSW writes queued back-to-back.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "%",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "line+area", "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "super-light-red", "value": 0 },
+              { "color": "transparent", "value": 20 }
+            ]}
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": null },
+            { "color": "yellow", "value": 20 },
+            { "color": "green",  "value": 60 }
+          ]},
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 38 },
+      "id": 13,
+      "options": {
+        "legend": { "calcs": ["mean", "min", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "100 * rate(sewn_batch_documents_total{state=\"skipped\"}[$__rate_interval]) / rate(sewn_batch_documents_total{state=\"received\"}[$__rate_interval])",
+          "legendFormat": "dedup hit rate %",
+          "refId": "A"
+        }
+      ],
+      "title": "Dedup Hit Rate Over Time",
+      "type": "timeseries"
+    }
+
+  ]
+}
