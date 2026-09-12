@@ -1,6 +1,9 @@
 # Caching & Synchronization Primitives
 
-Sewn's caching layer is built from four composable types that cover different scopes: per-request synchronous reads, generic persistent state, document identity lookup, and raw value protection. Understanding when to use each is critical to preserving the concurrency invariants that prevent data races at scale.
+Sewn's caching layer is five composable types covering different scopes:
+concurrent in-memory reads, exclusive in-memory access, document identity
+lookup, persistent state, and serialized disk I/O. Choosing the right one is how
+the hot read paths avoid actor hops without introducing races.
 
 ---
 
@@ -10,10 +13,13 @@ Sewn's caching layer is built from four composable types that cover different sc
 ReadWriteValue<T>          — pthread_rwlock: concurrent reads, exclusive writes
 LockedValue<T>             — NSLock: exclusive access for every operation
 DocumentCache              — ReadWriteValue<[DocumentID: Sewn.Document]>
-SewnCache<Value: Codable>  — ReadWriteValue<Value?> + PersistenceActor (disk)
-PersistenceActor           — actor: serializes all disk I/O for one file
+SewnCache<Value: Codable>  — ReadWriteValue<Value?> + PersistenceActor
+PersistenceActor           — actor: serializes all disk I/O for ONE file
 FilePersistence            — PropertyList encode/decode for one file
 ```
+
+Files: `Sources/Utilities/Database/` (the first four),
+`Sources/Utilities/Persistence/` (the last two).
 
 ---
 
@@ -21,42 +27,40 @@ FilePersistence            — PropertyList encode/decode for one file
 
 **File**: `Sources/Utilities/Database/ReadWriteValue.swift`
 
-### What it is
+A POSIX reader-writer lock (`pthread_rwlock_t`) wrapper. Multiple callers read
+simultaneously; writes are exclusive and block until all readers release.
 
-A POSIX reader-writer lock (`pthread_rwlock_t`) wrapper. Multiple callers can read simultaneously; writes are exclusive and block until all readers have released.
+```swift
+final class ReadWriteValue<T>: @unchecked Sendable {
+    private var lock = pthread_rwlock_t()
+    func withReadLock<R>(_ body: (T) -> R) -> R          // shared
+    func withWriteLock<R>(_ body: (inout T) -> R) -> R   // exclusive
+}
+```
 
 ### When to use
 
-Use `ReadWriteValue` for any value that is **read far more frequently than it is written** — the classic high-read/low-write pattern. The key examples in Sewn:
+Any value read far more often than written. In Sewn:
 
 | Value | Read frequency | Write frequency |
 |-------|---------------|----------------|
-| HNSW graph snapshot | Every search request | Only on insert/delete/compact |
-| Registry snapshot | Every embed, search, wallet query | On document register/delete |
-| Personal HNSW snapshots map | Every personal graph search | On personal graph insert |
-| DocumentCache store | Every document fetch | On index/delete |
-
-### API
-
-```swift
-let rv = ReadWriteValue<[String: Int]>([:])
-
-// Concurrent read — multiple callers run simultaneously
-let count = rv.withReadLock { $0["key"] ?? 0 }
-
-// Exclusive write — blocks until all readers release
-rv.withWriteLock { $0["key"] = 42 }
-```
+| `SewnRegistry` snapshot (billing stats) | Every wallet query, every leaderboard build | On earnings/performance accumulation |
+| `SinatraRegistry` snapshot | Every turn's tone lookup | On training |
+| `DocumentCache` store | Every document metadata fetch | On index / delete |
 
 ### Implementation notes
 
-- `pthread_rwlock_t` is available on both Apple platforms and Linux via `swift-corelibs-foundation` — no conditional compilation needed
-- `deinit` calls `pthread_rwlock_destroy` — no leak
-- The closure receives `T` (immutable) in read mode and `inout T` in write mode — mutation is impossible through the read path at the type level
+- `pthread_rwlock_t` exists on Apple platforms and on Linux via
+  swift-corelibs-foundation — no conditional compilation.
+- `deinit` calls `pthread_rwlock_destroy`.
+- The read closure receives `T`, the write closure `inout T`. Mutation through
+  the read path is impossible at the type level.
 
 ### What NOT to use it for
 
-Do not use `ReadWriteValue` for values that require atomic read-modify-write in a single lock acquisition with complex mutation logic that reads-then-writes. For those cases, use `withWriteLock` directly and do both the read and the write inside the same closure — do not call `withReadLock` followed by `withWriteLock` as separate calls (TOCTOU race).
+Do not split a read-modify-write across two calls. `withReadLock` followed by
+`withWriteLock` is a TOCTOU race — another writer can land in the gap. Do both
+inside one `withWriteLock`, or use `SewnCache.modify`.
 
 ---
 
@@ -64,27 +68,17 @@ Do not use `ReadWriteValue` for values that require atomic read-modify-write in 
 
 **File**: `Sources/Utilities/Database/LockedValue.swift`
 
-### What it is
-
-An `NSLock`-based exclusive wrapper. Every caller, reader or writer, takes the same exclusive lock.
-
-### When to use
-
-Use `LockedValue` for values where:
-1. Write operations are as frequent as reads, OR
-2. You need a cross-platform `OSAllocatedUnfairLock`-compatible API in a context where the value isn't clearly read-heavy
-
-In practice in Sewn, `ReadWriteValue` is preferred for all hot paths. `LockedValue` appears in lower-frequency state.
-
-### API
-
 ```swift
-let lv = LockedValue<Int>(0)
-let result = lv.withLock { value -> Int in
-    value += 1
-    return value
+final class LockedValue<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    func withLock<R>(_ body: (inout T) -> R) -> R
 }
 ```
+
+Exclusive for readers and writers alike. `NSLock` is chosen over
+`OSAllocatedUnfairLock` for cross-platform availability. Use it when writes are
+about as frequent as reads, or when the access pattern is a simple exclusive
+read-modify-write. `ReadWriteValue` is preferred on every hot read path.
 
 ---
 
@@ -92,42 +86,25 @@ let result = lv.withLock { value -> Int in
 
 **File**: `Sources/Utilities/Database/DocumentCache.swift`
 
-### What it is
-
-A `Sendable`, actor-free, thread-safe in-memory cache for `Sewn.Document` objects, backed by `ReadWriteValue<[DocumentID: Sewn.Document]>`.
-
-Document reads are the most frequent operation in Sewn (every search result lookup, every royalty calculation). Routing them through an actor would add unnecessary queue hops. `DocumentCache` gives sub-microsecond concurrent reads with no actor overhead.
-
-### Lifecycle
-
-1. **Startup** — `Sewn.init` calls `seed(_:)` with the full map restored from `RegistryMutator`
-2. **Index** — `cache(_:)` inserts one document (single write lock acquisition)
-3. **Batch index** — `cacheBatch(_:)` inserts N documents in a **single** write lock acquisition (no N lock/unlock cycles)
-4. **Lookup** — `get(_:)` concurrent read, lock held for microseconds
-5. **Delete** — `evict(_:)` removes by ID
-
-### API
-
 ```swift
-// At startup
-documentCache.seed(registry.allDocuments)
-
-// On index
-documentCache.cache(document)
-
-// Batch (one lock acquisition)
-documentCache.cacheBatch(documents)
-
-// Lookup
-let doc = documentCache.get(documentId)
-
-// On delete
-documentCache.evict(documentId)
+final class DocumentCache: Sendable {
+    func get(_ id: DocumentID) -> Sewn.Document?
+    func cache(_ document: Sewn.Document)
+    func cacheBatch(_ documents: [Sewn.Document])   // ONE write-lock acquisition
+    func evict(_ id: DocumentID)
+    func seed(_ initial: [DocumentID: Sewn.Document])
+}
 ```
 
-### Key invariant
+A `Sendable`, actor-free, thread-safe map of `Sewn.Document`, backed by
+`ReadWriteValue`. Document metadata reads happen on every royalty calculation and
+every reference resolution; routing them through an actor would add a queue hop
+for a dictionary lookup.
 
-`DocumentCache` is always populated from `RegistryMutator.snapshot` at startup. They must stay in sync: any document registered in `RegistryMutator` must be cached in `DocumentCache`, and any deletion from the registry must call `evict`. The registry is the source of truth; the cache is a performance mirror.
+`cacheBatch` exists specifically to avoid N lock/unlock cycles during bulk
+indexing.
+
+Held by the `Sewn` actor as a `let`, so it is reachable `nonisolated`.
 
 ---
 
@@ -135,68 +112,73 @@ documentCache.evict(documentId)
 
 **File**: `Sources/Utilities/Database/SewnCache.swift`
 
-### What it is
+```swift
+final class SewnCache<Value: Codable & Sendable>: @unchecked Sendable
+```
 
-A generic, persistent, read-through cache for any `Codable & Sendable` value. Used by `TableMutator` (for `PartitionTable`) and `RegistryMutator` (for `SewnRegistry`).
+A generic persistent read-through cache, combining:
 
-Combines:
 - `ReadWriteValue<Value?>` — concurrent in-memory reads
 - `PersistenceActor` — serialized off-actor disk writes
-- `FilePersistence` — PropertyList encode/decode to disk
+- `FilePersistence` — property-list encode/decode
+
+Used by `RegistryMutator` (for `SewnRegistry`) and `Sinatra` (for
+`SinatraRegistry`).
 
 ### Methods
 
 | Method | Thread safety | Blocking | When to call |
 |--------|--------------|---------|-------------|
-| `snapshot` | Read lock (concurrent) | No | Any time — hot path read |
-| `seed(_:)` | Write lock (exclusive) | No | Startup, synchronous init |
-| `update(_:)` | Write lock (exclusive) | No | After in-actor mutation, before saveAsync |
-| `saveAsync(_:)` | Detached task → PersistenceActor | No (fire-and-forget) | After every mutation that needs persistence |
-| `load(makeDefault:)` | Suspends calling actor | Yes (disk I/O) | First access from async context |
+| `snapshot` | Shared read lock | No | Any time — hot-path read |
+| `seed(_:)` | Write lock | No | Startup |
+| `update(_:)` | Write lock | No | After an in-actor mutation |
+| `saveAsync(_:)` | Detached task → `PersistenceActor` | No | Fire-and-forget checkpoint |
+| `saveNow(_:)` | Awaits the `PersistenceActor` | Yes | Checkpoint and shutdown, where the write must land before proceeding |
+| `load(makeDefault:)` | Suspends the caller | Yes (disk) | First access from an async context |
 | `modify(makeDefault:_:)` | Write lock, atomic RMW | No | Atomic read-modify-write with no actor hop |
-| `seedFromDisk(makeDefault:)` | Write lock + sync disk read | Yes (sync) | Startup before async context available |
+| `seedFromDisk(makeDefault:)` | Write lock + sync disk read | Yes (sync) | Synchronous `init`, before any async context exists |
 
-### Typical actor usage pattern
+### Typical actor usage
 
 ```swift
-// Inside TableMutator (actor):
-func put(_ partition: Sewn.Partition) async {
-    var table = cache.snapshot ?? PartitionTable()
-    table.insert(partition)
-    cache.update(table)          // update in-memory snapshot
-    cache.saveAsync(table)       // kick off background disk write
+// Inside RegistryMutator (actor):
+func accumulateEarnings(_ earnings: [DocumentID: Gita.Credits]) async {
+    guard !earnings.isEmpty else { return }
+    var registry = await loadedRegistry()   // cache.load, first access only
+    registry.addEarnings(earnings)
+    cache.update(registry)                  // in-memory snapshot now current
+    appendWAL(.earningsAccumulated(...))    // durability via WAL, not a full save
 }
 ```
 
-### Load on first access
+Note that the durable write here is the **WAL append**, not `saveAsync`. See
+`Skills/Concurrency/README.md`.
+
+### saveNow vs saveAsync
+
+`saveAsync` uses `Task.detached`, so the calling actor is freed immediately and
+the write is ordered behind any other write on that file's `PersistenceActor`.
+`saveNow` awaits it. `RegistryMutator.checkpoint()` and `flushForShutdown()` use
+`saveNow` because the WAL is truncated afterwards — the save must be committed
+before the log that could reconstruct it is discarded.
+
+### modify for atomic read-modify-write
 
 ```swift
-// Called once during Sewn startup
-let table = await cache.load { PartitionTable() }
-```
-
-`load` suspends the calling actor while disk I/O completes, then caches the result. If two concurrent callers race, the first writer wins (idempotent — both would have loaded the same on-disk state).
-
-### `modify` for atomic read-modify-write
-
-```swift
-// Inside RegistryMutator — atomic earnings accumulation
 let updated = cache.modify(makeDefault: { SewnRegistry() }) { registry in
-    registry.applyEarnings(earnings)
+    registry.addEarnings(earnings)
 }
-cache.saveAsync(updated)
 ```
 
-The entire read-modify-write happens under one write lock. Never split this into `snapshot` + `update` with logic in between — that is a TOCTOU race if another actor call can interleave (actor reentrancy).
+The whole read-modify-write happens under one write lock. Never split this into
+`snapshot` + mutate + `update` when another actor call can interleave — actors
+are reentrant across suspension points.
 
-### `seedFromDisk` for synchronous init
+### seedFromDisk for synchronous init
 
-```swift
-// In synchronous init before the async world exists
-let initial = cache.seedFromDisk { PartitionTable() }
-```
-
-Calls `FilePersistence.restore()` directly (synchronous) and seeds the `ReadWriteValue`. No actor hop. Safe only if called before the object is shared with any concurrent context.
+Calls `FilePersistence.restore()` synchronously and seeds the `ReadWriteValue`.
+Safe only before the object is shared with any concurrent context — which is
+exactly the case in a synchronous `init`.
 
 ---
 
@@ -204,48 +186,27 @@ Calls `FilePersistence.restore()` directly (synchronous) and seeds the `ReadWrit
 
 **File**: `Sources/Utilities/Persistence/PersistenceActor.swift`
 
-### What it is
-
-A Swift actor that wraps `FilePersistence` to serialize all disk I/O for a single file. `FilePersistence.save` and `FilePersistence.restore` are not thread-safe — two concurrent writes to the same URL race on `data.write(to:)` and on the `fileExists → createFile` branch. `PersistenceActor` eliminates the race without blocking any thread.
-
-### One actor per file
-
-| Instance location | File it guards |
-|-------------------|---------------|
-| `SewnCache<PartitionTable>` inside `TableMutator` | `shard-<nodeId>-topology` |
-| `SewnCache<SewnRegistry>` inside `RegistryMutator` | `sewn-registry` |
-| Per-owner `PersistenceActor` inside `PersonalHNSWMutator` | `personal-<ownerId>-topology` |
-| Per-owner `PersistenceActor` for Sinatra | `sinatra-<ownerId>` |
-
-**Never share one `PersistenceActor` between two files.** Create one per logical file.
-
-### API
-
 ```swift
 actor PersistenceActor {
-    func save<T: Codable>(_ value: T)  // serialized write
-    func restore<T: Codable>() -> T?  // serialized read (sees latest committed state)
-    func purge()                       // deletes backing file
+    func save<T: Codable>(_ value: T)
+    func restore<T: Codable>() -> T?
+    func purge()
 }
 ```
 
-### `saveAsync` pattern
+One actor per logical file. `FilePersistence.save` is not thread-safe: two
+concurrent calls on the same URL race on `data.write(to:)` and on the
+`fileExists → createFile` branch. The actor removes the race without blocking a
+thread.
 
-`SewnCache.saveAsync` uses:
+`restore()` shares the executor with `save()`, so it waits for any in-flight
+save — a `load` immediately after a `saveAsync` sees the newer value.
 
-```swift
-func saveAsync(_ value: Value) {
-    Task.detached { [io] in await io.save(value) }
-}
-```
+**Never share one `PersistenceActor` between two files.** A restore of file A
+would queue behind an unrelated save of file B.
 
-- `Task.detached` releases the calling actor immediately — no suspension point in the calling actor
-- The task hops to `PersistenceActor`'s serial executor — writes are ordered
-- If `saveAsync` is called 10 times in rapid succession, all 10 writes are serialized through the actor queue; the last one committed to disk is the correct final state
-
-### restore ordering guarantee
-
-`PersistenceActor.restore()` waits for any in-flight `save()` to complete before reading. This means `load` always sees the latest committed state, even if called immediately after a `saveAsync`.
+> The type's doc comment still cites `PersonalHNSWMutator` as an owner. That
+> actor no longer exists; the comment is stale in the source.
 
 ---
 
@@ -253,110 +214,132 @@ func saveAsync(_ value: Value) {
 
 **File**: `Sources/Utilities/Persistence/FilePersistence.swift`
 
-### What it is
-
-Low-level read/write for one file. Uses `PropertyListEncoder/Decoder`. All Sewn state files (registry, table topology, Sinatra, Gita wallet) are stored as binary plists.
+Low-level read/write for one file, using `PropertyListEncoder` /
+`PropertyListDecoder`. Every Sewn state file is a binary property list — **not
+JSON**, which matters if you plan to inspect one by hand.
 
 ### Storage root
 
-`~/Documents/sewn-db/` by default. Override with `sewn-server --data-dir <path>` or the
-`SEWN_DATA_DIR` environment variable (the flag wins); tilde is expanded and the directory
-is created on startup. Every `FilePersistence`, the registry WAL and `node-id` live under
-that one root (`FilePersistence.getDefaultURL()`). Mary launches Sewn with
-`--data-dir ~/Documents/maryOS/sewn-db`; Docker maps a volume onto the default.
+```
+~/Documents/sewn-db            # default
+--data-dir <path>              # wins over the environment
+SEWN_DATA_DIR=<path>           # environment fallback
+```
+
+Tilde is expanded and the directory is created at startup.
+`FilePersistence.getDefaultURL()` is the single source of that path; every
+`FilePersistence`, the registry WAL (`registry-wal`), and the node identity live
+under it. Mary launches Sewn with `--data-dir ~/Documents/MaryOS/sewn-db`;
+Docker maps a volume onto the default.
+
+### Keys in use
+
+| Key | Owner |
+|-----|-------|
+| `registry` | `RegistryMutator` |
+| `wallet_registry` | `Gita` |
+| `sinatra/registry` | `Sinatra` |
+| `documents/{id}` | `Sewn.Document` |
+| `conversations/{id}` | Conversation history |
+| `personalities` | `Personality` |
 
 ### Key behaviors
 
-- `save`: checks `fileExists` then either creates or overwrites. **Not thread-safe** — always wrap with `PersistenceActor`
-- `restore`: decodes from disk; returns `nil` if file doesn't exist or data is corrupt (logs error)
-- `purge`: `FileManager.removeItem` — no recovery, used for owner deletion
+- `save`: checks `fileExists`, then creates or overwrites. **Not thread-safe** —
+  always wrap with `PersistenceActor`.
+- `restore`: returns `nil` if the file is missing or the data is corrupt, and
+  logs the error. Callers must have a default.
+- `purge`: `FileManager.removeItem`, no recovery. Used for owner deletion.
 
 ---
 
-## Decision Guide: Which Primitive to Use
+## Decision Guide
 
 ```
 New value to protect:
 │
-├─ Is it a document identity lookup?
+├─ Is it document metadata by id?
 │   └─ YES → DocumentCache
 │
-├─ Does it need to survive process restarts?
+├─ Must it survive process restart?
 │   └─ YES → SewnCache<Value>
-│       ├─ reads >> writes?  → backed by ReadWriteValue internally ✓
-│       └─ need atomic RMW?  → use cache.modify(...)
+│       ├─ hot-path mutation?  → pair it with a WAL record (see Concurrency)
+│       └─ need atomic RMW?    → cache.modify(...)
 │
-├─ Is it read far more than written (in-memory only)?
+├─ Read far more than written, in memory only?
 │   └─ YES → ReadWriteValue<T>
 │
-├─ Is it written as often as read OR logic is simple exclusive access?
+├─ Written about as often as read, or simple exclusive access?
 │   └─ YES → LockedValue<T>
 │
-└─ Is it only accessed from inside a single actor?
-    └─ YES → plain stored property (actor isolation is sufficient)
+└─ Only ever touched from inside one actor?
+    └─ YES → a plain stored property. Actor isolation is enough.
 ```
 
 ---
 
-## Anti-patterns to Avoid
+## Anti-patterns
 
 **1. Split read-modify-write across two lock calls**
 ```swift
-// BAD — TOCTOU race if actor is reentrant
-let current = cache.snapshot
-current.insert(item)
+// BAD — TOCTOU race across the suspension point
+var current = cache.snapshot ?? .init()
+current.addEarnings(earnings)
 cache.update(current)
 
-// GOOD — single atomic RMW
-cache.modify(makeDefault: { .init() }) { $0.insert(item) }
+// GOOD — one atomic RMW
+cache.modify(makeDefault: { .init() }) { $0.addEarnings(earnings) }
 ```
 
-**2. Calling saveAsync then immediately restore without PersistenceActor**
+**2. Restoring outside the owning PersistenceActor**
 ```swift
-// BAD — restore may see pre-save state
+// BAD — may see pre-save state
 cache.saveAsync(value)
-let v: PartitionTable? = FilePersistence(...).restore()  // races
+let v: SewnRegistry? = FilePersistence(key: "registry", kind: .basic, logger: l).restore()
 
-// GOOD — always restore through the same PersistenceActor
-let v: PartitionTable? = await io.restore()  // waits for in-flight save
+// GOOD — same actor, so the read waits for the write
+let v = await cache.load { .init() }
 ```
 
-**3. Sharing a PersistenceActor between multiple files**
+**3. Truncating a WAL before the checkpoint save completes**
 ```swift
-// BAD — writes to different files serialize unnecessarily; worst-case
-// restore of file A waits behind an unrelated save of file B
-let shared = PersistenceActor(persistence: tableFile)
-await shared.save(registryValue)  // saves to tableFile URL — wrong
+// BAD — a failed save loses everything since the last checkpoint
+try? wal?.truncate()
+cache.saveAsync(registry)
 
-// GOOD — one actor per file
-let tableIO    = PersistenceActor(persistence: tableFile)
-let registryIO = PersistenceActor(persistence: registryFile)
+// GOOD — save, then truncate
+await cache.saveNow(registry)
+try? wal?.truncate()
 ```
 
-**4. Using LockedValue for high-read workloads**
+**4. LockedValue on a high-read path**
 ```swift
-// BAD — all search requests serialize behind each other
-let cache = LockedValue<[DocumentID: Document]>([:])
+// BAD — every reader serializes
+let cache = LockedValue<[DocumentID: Sewn.Document]>([:])
 
-// GOOD — concurrent reads in parallel
-let cache = ReadWriteValue<[DocumentID: Document]>([:])
+// GOOD — concurrent reads
+let cache = ReadWriteValue<[DocumentID: Sewn.Document]>([:])
 ```
 
 ---
 
-## Interaction with Actors (TableMutator, RegistryMutator)
+## Why SewnCache Is Not Itself an Actor
 
-`SewnCache` is not itself an actor — it is a `final class` held by an actor. The owning actor provides logical mutation serialization; `SewnCache` provides:
-- Concurrent reads from outside the actor (via `snapshot`)
-- Serialized disk writes regardless of which actor context triggers them
+`SewnCache` is a `final class` held *by* an actor. The owning actor provides
+logical mutation serialization; `SewnCache` provides two things the actor cannot:
 
-This design allows the hot-path read (`snapshot`) to bypass the actor queue entirely — a critical optimization when search is handling concurrent requests.
+- concurrent reads from **outside** the actor, via `snapshot`
+- serialized disk writes regardless of which actor triggered them
+
+That split is what lets the hot read path bypass the actor queue entirely:
 
 ```
-Search Request 1 ──→ partitionTable.snapshot ──→ ReadWriteValue.withReadLock ──→ PartitionTable (concurrent)
-Search Request 2 ──→ partitionTable.snapshot ──→ ReadWriteValue.withReadLock ──→ PartitionTable (concurrent)
-Index Request    ──→ TableMutator (actor hop) ──→ cache.update + cache.saveAsync
-                                                         └──→ PersistenceActor (serial disk write)
+Wallet request 1 ──→ registryMutator.snapshot ──→ withReadLock ──┐
+Wallet request 2 ──→ registryMutator.snapshot ──→ withReadLock ──┼─→ concurrent
+Leaderboard      ──→ registryMutator.snapshot ──→ withReadLock ──┘
+
+Inference        ──→ RegistryMutator (actor hop) ──→ cache.update + appendWAL
+                                                     └──→ PersistenceActor (serial write)
 ```
 
-No request blocks another on reads. Only disk writes and HNSW mutations are serialized.
+No read blocks another. Only mutations and disk writes serialize.

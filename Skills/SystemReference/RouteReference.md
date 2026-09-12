@@ -1,519 +1,352 @@
-# API Route Reference
+# Route Reference
 
-Complete reference for all ~80 endpoints. Protected routes require `Authorization: Bearer <supabase_jwt>`.
-Admin routes additionally require the requesting owner to be in the admin allowlist.
+Every route Sewn registers, as of the current source. Registration happens in
+`configureRoutes(_:_:modelProvider:isVLM:)` and
+`configureWebSocketRoutes(_:modelProvider:)` in `Sources/SewnServer.swift`.
 
----
+> **All routes must be registered before `Application.init`.** It freezes the
+> responder; a route added afterwards is silently unreachable.
 
-## Auth Routes (Public — No Token Required)
+Route trees:
 
-### `POST /v1/auth/sign-in`
-Email + password login.
-- **Request**: `{ email, password }`
-- **Response**: `{ access_token, refresh_token, user: { id, email } }`
-- **Logic**: Delegates to Supabase Auth. Returns JWT pair.
+```
+router                              — open, no auth
+  └── router.add(AuthMiddleware())  — "protected"
+  └── router.add(AdminMiddleware()) — "admin"
 
-### `POST /v1/auth/sign-up`
-Register a new user account.
-- **Request**: `{ email, password }`
-- **Response**: `{ user: { id, email }, session? }`
-- **Logic**: Creates Supabase user. May require email verification depending on project settings.
-
-### `POST /v1/auth/verify`
-Verify OTP token for signup, recovery, or magic link flows.
-- **Request**: `{ email, token, type }` — type is `signup | recovery | magiclink`
-- **Response**: `{ access_token, refresh_token }`
-
-### `POST /v1/auth/refresh`
-Refresh an expired access token.
-- **Request**: `{ refresh_token }`
-- **Response**: `{ access_token, refresh_token }`
-
-### `POST /v1/auth/reset-password`
-Send password reset email.
-- **Request**: `{ email }`
-- **Response**: `{ message }`
-
-### `POST /v1/auth/sign-out`
-Invalidate the current session.
-- **Request**: Bearer token in header
-- **Response**: 200 OK
+wsRouter (BasicWebSocketRequestContext) — bearer checked in shouldUpgrade
+```
 
 ---
 
-## System Routes
+## Open Routes (no auth)
 
-### `GET /health`
-Health check. Always returns 200 if server is up.
-- **Auth**: None
-- **Response**: `{ status: "ok" }`
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `GET` | `/health` | `Health.swift` | Note: registered as `"health"`, no leading slash |
+| `GET` | `/metrics` | `Metrics.swift` | Prometheus text. Guarded by `METRICS_TOKEN` |
+| `GET` | `/v1/stats` | `Stats.swift` | Public document + group counts. **Rate limited per IP → 429** |
+| `GET` | `/v1/threads` | `Thread.swift` | Registered Thread nodes + mothership id |
+| `POST` | `/v1/auth/sign-up` | `Auth.swift` | |
+| `POST` | `/v1/auth/sign-in` | `Auth.swift` | |
+| `POST` | `/v1/auth/verify` | `Auth.swift` | OTP — signup / recovery / magic link |
+| `POST` | `/v1/auth/refresh` | `Auth.swift` | |
+| `POST` | `/v1/auth/reset-password` | `Auth.swift` | |
 
-### `GET /metrics`
-Prometheus metrics scrape endpoint.
-- **Auth**: None (open — secure at network level)
-- **Response**: Prometheus text format (counters, histograms by route and IP)
+`POST /v1/auth/sign-in`:
 
-### `GET /v1/models`
-List available LLM models loaded in this server instance.
-- **Auth**: None
-- **Response**: `{ data: [{ id, object: "model", created, owned_by }] }`
-- **Logic**: Returns the model(s) loaded at startup from CLI args.
-
----
-
-## Chat & Completions
-
-### `POST /v1/chat/completions`
-Primary chat endpoint. Supports streaming (SSE) and non-streaming responses.
-- **Auth**: Bearer token required
-- **Request** (OpenAI-compatible):
-  ```json
-  {
-    "model": "string",
-    "messages": [{ "role": "user|assistant|system", "content": "string" }],
-    "stream": false,
-    "temperature": 0.7,
-    "top_p": 0.9,
-    "max_tokens": 512
-  }
-  ```
-- **Response (non-stream)**: OpenAI ChatCompletion JSON
-- **Response (stream)**: `text/event-stream` SSE with `data: {...}` chunks
-- **Business Logic**:
-  1. Embed final user message
-  2. Search Sewn for relevant partitions (local + Oracle peers if enabled)
-  3. Sinatra infers GBT sentiment → adjusts temperature/top_p/repetition_penalty
-  4. Build system prompt with retrieved context
-  5. Call ModelProvider (Mistral API or local MLX)
-  6. Track inference in Gita (royalty calculation)
-  7. Park partitions in Sinatra for background GBT training
-- **Tone Override**: If Sinatra returns a strong tone adjustment, it overrides request-level temperature.
-
-### `POST /v1/completions`
-Plain text completion (non-chat). Same auth and LLM flow, no message history.
-- **Request**: `{ model, prompt, stream, max_tokens, temperature }`
-- **Response**: OpenAI Completion JSON
+```json
+// Request
+{ "email": "user@example.com", "password": "secret" }
+// Response
+{ "accessToken": "...", "refreshToken": "...", "expiresIn": 3600, "userId": "uuid" }
+```
 
 ---
 
-## Embeddings & Indexing
+## Protected Routes
 
-### `POST /v1/embeddings`
-Embed and index a single document chunk.
-- **Auth**: Bearer token required
-- **Request**:
-  ```json
-  {
-    "input": "text to embed",
-    "model": "optional-model-id",
-    "document_id": "uuid",
-    "url": "source-url",
-    "owner_id": "uuid"
-  }
-  ```
-- **Response**: `{ embedding: [float], document: { id, url }, partition: { id } }`
-- **Business Logic**:
-  1. Call EmbeddingModelProvider → float32 vector
-  2. `Sewn.put()` → insert into HNSW (global + personal) + PQ partition table
-  3. `Gita.track(.put)` → register document as market security
-  4. Auto-memory: if owner has auto-memory enabled, index in personal HNSW too
+`AuthMiddleware` validates the Supabase bearer token, populates
+`context.authUserId`, and **overwrites `sewn.owner_id`** with the JWT-derived id
+(lowercased). A client cannot address another owner's data by editing the body.
 
-### `POST /v1/batch/embeddings`
-Embed and index multiple document chunks in one call.
-- **Auth**: Bearer token required
-- **Request**: `{ inputs: [{ text, document_id, url }], model? }`
-- **Response**: `{ results: [{ embedding, document, partition }] }`
-- **Logic**: Sequential or concurrent embedding (controlled by `IndexQueue` to prevent HNSW reentrancy).
+### Generation
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `POST` | `/v1/chat/completions` | `ChatCompletions.swift` | Persona + RAG + Gita. JSON or SSE on `stream` |
+| `POST` | `/v1/complete` | `Complete.swift` | One bounded generation. No persona, RAG, or Gita. No `sewn` object |
+| `POST` | `/v1/skills/complete` | `SkillsComplete.swift` | Keeps roles, takes a tool roster, may return `tool_calls` |
+| `POST` | `/v1/code/complete` | `CodeComplete.swift` | Pair-coding tool roster. Model pinned to `ModelConfig.codingModel`. maxTokens clamped to 32–4096 (default 2048) |
+| `POST` | `/v1/vision/look` | `VisionLook.swift` | Mistral vision. Describe a screen region or compose a Design Plan. Nothing retained |
+| `POST` | `/v1/tools/summarize` | `Tools.swift` | Single-shot. No RAG, no Sinatra |
+| `POST` | `/v1/speak` | `Speak.swift` | Mistral TTS proxy, PCM stream |
+
+`POST /v1/chat/completions`:
+
+```json
+// Request
+{
+  "messages": [{ "role": "user", "content": "Summarize my notes on HNSW." }],
+  "model": "mistral-medium-latest",
+  "personality": "scholar",
+  "provider": "mistral",
+  "stream": false,
+  "sewn": { "owner_id": "uuid" }
+}
+// Response (stream: false)
+{
+  "choices": [{ "message": { "role": "assistant", "content": "..." }, "finishReason": "stop" }],
+  "usage": { "prompt_tokens": 120, "total_tokens": 350 },
+  "personality": "scholar",
+  "contribution": { "owners": [{ "spans": [], "document_spans": { "did": [{ "lower": 0, "upper": 42 }] } }] }
+}
+```
+
+`stream: true` → SSE deltas, then a trailing chunk with empty `choices` plus
+`contribution` and `auto_memory`, then `data: [DONE]`.
+
+### Providers
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `GET` | `/v1/providers` | `Providers.swift` | Every backend: `available`, `state`, `progress`, `model`, `capabilities`, `reason` |
+| `POST` | `/v1/providers/local/warm` | `Providers.swift` | Load the on-device model now. Idempotent — a warm in flight is joined |
+
+### Embeddings
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `POST` | `/v1/embeddings` | `Embeddings.swift` | **INGEST.** Chunks, tags, fans out to ONE Thread node. Returns as soon as enqueued |
+| `POST` | `/v1/embed` | `EmbedVectors.swift` | **Returns the vector.** No storage side effect. No `sewn` object |
+
+```json
+// POST /v1/embeddings
+{
+  "inputs": [{ "values": ["chunk a", "chunk b"] }, { "values": ["chunk c"] }],
+  "model": "mistral-embed",
+  "sanitize": false,
+  "sewn": { "owner_id": "uuid" }
+}
+// sanitize: true runs TextChunker first (1500 chars max).
+// Embedding happens on Thread, not here.
+```
+
+Thread backpressure is retried three times with jittered backoff
+(500 ms / 1 s / 2 s) before the batch is dropped with a warning.
+
+### Search & Graph
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `POST` | `/v1/search` | `Search.swift` | Fan-out to all active nodes; merged, re-ranked, deduped |
+| `POST` | `/v1/graph` | `Graph.swift` | Knowledge-graph query. **400** unless `entity` and/or `query` is present |
+
+```json
+// POST /v1/search
+{ "query": "what did I write about distributed systems?", "sewn": { "owner_id": "uuid" } }
+// Response
+{ "texts": ["..."], "references": ["document-id-1"], "contribution": { "document-id-1": 0.87 } }
+```
+
+```json
+// POST /v1/graph
+{
+  "sewn": { "owner_id": "uuid" },
+  "entity": "HNSW",
+  "query": "graph traversal",
+  "kinds": ["concept"],
+  "hops": 1,
+  "limit": 20,
+  "include_documents": true
+}
+// Response: { "object": "graph", "entities": [...], "relationships": [...],
+//             "documents": [...], "stats": { "entity_count": n, "relationship_count": n } }
+```
+
+### Documents & Groups
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `POST` | `/v1/list/documents` | `List.swift` | Via `fanoutLibrary` |
+| `POST` | `/v1/list/groups` | `List.swift` | Via `fanoutLibrary` |
+| `POST` | `/v1/list/groups/documents` | `List.swift` | Via `fanoutLibraryByDocuments` — reverse map, no full scan |
+| `POST` | `/v1/modify` | `Modify.swift` | `operation`: `remove` \| `access` \| `group` |
+| `POST` | `/v1/modify/group/access` | `Modify.swift` | |
+| `POST` | `/v1/modify/group/metadata` | `Modify.swift` | Label and metadata |
+| `POST` | `/v1/modify/group/remove` | `Modify.swift` | Deletes the group and its documents |
+
+```json
+// POST /v1/modify
+{ "update": { "operation": "remove", "documentId": "did" }, "sewn": { "owner_id": "uuid" } }
+```
+
+All three operations reach Thread — `remove` via `fanoutRemove`, `access` and
+`group` via `fanoutUpdateDocument`. Thread is the source of truth, so none of
+them writes ownership data locally.
+
+### Infinite
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `GET` | `/v1/infinite/leaderboard` | `Infinite.swift` | Query: `page` (default 1), `page_size` (clamped 1–100, default 20) |
+| `POST` | `/v1/infinite/search` | `Infinite.swift` | Search across public groups |
+
+Leaderboard score: earnings 40%, retrieval count 30%, average sentiment 20%,
+document count 10% — min-max normalized across all public groups **at request
+time**. No score is persisted.
+
+### Personalities & Profile
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `GET` | `/v1/personalities` | `Personalities.swift` | Persona list |
+| `GET` | `/v1/profile` | `Profile.swift` | Query param `userId` |
+| `PATCH` | `/v1/profile` | `Profile.swift` | Update display name |
+| `POST` | `/v1/feedback` | `Forms.swift` | User feedback ingestion |
+
+### Wallet
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `GET` | `/v1/wallet` | `Wallet.swift` | `totalEarnings`, `balance`, `totalSpent`, `totalCashedOut`, per-group breakdown |
+
+### Frank — Sinatra Debug
+
+| Method | Path | File | Notes |
+|--------|------|------|-------|
+| `POST` | `/v1/frank/gbt` | `Frank.swift` | Full GBT state — trees, hyperparameters, feature names |
+| `POST` | `/v1/frank/parking` | `Frank.swift` | Live pipeline snapshot: parked entries, last search adjustments |
+| `POST` | `/v1/frank/reset` | `Frank.swift` | Wipe all Sinatra state for the caller |
+| `POST` | `/v1/frank/export` | `Frank.swift` | Export Sinatra state |
+| `POST` | `/v1/frank/import` | `Frank.swift` | Import previously exported state |
+
+### Marielle — all 503
+
+| Method | Path | Status |
+|--------|------|--------|
+| `POST` | `/v1/marielle/open` | **503** |
+| `POST` | `/v1/marielle/proactive` | **503** |
+| `POST` | `/v1/marielle/interject` | **503** |
+| `POST` | `/v1/marielle/bridge` | **503** |
+
+`"Marielle requires Thread-hosted HNSW graph — not yet implemented"`. See
+`Skills/Marielle/README.md`.
+
+### Auth (session required)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/v1/auth/sign-out` | Registered on the protected tree — needs a live session |
 
 ---
 
-## Search
+## WebSocket
 
-### `POST /v1/search`
-Semantic vector search.
-- **Auth**: Bearer token required
-- **Request**:
-  ```json
-  {
-    "query": "search text",
+| Path | File | Notes |
+|------|------|-------|
+| `/v1/realtime/chat` | `Realtime/Realtime.swift` | Bearer validated in `shouldUpgrade`. One turn per connection |
+
+Client sends `{"type":"turn.start","request":{…ChatCompletionRequest…},"tts":{…}}`;
+server streams phase / token / audio.begin / PCM / metadata / turn.end frames.
+`{"type":"cancel"}` or a socket close cancels everything — that is barge-in. See
+`Skills/Realtime/README.md`.
+
+---
+
+## Admin Routes
+
+`AdminMiddleware` performs the same Supabase validation as `AuthMiddleware`, then
+asserts the caller **is** the single designated admin:
+
+```swift
+private static let adminUserId = ProcessInfo.processInfo.environment["ADMIN_USER_ID"] ?? ""
+guard user.userId.lowercased() == Self.adminUserId.lowercased() else {
+    throw HTTPError(.forbidden, message: "Admin access required")
+}
+```
+
+Not an allowlist — **one** account, from `ADMIN_USER_ID`. Unset means no one is
+admin (every admin route 403s), which is the safe default.
+
+Admin routes use the body's `owner_id` as the **target**, not the caller's id.
+That is the point of them.
+
+| Method | Path | Status | Notes |
+|--------|------|--------|-------|
+| `POST` | `/v1/admin/list/owners` | **Stub** | Returns `{ owners: [] }` |
+| `POST` | `/v1/admin/list/documents` | **Stub** | Returns `{ documents: [], access: {} }`; logs the target |
+| `POST` | `/v1/admin/list/groups` | **Stub** | Returns `{ groups: [], access: {} }`; logs the target |
+| `POST` | `/v1/admin/modify` | **Implemented** | Any document, for any owner |
+| `POST` | `/v1/admin/modify/group` | **Implemented** | Any group |
+| `POST` | `/v1/admin/sinatra/gbt` | **Implemented** | GBT state for any owner |
+| `GET` | `/v1/admin/model` | **Implemented** | Current chat + utility model |
+| `PUT` | `/v1/admin/model` | **Implemented** | Runtime override. Not persisted — restart returns to `.env` |
+| `PUT` | `/v1/admin/personalities` | **Implemented** | Replace the persona list |
+| `POST` | `/v1/admin/owner/delete` | **Implemented** | `removeAll` + `sinatra.removeOwner` |
+| `POST` | `/v1/admin/system/stats` | **Stub** | All zeroes |
+| `POST` | `/v1/admin/audit/stale` | **Stub** | `{ scanned: 0, stale: [] }` |
+| `POST` | `/v1/admin/audit/reconcile` | **Stub** | All zeroes |
+
+> `POST /v1/admin/owner/delete` returns `documentsRemoved` from
+> `sewn.removeAll(...)`, which **currently returns 0** — Sewn no longer keeps a
+> local document list to count, and Thread does the filtering. `sinatraCleared`
+> is accurate.
+
+The three list stubs and the audit pair are stubs for the same reason: they were
+registry scans, and the registry no longer holds documents. Reimplementing them
+means fan-out to Thread with an admin scope.
+
+### Removed admin routes
+
+`/v1/admin/hnsw/stats`, `/v1/admin/hnsw/personal`, `/v1/admin/hnsw/personal/rebuild`,
+`DELETE /v1/admin/hnsw/node`, `/v1/admin/hnsw/compact`, and
+`/v1/admin/table/document` are all gone — not 503, **not registered**. The
+`registerAdminRoutes` doc comment still lists three of them; that comment is
+stale in the source.
+
+---
+
+## The `sewn` Request Object
+
+Accepted by every protected route (except `/v1/complete`, `/v1/embed`,
+`/v1/vision/look`, which have no scope object at all):
+
+```json
+{
+  "sewn": {
     "owner_id": "uuid",
-    "scope": "global|personal|group",
-    "group_id": "uuid (optional)",
-    "top_k": 5,
-    "threshold": 0.75
+    "group": { "id": "gid", "label": "Group Name" },
+    "groups": [{ "id": "gid" }],
+    "entities": ["Entity"],
+    "tags": ["tag"],
+    "aggregate": true,
+    "scope": "personal",
+    "thread_ids": ["thread-uuid"],
+    "personal_thread_id": "thread-uuid",
+    "request_id": "uuid"
   }
-  ```
-- **Response**:
-  ```json
-  {
-    "results": [{
-      "partition_id": "uuid",
-      "document_id": "uuid",
-      "text": "...",
-      "score": 0.89,
-      "owner_id": "uuid"
-    }]
-  }
-  ```
-- **Business Logic**:
-  1. Embed query
-  2. `Sewn+QueryExpander`: generate N query variants (paraphrase + keyword) to improve recall
-  3. HNSW traversal for each variant → union candidate set
-  4. PQ rerank candidates → cosine similarity on compressed embeddings
-  5. Apply access control filter (registry.access)
-  6. If Oracle enabled: fan out to peers via `Sewn+Peer`, merge results
-  7. Return top-K above threshold
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `owner_id` | Overwritten by `AuthMiddleware` on non-admin routes; **lowercased** |
+| `scope` | `global` \| `personal`, forwarded to Thread |
+| `aggregate` | Merge across groups |
+| `thread_ids` | Pin the request to specific nodes; chooses the index target |
+| `entities` / `tags` | Entity hints for graph-first retrieval (`entities ?? tags`) |
+| `request_id` | Log correlation |
 
 ---
 
-## Document Management
+## Removed Route Families
 
-### `POST /v1/modify`
-Modify a document's access level, group membership, or delete it.
-- **Auth**: Bearer token (owner must own the document)
-- **Request**:
-  ```json
-  {
-    "document_id": "uuid",
-    "action": "set_access|add_to_group|remove_from_group|delete",
-    "access": "available|restricted",
-    "group_id": "uuid"
-  }
-  ```
-- **Response**: `{ success: true, document: { id, access } }`
-- **Logic**: Routes to `RegistryMutator` for metadata, `TableMutator` for HNSW node deletion if deleting.
-
-### `POST /v1/modify/group`
-Change a group's access level.
-- **Auth**: Bearer token (group owner)
-- **Request**: `{ group_id, access: "available|restricted" }`
-- **Response**: `{ success: true, group: { id, access } }`
-
-### `DELETE /v1/modify/group/remove`
-Remove a group entirely (does not delete documents).
-- **Auth**: Bearer token (group owner)
-- **Request**: `{ group_id }`
-- **Response**: `{ success: true }`
+| Family | Status |
+|--------|--------|
+| `/v1/hnsw/*` (14 routes) | **Removed.** HNSW is Thread's |
+| `/v1/admin/hnsw/*` | **Removed** |
+| `/v1/admin/table/document` | **Removed** |
+| `/v1/storage/backup`, `/manifest`, `/restore`, `/purge`, `/purge/documents`, `/purge/groups` | **Removed.** No Supabase Storage backup/restore surface |
+| `/v1/batch/embeddings` | **Removed.** `/v1/embeddings` takes batches |
+| `/v1/models` | **Removed.** Use `GET /v1/providers` |
+| `/v1/completions` | **Renamed** to `/v1/complete`, and narrowed |
+| `/v1/modify/group` | **Split** into `/access` and `/metadata` |
+| `/oracle/*` | **Removed** with the P2P mesh |
 
 ---
 
-## Listing
-
-### `POST /v1/list/documents`
-List all documents owned by the authenticated user.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id, page?, limit? }`
-- **Response**: `{ documents: [{ id, url, created_at, group_ids, access, stats }] }`
-
-### `POST /v1/list/groups`
-List all groups the authenticated user owns.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: `{ groups: [{ id, label, document_ids, access, total_earnings }] }`
-
----
-
-## Storage Management
-
-### `POST /v1/storage/backup`
-Backup all user documents and metadata to Supabase storage.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: `{ manifest_id, documents_count, partitions_count }`
-- **Note**: Encryption before upload is a TODO — currently unencrypted JSON.
-
-### `POST /v1/storage/manifest`
-Retrieve the backup manifest (what's stored in Supabase for this user).
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: `{ manifest: { id, created_at, documents: [...] } }`
-
-### `POST /v1/storage/restore`
-Restore user data from a Supabase backup.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id, manifest_id }`
-- **Response**: `{ restored_count }`
-- **Logic**: Fetches manifest → downloads documents → re-indexes via `Sewn.put()` → rebuilds HNSW.
-
-### `POST /v1/storage/purge`
-Delete all user data (documents, groups, HNSW nodes, Sinatra state, Gita wallet).
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: `{ success: true }`
-- **Caution**: Irreversible. Triggers full registry cleanup and graph compaction.
-
-### `POST /v1/storage/documents/purge`
-Delete all documents only (preserves groups and Sinatra/Gita state).
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-
-### `POST /v1/storage/groups/purge`
-Delete all groups only.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-
----
-
-## Tools
-
-### `POST /v1/tools/summarize`
-Summarize a block of text using the loaded LLM.
-- **Auth**: Bearer token
-- **Request**: `{ text, max_length? }`
-- **Response**: `{ summary: "string" }`
-- **Logic**: Single-shot LLM call with summarization prompt template. No RAG retrieval.
-
----
-
-## Frank (GBT Debug)
-
-Developer endpoints for inspecting Sinatra internals.
-
-### `POST /v1/frank/gbt`
-Dump the full GBT model state for the authenticated owner.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: Full `Sinatra.Registry` as JSON — trees, hyperparameters, training data, harmony memories.
-
-### `POST /v1/frank/parking`
-Inspect the partition parking pipeline — see what's queued for GBT training.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: `{ parked_partitions: [...], queue_depth: N }`
-
-### `POST /v1/frank/reset`
-Wipe all Sinatra state for this owner. Resets GBT model, datasets, harmony memories.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: `{ success: true }`
-- **Use Case**: Reset a corrupted or overtrained GBT model.
-
----
-
-## HNSW Graph Management
-
-### `POST /v1/hnsw/stats`
-Get HNSW graph statistics for the authenticated owner.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: `{ global: { node_count, edge_count, levels }, personal: { node_count } }`
-
-### `POST /v1/hnsw/personal`
-Inspect the personal HNSW graph (nodes, edges, recency weights).
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: Full personal graph structure.
-
-### `POST /v1/hnsw/global`
-Inspect the global HNSW graph.
-- **Auth**: Bearer token
-- **Response**: Global graph structure (large — paginate for production use).
-
-### `DELETE /v1/hnsw/node`
-Delete a specific node from HNSW.
-- **Auth**: Bearer token (owner must own the node)
-- **Request**: `{ node_id, owner_id }`
-- **Response**: `{ success: true }`
-- **Logic**: `TableMutator.delete()` removes from graph + `RegistryMutator` removes from registry.
-
-### `POST /v1/atlas`
-Get Atlas visualization data — graph topology optimized for rendering.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id, scope: "global|personal" }`
-- **Response**: `{ nodes: [{ id, label, level, position }], edges: [{ from, to, weight }] }`
-
----
-
-## Marielle Personalization
-
-### `POST /v1/marielle/open`
-Generate a recency-weighted opening question for a new session.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id, conversation_context? }`
-- **Response**: `{ question: "string", confidence: 0.87 }`
-- **Algorithm**: Sample personal HNSW by recency decay → pick highest-confidence topic cluster → generate question via LLM.
-
-### `POST /v1/marielle/proactive`
-Lightweight check: does Marielle have something relevant to add right now?
-- **Auth**: Bearer token
-- **Request**: `{ owner_id, current_messages: [...] }`
-- **Response**: `{ should_interject: bool, score: 0.0–1.0 }`
-- **Algorithm**: Compute Jaccard distance between current conversation and personal graph topics. If drift is low (user is on a familiar topic) and topic saturation is high, `should_interject = true`.
-
-### `POST /v1/marielle/interject`
-Generate a mid-session lateral question.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id, current_messages: [...] }`
-- **Response**: `{ question: "string", source_partition_id: "uuid", confidence: 0.0–1.0 }`
-- **Algorithm**: Embed centroid of conversation → search personal HNSW → score candidates by novelty (low overlap with current messages) → generate question from top candidate.
-
-### `POST /v1/marielle/bridge`
-Generate a question that bridges two user profiles.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id_a, owner_id_b }`
-- **Response**: `{ question: "string", shared_topic: "string" }`
-- **Algorithm**: Find intersection of two personal HNSW graphs by centroid proximity → pick shared topic → generate bridging question.
-- **Requires**: Both owners must have `bridging_enabled` in registry.
-
----
-
-## Profile
-
-### `POST /v1/profile`
-Get the authenticated user's profile.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id }`
-- **Response**: `{ owner_id, groups, document_count, bridging_enabled, created_at }`
-
-### `POST /v1/profile/update`
-Update profile settings.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id, bridging_enabled: bool }`
-- **Response**: `{ success: true, profile }`
-
----
-
-## Wallet & Earnings
-
-### `GET /v1/wallet`
-Earnings summary and transaction history for the authenticated owner.
-- **Auth**: Bearer token (owner_id inferred from JWT)
-- **Response**:
-  ```json
-  {
-    "balance": 142.50,
-    "total_earned": 398.00,
-    "transactions": [{
-      "id": "uuid",
-      "type": "royalty|cashout",
-      "amount": 12.50,
-      "created_at": "ISO8601",
-      "inference_id": "uuid"
-    }],
-    "credit_exchanges": [{
-      "inference_id": "uuid",
-      "credits_earned": 5.2,
-      "contributions": [{ "owner_id": "uuid", "credits": 3.1 }]
-    }]
-  }
-  ```
-
----
-
-## Oracle P2P
-
-### `GET /oracle/nodes`
-View local Oracle node identity and current peer topology (open, no auth).
-- **Response**:
-  ```json
-  {
-    "node_id": "uuid",
-    "peers": [{
-      "id": "uuid",
-      "endpoint": "wss://...",
-      "state": "connected|disconnected",
-      "trust_score": 0.85,
-      "knowledge_domains": ["topic1", "topic2"]
-    }],
-    "edge_count": 4,
-    "dag_depth": 2
-  }
-  ```
-
-### `POST /oracle/peers`
-Connect to a new peer node at runtime (protected, admin-equivalent).
-- **Auth**: Bearer token (admin)
-- **Request**: `{ endpoint: "wss://peer-host:port" }`
-- **Response**: `{ success: true, peer_id: "uuid" }`
-- **Logic**: Opens WebSocket to endpoint, performs handshake, adds to DAG with initial trust score.
-
----
-
-## Admin Routes (AdminMiddleware — Privileged)
-
-All require Bearer token from a known admin owner_id.
-
-### `POST /v1/admin/list/owners`
-List all registered owner IDs in the system.
-- **Response**: `{ owners: ["uuid", ...] }`
-
-### `POST /v1/admin/list/documents`
-List documents for a target owner.
-- **Request**: `{ owner_id }`
-- **Response**: Same shape as `/v1/list/documents`
-
-### `POST /v1/admin/list/groups`
-List groups for a target owner.
-
-### `POST /v1/admin/modify`
-Modify any document (bypass ownership check).
-- **Request**: Same as `/v1/modify` but `owner_id` is the target owner, not the admin.
-
-### `POST /v1/admin/modify/group`
-Modify any group.
-
-### `POST /v1/admin/hnsw/stats`
-HNSW stats for a specific owner.
-- **Request**: `{ owner_id }`
-
-### `POST /v1/admin/hnsw/personal`
-Personal HNSW graph for any owner.
-- **Request**: `{ owner_id }`
-
-### `DELETE /v1/admin/hnsw/node`
-Delete any HNSW node regardless of ownership.
-
-### `POST /v1/admin/hnsw/compact`
-Compact all HNSW graphs — remove deleted/orphaned nodes and rebuild edge lists. CPU-intensive.
-- **Use Case**: Run as a cron job (e.g., nightly via admin automation).
-- **Response**: `{ compacted_nodes: N, elapsed_ms: N }`
-
-### `POST /v1/admin/hnsw/personal/rebuild`
-Rebuild empty personal HNSW graphs for all owners who have documents but no personal graph.
-- **Phase**: Phase 3 migration target — after initial deployment of personal HNSW feature.
-
-### `POST /v1/admin/sinatra/gbt`
-Full Sinatra GBT state for any owner.
-- **Request**: `{ owner_id }`
-
-### `POST /v1/admin/table/document`
-PartitionIndex + PQ stats for a document.
-- **Request**: `{ document_id }`
-- **Response**: `{ partition_count, codebook_size, compression_ratio, avg_cosine_error }`
-
-### `POST /v1/admin/system/stats`
-Aggregate system statistics across all owners.
-- **Response**: `{ total_owners, total_documents, total_partitions, total_nodes, memory_usage_mb, uptime_seconds }`
-
-### `POST /v1/admin/owner/delete`
-Delete an owner and ALL associated data (documents, groups, HNSW nodes, Sinatra state, Gita wallet).
-- **Request**: `{ owner_id }`
-- **Response**: `{ success: true, deleted: { documents, partitions, nodes } }`
-- **Caution**: Irreversible.
-
-### `POST /v1/admin/audit/stale`
-Scan for stale documents — entries in the registry with no corresponding HNSW node or partition data.
-- **Response**: `{ stale_documents: [{ id, owner_id, reason }] }`
-
-### `POST /v1/admin/audit/reconcile`
-Remove stale entries found by the audit scan.
-- **Request**: `{ document_ids: ["uuid", ...] }` (from audit results)
-- **Response**: `{ removed_count: N }`
-
----
-
-## Other
-
-### `POST /v1/forms/feedback`
-Submit user feedback.
-- **Auth**: Bearer token
-- **Request**: `{ owner_id, message, rating: 1–5, context? }`
-- **Response**: `{ success: true }`
-- **Logic**: Persists to `FilePersistence` under `feedback/` directory.
-
-### `POST /v1/speak`
-Text-to-speech proxy via Mistral TTS API.
-- **Auth**: Bearer token
-- **Request**: `{ text, voice? }`
-- **Response**: Audio stream (binary)
-- **Logic**: Forwards to Mistral TTS endpoint, streams audio back.
+## Conventions for a New Route
+
+1. Write `registerXRoute(_ router: some RouterMethods<SewnRequestContext>, …)` in
+   its own file under `Sources/API/Routes/`.
+2. Call it from `configureRoutes` on the right tree — **before**
+   `Application.init`.
+3. Resolve scope with `try body.sewn.from(context)`, never by trusting
+   `body.sewn.ownerId` directly.
+4. Reach Thread only through a `fanout*` primitive.
+5. Request/response models go in `Sources/API/Models/Requests|Responses/`, with
+   snake_case `CodingKeys`.
+6. **Read the body exactly once.** It iterates once; a second `decode` traps.
+7. Map an unavailable provider to 503 via `ProviderUnavailable`, an unknown one
+   to 400.

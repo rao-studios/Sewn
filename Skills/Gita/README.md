@@ -1,222 +1,443 @@
-# Gita — Royalty, Wallet & Economic System
+# Gita — Attribution, Royalty & Wallet
 
-Gita tracks how each document contributes to LLM inferences and distributes royalty credits to document owners. It uses a market metaphor: documents are "securities," partitions are "shares," inferences are "trades," and royalties are "dividends."
+Gita decides **who gets paid**. It runs in three stages, and the separation is
+the whole design:
 
----
+| Stage | When | From what |
+|-------|------|-----------|
+| **1. Shares** | At search time | Word counts across the retrieved text |
+| **2. Spans** | After generation | The `[[n]]` markers the model emitted |
+| **3. Pricing** | Last | The turn's real token ledger |
 
-## Market Metaphor
+Retrieval knows *which documents* were consulted and in what proportion. Only
+the generated text reveals *which sentences actually used them*. And only after
+every LLM call in the turn has completed is the real cost known. Hence three
+stages, in that order.
 
-| Market Term | Sewn Equivalent | Meaning |
-|-------------|-----------------|---------|
-| Security | `Sewn.Document` | A tradeable asset (contributes to inferences) |
-| Share | `Sewn.Partition` | A unit of value within a document |
-| Trade | LLM Inference | An event that consumes document knowledge |
-| Dividend | Royalty credit | Payment to document owners after a trade |
-| Market cap | `DocumentRecord.market_weight` | Relative contribution weight across all owners |
-| Performance | `DocumentRecord.performance_score` | Rolling quality score (relevance × retrieval rank) |
-
-This metaphor makes the royalty math intuitive and sets up natural extensions for future P2P settlement and token-based exchange.
+Source: `Sources/Gita/`
 
 ---
 
 ## Components
 
 ```
-Gita (actor)
-  ├── Gita.Registry            — market registry (documents as securities)
-  ├── Gita.WalletRegistry      — all owner wallets + transaction history
-  ├── Gita+Royalty.swift       — royalty calculation logic
-  ├── Gita+StreamBilling.swift — streaming response billing
-  ├── Gita+Spans.swift         — token span tracking
+Gita (class — NOT an actor; held by the Sewn actor)
+  ├── walletRegistry: WalletRegistry     — all owner wallets + exchanges
+  ├── walletPersistence: FilePersistence — key "wallet_registry"
+  ├── Gita+Royalty.swift                 — word-count shares, pricing, documentEarnings
+  ├── Gita+MarkerSpans.swift             — [[n]] → exact character spans
+  ├── Gita+Spans.swift                   — n-gram heuristic spans, compact citations
+  ├── Gita+StreamBilling.swift           — SSE billing
   └── Wallet/
-      ├── Gita.CreditExchange  — inference → credit conversion records
-      └── Gita.WalletRegistry  — wallet state management
+      ├── Gita+Wallet.swift              — wallet ops
+      ├── Gita.CreditExchange.swift      — one priced inference
+      └── Gita.WalletRegistry.swift      — registry state
 ```
 
-Source: `Sources/Gita/`
+Entry point:
+
+```swift
+enum Command { case put, delete, inference }
+
+@discardableResult
+func track(_ payload: Gita.Payload, command: Command, request: SewnRequest? = nil) -> Gita.Result
+```
+
+Only `.inference` does work today. `.put` and `.delete` return an empty result —
+they are placeholders for on-chain document registration.
 
 ---
 
-## Royalty Calculation (`Gita+Royalty.swift`)
+## Credits
 
-### Input: `Gita.Payload`
 ```swift
-struct Payload {
-    let inference_id: String
-    let owner_id: String             // who's asking
-    let partitions: [PartitionRef]   // retrieved local partitions + their scores
-    let peer_results: [OraclePartitionResult]  // from Oracle peers (future: billable)
-    let token_count: Int             // tokens generated
+/// Conversion: $0.10 USD == 10 credits  →  1 credit == $0.01 USD
+static let creditsPerDollar: Double = 100.0
+```
+
+`Gita.CreditConversion` converts both ways and formats for display. Every
+monetary value in Gita is `Credits`, never dollars.
+
+---
+
+## Stage 1 — Royalty Shares (`Gita+Royalty.swift`)
+
+```swift
+func royalty(
+    for partitions: [Sewn.Partition],
+    peerSources: [String: OracleNodeID] = [:],
+    coOwners: [DocumentID: Set<OwnerID>] = [:],
+    request: SewnRequest? = nil
+) -> Gita.Contribution
+```
+
+### Word counts in a single pass
+
+```swift
+var documentCounts = [DocumentID: Int]()
+for partition in partitions {
+    documentCounts[partition.documentId, default: 0] += partition.text
+        .components(separatedBy: .whitespacesAndNewlines).count
+}
+let totalTextCount = documentCounts.values.reduce(0, +)
+```
+
+The single pass happens **before** the per-owner loop deliberately: counts are
+then stable regardless of iteration order and cannot be inflated across owner
+boundaries. Empty partitions return an empty contribution rather than dividing by
+zero.
+
+### Attribution and co-ownership
+
+For each document, determine its `(threadId, ownerId)` candidates:
+
+| Case | Candidates |
+|------|-----------|
+| `coOwners[documentId]` non-empty | Every co-owner, each with the `threadId` from the first matching partition |
+| Otherwise | The first partition's `(threadId, ownerId)` |
+| `ownerId` is an empty string | Treated as `nil` — an **unauthenticated Thread**, grouped by `threadId` instead |
+
+```swift
+let share = Double(wordCount) / Double(candidates.count)   // equal split
+```
+
+The grouping key is `ownerId ?? threadId`. That fallback is what lets an
+unauthenticated Thread node still earn: the node itself becomes the payee.
+
+### Per-owner output
+
+```swift
+let royalty   = ownerTotal / Double(totalTextCount)   // 0.0–1.0, sums to 1 across owners
+let influence = group.docs.mapValues { $0 / ownerTotal }  // per-document, sums to 1 within owner
+```
+
+Two normalizations at different levels, which is worth keeping straight:
+`royalty` is the owner's share **of the turn**; `influence` is each document's
+share **of that owner's contribution**.
+
+> **Equal split among co-owners is the deliberate baseline.** `Gita+Royalty.swift`
+> carries a long TODO for weighting by document kind (research paper > article >
+> social post), retrieval count, and recency decay. Doing that requires passing
+> `documents: [DocumentID: Sewn.Document]` into `royalty(for:)` and re-normalizing
+> after multipliers so shares still sum to 1.0.
+
+---
+
+## Stage 2 — Spans
+
+Attribution runs in three tiers of decreasing confidence. Higher tiers win.
+
+### Tier 1 — compact citations (`Gita+Spans.swift`)
+
+```swift
+struct CompactCitation {
+    let partitionId: String
+    let keyWords: [String]   // ordered content words from compact-summary sentences citing this partition
+}
+
+static func extractCitations(from compactText:partitions:requestOwnerId:) -> [CompactCitation]
+```
+
+The compact prompt instructs the LLM to reference sources by quoted title (e.g.
+`"startup-notes"`). This scans the compact output for sentences containing a known
+source name and attaches their content words to the matching partition. **No extra
+LLM call** — it is deterministic post-processing.
+
+These key words are the most reliable seed because they are closer to the phrasing
+the response model actually saw than the raw partition text is.
+
+Note that the verbatim-context path in `Sewn+Compact.swift` produces **no**
+compact text, so this tier is empty for small retrievals.
+
+### Tier 2 — exact markers (`Gita+MarkerSpans.swift`)
+
+The chat model appends invisible `[[n]]` markers to sentences drawing on
+bracketed source `[n]`.
+
+```swift
+private static let markerPattern = #/\[\[(\d{1,3})\]\]/#
+
+struct MarkerAnnotation {
+    var visibleText: String
+    var documentSpans: [DocumentID: [Gita.TextSpan]]
+    var markerCount: Int
+}
+
+static func parseMarkers(_ text: String, sourceIndex: [Int: DocumentID]) -> MarkerAnnotation
+```
+
+Rules that matter:
+
+- **Markers are always stripped**, whether or not a contribution exists. They can
+  never reach the client.
+- Each marker attributes **the sentence it terminates**, with offsets in the
+  *stripped* text — not the raw text. Getting this wrong shifts every span.
+- Runs like `[[1]][[3]]` match repeatedly and attribute the same sentence to both
+  sources.
+- An **unknown index strips silently** without attribution. A model citing `[[9]]`
+  when only three sources exist produces clean text and no bogus span.
+- Extended regex delimiters (`#/…/#`) are used because bare-slash regex literals
+  are not enabled in this target.
+
+### Tier 3 — n-gram heuristic (`Gita+Spans.swift`)
+
+For sentences with no marker, mirroring `ContributionSpanGenerator` on the client:
+
+1. Split the response into sentences; group into `ContentChunk`s of at least
+   `minContentWords`.
+2. Rank owners by peak influence. For each owner's partitions (ranked by
+   influence), find the best **unclaimed** chunk by overlap coefficient on
+   content-word sets.
+3. Merge adjacent claimed chunks per owner into contiguous `TextSpan`s.
+
+Heuristic spans overlapping an exact span are dropped — the exact tier wins
+wherever the two disagree.
+
+### TextSpan
+
+```swift
+struct TextSpan: Codable, Equatable {
+    let lower: Int
+    let upper: Int
 }
 ```
 
-### Step 1: Score each partition's contribution
-Each partition gets a raw weight based on its retrieval score (cosine similarity):
-```
-raw_weight(partition) = score² × market_weight(document)
-```
-
-Squaring the score penalizes low-relevance retrievals — a partition with 0.6 similarity contributes far less than one at 0.9.
-
-`market_weight(document)` is from `Gita.Registry.DocumentRecord.market_weight` — a rolling performance weight updated after each inference.
-
-**Known TODO**: Current implementation uses simple magnitude split. A planned enhancement weights by Sinatra's GBT sentiment contribution scores (partitions that drove tone adjustment should earn more).
-
-### Step 2: Group by owner
-Sum weights per owner_id:
-```
-owner_total_weight = Σ raw_weight(partition) for all partitions owned by that owner
-```
-
-### Step 3: Service charge
-```
-service_charge = total_weight × 0.05  (5% platform fee — configurable)
-distributable = total_weight - service_charge
-```
-
-### Step 4: Normalize to credits
-```
-credits(owner) = (owner_total_weight / total_weight) × distributable
-```
-
-### Step 5: Record & distribute
-- Create `Gita.CreditExchange` record
-- Add `Gita.Transaction` to each owner's wallet
-- Update `DocumentRecord.performance_score` and `market_weight`
-- Update `PartitionRecord.share_count`
-
-### Step 6: Non-self earnings
-Royalties from OTHER users querying your documents (cross-owner inferences) are tracked separately as `non_self_earnings`. Displayed separately in `GET /v1/wallet`.
+Character offsets into the visible text, so the client can reconstruct a
+`Range<String.Index>` and highlight without another round trip.
 
 ---
 
-## Market Weight Updates
+## Stage 3 — Pricing
 
-After each inference, document market weights are updated using an exponential moving average:
-```
-new_market_weight = α × inference_contribution + (1-α) × old_market_weight
-```
-Where `α` = 0.1 (learning rate). This gives recent high performers increasing influence over time.
+### The token ledger
 
-`performance_score` = harmonic mean of (retrieval rank percentile, similarity score). A document that's always rank 1 at 0.95 similarity will have performance_score ≈ 0.95.
+```swift
+var ledger = Gita.TokenLedger()
+ledger.record(model: "mistral-medium", promptTokens: …, completionTokens: …)
+```
+
+One `Line` per LLM call, totals rolling up automatically. A single chat request
+may invoke a model **four or five times** — resonance extraction, sentiment
+scoring, compaction, auto-memory, and the generation itself. All of it is billed
+to the turn that caused it, including the calls the user never sees.
+
+```swift
+struct ModelPricing {
+    let promptCreditsPerToken: Credits
+    let completionCreditsPerToken: Credits
+}
+
+static func pricing(for model: String) -> ModelPricing
+```
+
+A static catalog in `Gita.TokenLedger`, sourced from provider list pricing and
+converted to credits. Unknown models fall back to **`mistral-medium` rates**;
+`tinker://…` fine-tuned checkpoints bill at inkling rates. **Adding a model to
+`ModelConfig` without adding it to this catalog silently mis-prices every turn
+that uses it.**
+
+### Service charge
+
+```swift
+/// Invariant:  ownerPayouts.sum + serviceCharge == totalCost
+struct ServiceChargeStrategy {
+    enum Pricing {
+        case fixed(Credits)
+        case scaled(baseRate: Double, surge: SurgeParameters?)
+    }
+}
+
+static let `default` = ServiceChargeStrategy(
+    pricing: .scaled(baseRate: 0.20,
+                     surge: SurgeParameters(maxConcurrentLoad: 10, maxSurgeMultiplier: 2.5))
+)
+```
+
+Surge is linear in concurrent load:
+
+```swift
+func multiplier(currentLoad: Int) -> Double {
+    let clamped = min(Double(currentLoad), Double(maxConcurrentLoad))
+    let ratio   = clamped / Double(maxConcurrentLoad)
+    return 1.0 + ratio * (maxSurgeMultiplier - 1.0)
+}
+```
+
+At load 1 of a 10-request ceiling this is already **1.15×** — a deliberate 15% on
+top of the base rate to smooth the ramp-up rather than starting flat.
+
+### priceContribution
+
+```swift
+func priceContribution(
+    _ contribution: Gita.Contribution,
+    ledger: TokenLedger,
+    strategy: ServiceChargeStrategy = .default,
+    currentLoad: Int = …,
+    request: SewnRequest? = nil
+) -> Gita.Contribution
+```
+
+Takes an attribution-only contribution and returns a priced copy satisfying
+`owners.map(\.earning).sum + serviceCharge == totalCost`.
+
+It emits three structured log lines tagged `service: .gita, flow: .chat` — 
+**Token Ledger**, **Cost Breakdown** (with surge info), and **Owner Payouts**.
+Those three lines are the fastest way to debug a pricing question.
+
+### Per-document earnings
+
+```swift
+func documentEarnings(from contribution: Gita.Contribution) -> [DocumentID: Credits] {
+    // documentEarning[docId] = owner.earning × owner.influence[docId]
+}
+```
+
+Note the filter: `owner.earning > 0 && owner.ownerId != contribution.spenderId`.
+**An owner does not earn royalties from querying their own documents.** The
+result feeds `RegistryMutator.accumulateEarnings`.
+
+---
+
+## Gita.Contribution
+
+```swift
+struct Contribution: Codable {
+    var owners: Set<Owner>
+    var totalPayout: Credits
+    var serviceCharge: Credits
+    var totalCost: Credits
+    var ledger: TokenLedger?
+    var spenderId: OwnerID?
+}
+
+struct Owner: Codable, Hashable {
+    var threadId: String
+    var ownerId: String?                                  // nil ⇒ unauthenticated Thread
+    var documentIds: Set<String>
+    var influence: [DocumentID: Double]                   // sums to 1 within this owner
+    var royalty: Double                                   // this owner's share of the turn
+    var spans: [Gita.TextSpan]
+    var documentSpans: [DocumentID: [Gita.TextSpan]]?
+    var earning: Credits
+    var identityKey: String { "\(threadId)|\(ownerId ?? "")" }
+}
+```
+
+`identityKey` is the composite identity: the same owner id reached through two
+different Thread nodes is two entries. `debugDescription` and
+`ownersDebugDescription` render the distribution for logs.
+
+---
+
+## Wallet
+
+```swift
+struct Wallet: Codable, Sendable {
+    static let initialBalance: Credits = 1_000_000     // every new wallet starts funded
+
+    let ownerId: OwnerID
+    var balance: Credits
+    var exchanges: [CreditExchange]
+    var transactions: [Transaction]
+
+    var totalSpent: Credits      { exchanges.reduce(0)    { $0 + $1.netCost } }
+    var totalCashedOut: Credits  { transactions.reduce(0) { $0 + $1.amount } }
+}
+```
+
+| Operation | Effect |
+|-----------|--------|
+| `initializeWallet(for:)` | Creates the wallet at `initialBalance` if absent — idempotent |
+| `recordExchange(_:spenderId:)` | One priced inference: `CreditExchange` appended, balance debited |
+| `recordCashout(ownerId:amount:)` | Appends a `Transaction` |
+| `addBalance(_:)` | Credits in |
+
+`totalSpent` and `totalCashedOut` are **derived**, not stored — they cannot drift
+from the underlying records.
+
+Persistence is `FilePersistence(key: "wallet_registry")`, restored in `Gita.init`
+with `?? .init()`.
+
+### `GET /v1/wallet`
+
+```swift
+struct WalletResponse: Codable {
+    let totalEarnings: Gita.Credits    // cumulative across all the owner's groups
+    let balance: Gita.Credits
+    let totalSpent: Gita.Credits
+    let totalCashedOut: Gita.Credits
+    // + per-group earnings breakdown
+}
+```
 
 ---
 
 ## Stream Billing (`Gita+StreamBilling.swift`)
 
-For streaming responses (SSE), token counts aren't known until the stream completes. Stream billing works differently:
+For SSE responses the completion token count is unknown until the stream ends:
 
-1. Start of stream: create pending `Gita.Payload` with `token_count = 0`
-2. Track tokens as chunks arrive (via `Gita+Spans.swift`)
-3. End of stream: finalize payload with actual token count → run royalty calculation
+1. Shares are computed at search time as usual — they do not depend on the
+   response.
+2. Tokens accumulate as chunks arrive.
+3. On stream end, the ledger is finalized and `priceContribution` runs.
+4. The contribution is sent as a trailing chunk.
 
-`Gita.TokenLedger` records prompt tokens + completion tokens per inference. Future billing against API usage will draw from this ledger.
-
----
-
-## Token Span Tracking (`Gita+Spans.swift`)
-
-Spans track which portions of the generated response were informed by which partitions. This is preparation for fine-grained attribution ("this sentence came from document X").
-
-Currently spans record:
-- Token range (start_token, end_token)
-- Contributing partition IDs
-- Attribution confidence (based on retrieval score)
-
-Spans are stored per-inference and are available via the admin API for debugging. Full span-based royalty (different rates for directly-cited vs context-only partitions) is a future enhancement.
+If the client disconnects mid-stream, billing finalizes on the tokens actually
+generated. Markers are stripped from every delta, so a disconnect cannot leak
+one.
 
 ---
 
-## Wallet System
+## GitaContract
 
-### Wallet structure
-```
-WalletRegistry {
-    wallets: [owner_id: Wallet]
-    credit_exchanges: [owner_id: [CreditExchange]]
-}
+`Sources/Gita/Models/GitaContract.swift` — the Web3 interface stub. Not active.
+`Web3.swift` is already a `Package.swift` dependency, so the scaffolding exists
+for on-chain settlement and ERC-20 cashout, but nothing calls it.
 
-Wallet {
-    owner_id: String
-    balance: Double         // current spendable balance
-    total_earned: Double    // all-time earnings (never decrements)
-    transactions: [Transaction]
-}
+---
+
+## Vestigial Oracle Types
+
+```swift
+typealias OracleNodeID = UUID
 ```
 
-### Transaction types
-| Type | When | Effect |
-|------|------|--------|
-| `.royalty` | After each inference that uses owner's documents | Increases `balance` + `total_earned` |
-| `.serviceCharge` | Same inference | Platform fee deducted (recorded separately) |
-| `.cashout` | Manual cashout (future: Web3 withdrawal) | Decreases `balance` |
-
-### `GET /v1/wallet` response
-```json
-{
-  "balance": 142.50,
-  "total_earned": 398.00,
-  "non_self_earnings": 89.25,
-  "transactions": [...],
-  "credit_exchanges": [...]
-}
-```
-
-`non_self_earnings` = earnings from other users' queries on your documents. This is the key metric for document owners who contribute knowledge to the network.
-
----
-
-## GitaContract (`GitaContract.swift`)
-
-Stub for the Web3 smart contract interface. Currently not active. Planned for P2P Oracle phase where:
-- Royalty credits are settled on-chain
-- Document owners receive ERC-20 tokens
-- Cashout = on-chain withdrawal
-
-The `Web3.swift` package is already in `Package.swift` dependencies — the scaffolding is in place.
-
----
-
-## Gita Registry Persistence
-
-- `Gita.Registry` → `~/.sewn/gita/registry`
-- `Gita.WalletRegistry` → `~/.sewn/wallet_registry`
-- Both serialized as JSON via `PersistenceActor`
-- Loaded at startup, written after each mutation
-
-**Caution**: Wallet registry write happens after every inference. With high query volume, this can be a disk I/O bottleneck. Future optimization: batch writes every N inferences.
-
----
-
-## Royalty for Peer Documents (Future — Oracle Integration)
-
-When Oracle is enabled and peer results are included in an inference, `Gita.Payload.peer_results` contains those results. Currently, peer results are included in context but NOT billed — they don't generate royalty credits because the peer's wallet lives on a remote node.
-
-**Planned**: When P2P Oracle is fully wired, inter-node credit settlement will work via:
-1. Requesting node: debit credits to remote peer
-2. Remote peer node: receive credit confirmation and credit the document owner's wallet
-3. Settlement protocol: batched every N minutes or on threshold
-
-This requires `GitaContract` to be implemented and inter-node trust from Oracle to establish payment channels.
+The P2P Oracle mesh is gone. What survives is this typealias and
+`Gita.Payload.peerSources` / the `peerSources` parameter on `royalty(for:)`,
+mapping `partitionId → OracleNodeID`. `Sewn+Search.swift` still declares
+`var peerSources: [String: OracleNodeID] = [:]`. Treat these as the
+**Thread-node identity channel**, not as evidence of a peer mesh — they are how
+an unauthenticated Thread gets attributed.
 
 ---
 
 ## Building a New Feature That Touches Gita
 
-Checklist:
-1. **New royalty weight factor** → update `Gita+Royalty.swift` calculation, document the new weight source
-2. **New transaction type** → add to `Transaction.type` enum + update `GET /v1/wallet` response
-3. **New wallet field** → add to `Gita.Wallet`, update persistence serialization
-4. **Span attribution change** → update `Gita+Spans.swift`
-5. **Stream billing change** → update `Gita+StreamBilling.swift`
-6. **Tests** → `Flow2_GitaCreditTests.swift`, `Flow2_GitaRoyaltyTests.swift`, `Flow2_GitaWalletTests.swift`, `Flow2_GitaSpanTests.swift`
+1. **New royalty weight factor** → `royalty(for:)`. You will need document
+   metadata passed in; re-normalize after applying multipliers so shares still
+   sum to 1.0.
+2. **New model** → add it to the `Gita.TokenLedger` pricing catalog at the same
+   time you add it to `ModelConfig`. The fallback silently prices at
+   `mistral-medium`.
+3. **New span tier** → keep the precedence rule: higher-confidence tiers win and
+   overlapping lower-tier spans are dropped.
+4. **New charge strategy** → add a `Pricing` case and preserve the invariant
+   `ownerPayouts.sum + serviceCharge == totalCost`.
+5. **New wallet field** → prefer a derived property over a stored one.
+6. **Tests** → `Flow2_GitaCreditTests`, `Flow2_GitaRoyaltyTests`,
+   `Flow2_GitaSpanTests`, `Flow2_GitaWalletTests`, `MarkerSpanTests`.
 
 ---
 
-## Known TODOs / Design Gaps
+## Known Gaps
 
-- **Weighted Influence**: royalty currently weights by similarity score only. TODO is to use Sinatra GBT contribution scores as additional weight (partitions that drove tone adjustment earn more)
-- **Performance scoring**: `Gita.Registry.swift` has a TODO on the `performanceScoring` logic — needs validation against real inference patterns
-- **Peer royalty settlement**: `peer_results` in `Gita.Payload` are collected but royalties not distributed cross-node
-- **Encryption**: wallet data is stored as plaintext JSON — should be encrypted at rest
-- **Cashout flow**: Web3 withdrawal via `GitaContract` is not yet implemented
+- **Weighted influence** — shares are pure word count; the kind / retrieval-count
+  / recency weighting is specified in comments but not implemented.
+- **Cashout** — `recordCashout` appends a transaction; no on-chain withdrawal
+  exists.
+- **Wallet encryption** — the wallet registry is an unencrypted property list.
+- **`Gita.Payload.dataSets`** — reserved for Sinatra trajectory predictions
+  feeding royalty weights; not wired.
+- **Cross-node settlement** — `peerSources` attributes an unauthenticated Thread,
+  but there is no protocol for paying a remote wallet.
