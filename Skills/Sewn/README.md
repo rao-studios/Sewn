@@ -1,236 +1,270 @@
-# Sewn Database
+# Sewn — The Orchestration Layer
 
-The Sewn database is a custom vector store built in Swift. It combines two search algorithms — HNSW for global approximate nearest neighbor and Product Quantization (PQ) for fine-grained reranking — and manages multi-tenant document ownership, access control, and personalized graphs per owner.
+`Sewn` is an actor, not a database. It owns no vectors, no HNSW graph, and no
+knowledge graph. What it owns is the **composition** of a turn: resolve who is
+asking, start sentiment and retrieval together, compact what came back, assemble
+the prompt, pick the backend, attribute the answer, price it, and bank the
+earnings.
 
----
-
-## Core Components
-
-```
-Sewn (actor)
-  ├── SewnRegistry                — in-memory ownership & access metadata
-  ├── PartitionTable              — global search index (PQ codebooks + HNSW)
-  │   ├── shard: GlobalPartitionTable — two-tier global search (tag pre-filter + HNSW)
-  │   │   └── graph: HNSWGraph    — underlying proximity graph, all documents
-  │   └── indices: [DocumentID: PartitionIndex]  — per-doc PQ codebooks + slots
-  ├── Per-Owner HNSW Graphs       — personalized search per user (recency-weighted)
-  ├── TableMutator (actor)        — serializes PartitionTable writes
-  ├── RegistryMutator (actor)     — serializes registry metadata writes
-  └── PersonalHNSWMutator (actor) — serializes per-owner graph writes
-```
-
-Source files: `Sources/Database/`
+Source: `Sources/Core/`
 
 ---
 
-## HNSW (Hierarchical Navigable Small World)
+## Shape of the Actor
 
-### What it is
-HNSW is a graph-based approximate nearest neighbor (ANN) algorithm. It builds a multi-layer graph where higher layers are sparse (long-range connections) and lower layers are dense (precise neighbors). Search starts at the top layer and greedily descends.
+```
+Sewn (actor)                       Sources/Core/Sewn.swift
+  ├── sinatra: Sinatra             — per-owner GBT tone model
+  ├── gita: Gita                   — royalty shares, spans, wallet
+  ├── registryMutator              — billing stats + LIVE THREAD NODE REGISTRY
+  ├── documentCache: DocumentCache — lock-free document identity lookup
+  ├── nodeId: UUID                 — stable mothership identity (NodeIdentity)
+  ├── _threadQueryClient           — type-erased ThreadQueryClient, nil until a node registers
+  └── pending: [WriteJob]          — the single FIFO write queue
+```
 
-**Complexity**: O(log N) for search, O(log N) for insertion.
+### File map
 
-### Two HNSW graphs
-
-**Global graph** (`global_graph`):
-- Contains ALL indexed partitions from ALL owners.
-- Used for cross-owner search (when access is `.available`).
-- Mutations go through `TableMutator` actor.
-- Persisted as mmap'd binary via `HNSWVectorStore` + `HNSWTopologyWAL`.
-
-**Personal graphs** (`personal_graphs/{owner_id}`):
-- One per owner, contains only that owner's partitions.
-- Recency-weighted: recent documents have higher entry priority in search.
-- Used for personalized queries and Marielle's context.
-- Mutations go through `PersonalHNSWMutator` actor.
-
-### Key parameters
-
-| Parameter | Default | Meaning |
-|-----------|---------|---------|
-| `M` | 16 | Max edges per node per layer |
-| `efConstruction` | 200 | Beam width during insertion |
-| `efSearch` | 50 | Beam width during search |
-| `maxLevel` | log(N) | Levels computed per-insertion probabilistically |
-
-### Compaction
-Deleted nodes leave "tombstone" entries. Compaction (`POST /v1/admin/hnsw/compact`) rebuilds the graph, removing dead nodes and rewiring edges. Run nightly as a cron job. Production recommendation: schedule via `POST /oracle/peers` style admin trigger.
-
-### Write-Ahead Log (WAL)
-`HNSWTopologyWAL` is an append-only file of HNSW operations (insert, delete). On crash recovery, Sewn replays the WAL to reconstruct the graph without re-embedding all documents. The WAL is truncated after successful compaction.
+| File | Contents |
+|------|----------|
+| `Sewn.swift` | The actor, `handleChat`, the write queue and its drain loop |
+| `Sewn+ThreadFanout.swift` | Every `fanout*` primitive — the only way out to Thread |
+| `Commands/Sewn+Search.swift` | `search(_:request:topK:)` → `searchWithThreads` |
+| `Commands/Sewn+Put.swift` | `BatchPutItem`, `putBatch` |
+| `Commands/Sewn+Remove.swift` | `_removeAll`, `_removeBatch` |
+| `Commands/Sewn+Compact.swift` | Briefing compaction, `CompactResult`, citation seeds |
+| `Commands/Sewn+QueryExpander.swift` | `expandQuery` — **currently original-only** |
+| `Commands/Sewn+Get.swift` | Document envelope read from disk |
+| `Sewn+AutoMemory.swift` | Auto-memory triggers and policy |
+| `Sewn+Infinite.swift` | Public-group leaderboard and search |
+| `Sewn+Registry.swift` | `registry` snapshot, fire-and-forget billing accumulation |
+| `Sewn+Marielle.swift` | Marielle candidate selection — **routes return 503** |
+| `Sewn+Utilities.swift` | Content hashing (document CID), helpers |
+| `Mutators/RegistryMutator.swift` | The one mutator actor |
 
 ---
 
-## Product Quantization (PQ)
+## The Write Queue
 
-### What it is
-PQ compresses high-dimensional float vectors (e.g. 1024 dims × 4 bytes = 4KB) into short byte codes (e.g. 32 bytes). Search on compressed vectors is ~8× faster with minimal accuracy loss.
+Every index mutation goes through one FIFO drain inside the actor. See
+`Skills/Concurrency/README.md` for the full mechanics; the API surface is:
 
-### How it works
-1. **Training**: cluster the embedding space into sub-quantizers (subvectors × centroids). Each sub-space gets K centroids (usually K=256).
-2. **Compression**: encode each vector by finding its nearest centroid in each sub-space → store centroid indices as bytes.
-3. **Search**: compute distances in quantized space (lookup tables per sub-quantizer). Asymmetric Distance Computation (ADC) keeps the query uncompressed for better accuracy.
-
-### PartitionTable
-`PartitionTable` stores compressed embeddings indexed by document_id → [partitions]. PQ provides per-document codebooks (trained on that document's partition set).
-
-### `GlobalPartitionTable`
-Wraps `HNSWGraph` and owns the two-tier global search pipeline. `PartitionTable.shard` is this type. Tier 1 applies a tag pre-filter (document-level) using `queryTagEmbedding`; Tier 2 runs HNSW beam search and resolves raw results to `Sewn.Partition` via `PartitionIndex.slots`. See `PartitionTable/README.md` for the full pipeline.
-
-### Adaptive Thresholding
-`PartitionQuantizer` maintains an adaptive cosine similarity threshold:
-- Initial threshold: static (e.g. 0.75)
-- After N searches: adjusts based on score distribution of returned results
-- If top results cluster high → raise threshold (reduce noise)
-- If top results cluster low → lower threshold (improve recall)
-- Key file: `PartitionQuantizer.swift`
-
----
-
-## Document → Partition Flow
-
-```
-PUT document
-  │
-  ├─ Sentence boundary detection (SentenceBoundary.swift)
-  │   └─ Split text into sentence-aligned chunks
-  │
-  ├─ For each chunk:
-  │   ├─ EmbeddingModelProvider.embed() → float32[1024]
-  │   ├─ PartitionQuantizer.compress() → UInt8[32] (PQ encoding)
-  │   ├─ TableMutator.insert(node)       → global HNSW
-  │   ├─ PersonalHNSWMutator.insert()    → personal HNSW
-  │   └─ PartitionTable.store(partition) → per-document PQ index
-  │
-  └─ RegistryMutator.register(document) → SewnRegistry update
-```
-
-**Why sentence boundaries?** Embedding models have context length limits. Splitting on sentence boundaries (rather than arbitrary character windows) keeps semantic units intact and reduces information loss at chunk edges.
-
----
-
-## Search Flow (Full Detail)
-
-```
-Sewn.search(query, owner_id, scope)
-  │
-  ├─ 1. Embed query → float32[1024]
-  │
-  ├─ 2. Query Expansion (Sewn+QueryExpander.swift)
-  │   ├─ Generate N paraphrase variants via LLM (low temperature)
-  │   ├─ Generate M keyword expansion variants
-  │   └─ Union of all candidate sets
-  │
-  ├─ 3. HNSW traversal (per query variant)
-  │   ├─ Scope = global: search global HNSW graph
-  │   ├─ Scope = personal: search owner's personal HNSW
-  │   └─ Scope = group: search within group's document IDs
-  │   └─ Returns top-efSearch candidates per variant
-  │
-  ├─ 4. PQ Reranking
-  │   ├─ For each candidate: compute ADC score vs query
-  │   └─ Resort candidates by reranked score
-  │
-  ├─ 5. Access Control Filter (SewnRegistry)
-  │   ├─ Check document_access[partition.document_id]
-  │   └─ Drop .restricted entries the requesting owner doesn't own
-  │
-  ├─ 6. Oracle Fan-out (if enabled, Sewn+Peer.swift)
-  │   ├─ Send OracleQueryRequest to trust-weighted peers
-  │   ├─ Collect OracleQueryResponse (with hop limit)
-  │   └─ Merge peer results with local results (deduplicate by partition_id)
-  │
-  └─ 7. Return top-K above threshold
-```
-
----
-
-## Registry & Access Control
-
-`SewnRegistry` is the in-memory ownership and access metadata index. It's the source of truth for:
-- Who owns what document
-- Which documents belong to which groups
-- What access level each document/group has
-- Which owners have bridging enabled
-
-### Lookup patterns
 ```swift
-// Is this document visible to this owner?
-func isAccessible(documentId: String, by owner: Owner) -> Bool {
-    switch document_access[documentId] ?? .unknown {
-    case .available: return true
-    case .restricted: return document_owners[documentId] == owner
-    case .unknown: return false
-    }
-}
+func enqueuePut(_ items: [Sewn.BatchPutItem], request: SewnRequest)          // fire-and-forget
+func enqueueRemoveBatch(_ items: [(documentId: String, ownerId: String)])    // fire-and-forget
+func removeAll(ownerId: String, request: SewnRequest) async -> Int           // awaitable
 ```
 
-### Mutations always go through RegistryMutator
-Direct mutation of `SewnRegistry` outside of `RegistryMutator` is not safe — the actor serializes all writes. Never call `sewn.registry.owners_documents[x] = y` directly.
+Consecutive `.put` jobs with the same `ownerId` and `group.id` coalesce into one
+job, up to `maxCoalesceItems = 100`.
 
 ---
 
-## Auto-Memory (`Sewn+AutoMemory.swift`)
+## Search
 
-If an owner has auto-memory enabled, every query they make is also indexed into their personal HNSW graph. This creates a memory of what topics they've explored, used by Marielle for personalization.
+```swift
+nonisolated func search(_ query: String?,
+                        request: SewnRequest,
+                        topK: Int = 3,
+                        enableSinatraPark: Bool = true) async throws -> SearchChatResult
+```
 
-- Indexed with a special `document_id` = `"__auto_memory_{owner_id}"`
-- Not visible in document listings (filtered out)
-- Compacted separately from normal documents
+An empty query returns an empty result rather than erroring. With a Thread client
+attached it delegates to `searchWithThreads`; with none, there is nowhere to
+search.
 
----
+**Sewn passes raw query text, not a vector.** Each Thread embeds locally, which
+is why Sewn needs no embedding model on the retrieval path at all:
 
-## Personal HNSW & Marielle Candidates (`Sewn+Marielle.swift`)
+```
+search(query)
+  │
+  ├─ fanoutSearch(queryText:request:topK:)
+  │   ├─ Build Thread_V1_ThreadSearchRequest
+  │   │    queryText, entities (request.entities ?? request.tags),
+  │   │    ownerID, scope (default "global"), topK,
+  │   │    groupIds (request.groups + request.group), aggregate
+  │   ├─ withTaskGroup: one task per ACTIVE node
+  │   ├─ Thread: entity match → graph expansion → HNSW → PQ re-rank
+  │   └─ Merge partition results; union the graph trace
+  │        (entity matches deduped, expansion edges unioned)
+  │
+  ├─ Sort by score, de-duplicate, truncate to topK
+  ├─ Gita.track(.inference) → unpriced word-count shares
+  └─ Sinatra park (when enableSinatraPark) — partitions await the user's NEXT reply
+```
 
-Personal graphs use recency weighting: entry points for search are biased toward recently-inserted nodes. This means recent interactions naturally score higher in personalized search.
-
-`Sewn+Marielle.swift` provides:
-- `getRecentCandidates(owner_id:)` — top-N recent nodes for Marielle's opening question
-- `getMarielleInterjectionCandidates(owner_id:, context:)` — scored candidates for mid-session interjection
-- `getBridgeCandidates(ownerA:, ownerB:)` — intersection of two personal graphs for bridge questions
-
----
-
-## Orphan & Stale Document Cleanup
-
-`POST /v1/admin/audit/stale` scans the registry for:
-1. Documents in registry with no HNSW nodes (embedding was never inserted or got lost)
-2. Documents in registry with no PartitionTable entries
-3. PartitionTable entries with no registry record
-
-`POST /v1/admin/audit/reconcile` removes the found stale entries.
-
-**Recommend**: Run audit weekly and reconcile immediately after.
-
----
-
-## Migration (`Sewn+Migration.swift`)
-
-Contains utilities for migrating data between schema versions. Key scenarios:
-- Adding personal HNSW graphs to existing owners who only have global entries
-- Migrating from old partition format (no compressed_embedding) to new (with PQ)
-- Normalizing owner_id casing (historical: some stored as uppercase UUIDs)
-
-`POST /v1/admin/hnsw/personal/rebuild` is the Phase 3 migration route — rebuilds empty personal HNSW graphs for owners who have documents but no personal graph.
+A node that throws is logged and skipped. Partial results from the surviving
+nodes are still merged — a dead node degrades recall, it does not fail the turn.
 
 ---
 
-## IndexQueue (`Utilities/IndexQueue.swift`)
+## Compaction — `Sewn+Compact.swift`
 
-A FIFO actor-based write serializer. Wraps the sequence: embed → insert HNSW → update registry, ensuring that concurrent HTTP requests don't interleave their HNSW writes.
+Retrieved partitions are usually summarized into a **briefing** by an LLM pass
+before being handed to the chat model. That pass is the dominant pre-stream cost
+(measured around 12 s at 30 partitions), so there is a bypass:
 
-**Why**: HNSW graph insertion walks the graph to find insertion neighbors. If two insertions run concurrently (before the graph is in a consistent state from the first), results are undefined. `IndexQueue` forces sequential execution of the full embed→insert cycle.
+```swift
+static let verbatimContextThreshold = 6000   // total partition characters
+```
 
-This is labeled as a temporary workaround in source comments — the long-term fix is to make HNSW insertion fully actor-safe (or switch to a lock-free structure).
+At or under 6000 characters, context is injected **verbatim** and no briefing
+call is made. The `[n]` tag protocol never required the LLM.
+
+`CompactResult` carries three things forward:
+
+| Field | Purpose |
+|-------|---------|
+| `text` | The briefing (or the verbatim context) |
+| `citations` | Per-partition citation key words — the **highest-confidence span seed** for `Gita.computeSpans` |
+| tag → document id map | Bracket-tag number → source document, in exactly the order the `[n]` tags were rendered |
+
+On the verbatim path `citations` is empty, so span attribution degrades to the
+marker tier and then the heuristic tier. That is a real quality difference worth
+remembering when debugging attribution: **small retrievals produce weaker spans.**
+
+---
+
+## Auto-Memory — `Sewn+AutoMemory.swift`
+
+Snapshots of a conversation are indexed back into the owner's corpus when a
+trigger fires.
+
+```swift
+enum AutoMemoryTrigger: Hashable {
+    case messageCount(threshold: Int = 7)   // every time user message count crosses a multiple
+    case topicChange                        // Sinatra session boundary (pace + attentiveness collapse)
+}
+
+enum AutoMemoryPolicyMode { case any, all } // OR vs AND across active triggers
+```
+
+`.any` fires when at least one active trigger fires; `.all` requires every active
+trigger simultaneously and scales past two triggers. The snapshot is written via
+`enqueuePut`, so it joins the same FIFO queue as ordinary indexing.
+
+Auto-memory runs a generation of its own, which means it follows the turn's
+provider — on `local` it is **off** unless `SEWN_LOCAL_UTILITY=1`.
+
+---
+
+## Query Expansion — currently a no-op
+
+```swift
+/// Expands a user message with passages from the owner's resonance group.
+/// With Thread-only storage, resonance variants are not available locally — returns original-only.
+```
+
+`expandQuery` still exists and is still called, but it returns `original`-only.
+Re-enabling it means fetching resonance-group passages over Thread fan-out.
+Don't document it as working expansion; it isn't.
+
+---
+
+## Billing Accumulation — `Sewn+Registry.swift`
+
+Two fire-and-forget paths write into `SewnRegistry`, both deliberately off the
+response path:
+
+```swift
+nonisolated func accumulatePerformance(_ updates: [DocumentID: Sewn.DocumentStats])
+nonisolated func accumulateEarnings(from contribution: Gita.Contribution, threadIds: [String] = [])
+```
+
+`accumulateEarnings` short-circuits when `contribution.totalCost == 0`, converts
+the contribution into per-document earnings via `gita.documentEarnings(from:)`,
+and hands them to `RegistryMutator.accumulateEarnings`. Both spawn a detached
+`Task` — the caller never waits for a disk write to return a chat response.
+
+The registry snapshot is available synchronously:
+
+```swift
+nonisolated var registry: SewnRegistry? { registryMutator.snapshot }
+```
+
+---
+
+## Infinite — `Sewn+Infinite.swift`
+
+The public-group leaderboard. Composite activity score, min-max normalized
+across all public groups **at request time** — no score is persisted:
+
+| Component | Weight |
+|-----------|--------|
+| Earnings | 40% |
+| Retrieval count | 30% |
+| Average sentiment | 20% |
+| Document count | 10% |
+
+`GroupMetrics.averageSentiment` returns `sentimentSum / retrievalCount`, or
+`0.5` when the group has never been retrieved — a neutral prior, not a zero.
+
+Routes: `GET /v1/infinite/leaderboard` (`page`, `page_size` clamped to 1–100,
+default 20), `POST /v1/infinite/search`.
+
+---
+
+## Thread Node Registry lives in RegistryMutator
+
+This surprises people: the live node list is not a separate service.
+`RegistryMutator` holds both the billing registry and the Thread fleet.
+
+```swift
+func registerNode(_ node: ThreadNode)
+func heartbeatNode(threadId: UUID)
+func updateNodeAvailability(threadId: UUID, accepting: Bool)
+func removeNode(threadId: UUID)
+func threadNode(for threadId: UUID) -> ThreadNode?   // nil unless ACTIVE
+var activeNodes: [ThreadNode]
+var availableForStorage: [ThreadNode]
+var allNodes: [ThreadNode]
+
+// Owner → node affinity, so indexed documents can be found again
+func recordOwnerThread(ownerId: String, threadId: UUID)
+func threadNodesForOwner(_ ownerId: String, allNodes: [ThreadNode]) -> [ThreadNode]
+```
+
+Two operational details:
+
+- `THREAD_HOST_OVERRIDE` rewrites a registering node's advertised host. This
+  exists for deployments where the node reports an address Sewn cannot route to.
+- Nodes not seen for **300 s** are treated as stale.
+
+---
+
+## Document Identity
+
+`Sewn+Utilities.computeHash(from:)` derives a document CID from its text:
+lowercase, split on whitespace, strip punctuation, drop a small stop-word set
+(`the, and, a, an, in, on, at, for, of, to, is, it, that, this`), then hash the
+remaining tokens. Two uploads of the same prose get the same id, which is what
+makes re-indexing idempotent. Tested by `Flow1_DocumentCIDTests.swift`.
 
 ---
 
 ## Building a New Feature That Touches Sewn
 
-Checklist:
-1. **New mutation** → add method to `Sewn.swift`, route writes through appropriate mutator actor
-2. **New search variant** → extend `Sewn+Search.swift`, make sure access control filter is applied
-3. **New registry field** → add to `SewnRegistry` struct + update `PersistenceActor` serialization
-4. **New admin operation** → add route to `Admin.swift`, apply `AdminMiddleware`
-5. **New document metadata** → update `Sewn.Document` and `Sewn.DocumentStats`
-6. **Test coverage** → add to appropriate `Flow*Tests.swift` file (see `TestMaintenance` skill)
+1. **New write path** → add a `WriteJob` case and handle it in `execute`; never
+   mutate through a second queue.
+2. **New Thread operation** → add the proto message pair, then a `fanout*`
+   method in `Sewn+ThreadFanout.swift`. Route handlers call `fanout*`, never a
+   gRPC client directly.
+3. **New billing field** → add to `Sewn.DocumentStats`, then the merge logic in
+   `SewnRegistry.addPerformance`, then a `RegistryWALRecord` case, then the WAL
+   replay. Missing the WAL step means the field silently resets on restart.
+4. **New registry field** → remember the tolerant decoder: use
+   `decodeIfPresent` with a default so old files still load.
+5. **New route** → register it in `configureRoutes` **before** `Application.init`.
+6. **Tests** → the `Flow*` files by area (see `Skills/TestMaintenance/README.md`).
+
+---
+
+## What Is No Longer Here
+
+`PartitionTable`, `PartitionIndex`, `PartitionQuantizer`, `HNSWGraph`,
+`HNSWVectorStore`, `HNSWTopologyWAL`, `TableMutator`, `PersonalHNSWMutator`, the
+standalone `IndexQueue` actor, per-owner personal graphs, the Oracle P2P mesh,
+and `Sewn+Migration.swift` — all removed. Vector and graph code lives in the
+[Thread](https://github.com/riteshpakala/Totem) repository; see
+`Skills/Thread/README.md`.

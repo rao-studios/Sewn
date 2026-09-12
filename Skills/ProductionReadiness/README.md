@@ -1,273 +1,303 @@
 # Production Readiness
 
-Checklists, deployment procedures, and operational guidance for Sewn in production.
+Checklists, deployment procedure, and runbooks for Sewn in production.
 
 ---
 
 ## Pre-Deployment Checklist
 
-### Code & Build
+### Build
 
-- [ ] `swift build -c release` succeeds with no warnings
-- [ ] All tests pass: `swift test` (no failures, no skips without explanation)
-- [ ] SwiftLint passes: `swiftlint` (zero errors, zero warnings)
-- [ ] No `// TODO` or `// FIXME` comments that are release-blockers
-- [ ] Package.swift dependencies are pinned (`Package.resolved` committed)
+- [ ] Two sibling packages are checked out beside this repo: **`Conduit`**
+      (`../../../rao/repositories/Conduit`) and **`Frigate`** (`../Frigate`).
+      Both are path dependencies — a missing checkout fails the build.
+- [ ] `swift build -c release` succeeds
+- [ ] `swift test` passes
+- [ ] `swiftlint` clean (`.swiftlint.yml` at the root; SwiftLint is a package
+      dependency)
+- [ ] `Package.resolved` committed
+- [ ] For on-device: `./scripts/build-metallib.sh release` has produced
+      `mlx.metallib` beside the binary. **SwiftPM has no Metal step** — without
+      this, the `local` provider 503s
+
+### Environment
+
+Every variable Sewn actually reads:
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SUPABASE_URL` | **Yes — `fatalError` if absent** | Auth |
+| `SUPABASE_ANON_KEY` | **Yes — `fatalError` if absent** | Auth |
+| `MISTRAL_API_KEY` | Effectively yes | Chat, and vision/embeddings/speech for *every* provider |
+| `TINKER_API_KEY` | Only for `tinker` | 503 per request when absent |
+| `SUPABASE_SERVICE_KEY` | For service-role calls | |
+| `ADMIN_USER_ID` | For any admin route | Unset ⇒ every admin route 403s |
+| `METRICS_TOKEN` | Recommended | Guards `GET /metrics` |
+| `SEWN_GLOBAL_LLM` | No | `mistral` \| `tinker` \| `local`; unknown values fall back to mistral |
+| `SEWN_DATA_DIR` | No | Storage root; `--data-dir` wins |
+| `SEWN_CHAT_MODEL`, `TINKER_MODEL`, `SEWN_LOCAL_MODEL` | No | Per-provider chat model |
+| `UTILITY_MODEL`, `SEWN_CODING_MODEL`, `SEWN_LOCAL_CODING_MODEL` | No | Job-specific models |
+| `VISION_MODEL`, `SEWN_REALTIME_OPENING_MODEL` | No | |
+| `SEWN_LOCAL_UTILITY` | No | `1` lets Sinatra/auto-memory/compaction run on-device |
+| `THREAD_HOST_OVERRIDE` | No | Rewrites a registering node's advertised host |
+| `SEWN_REGION` | No | Log/metric labeling |
+| `COCKPIT_TOKEN`, `COCKPIT_METRICS_ENDPOINT`, `COCKPIT_LOGS_ENDPOINT` | For observability | Read by Alloy, not by Sewn |
+| `AIRTABLE_API_KEY` | No | Only if the Airtable endpoint is used |
+
+- [ ] `SUPABASE_URL` and `SUPABASE_ANON_KEY` are set. **These two `fatalError` at
+      startup** — unlike LLM keys, which degrade to a 503
+- [ ] `ADMIN_USER_ID` is the intended single account. It is **one id, not an
+      allowlist**
+- [ ] No secrets in source, `docker-compose.yml`, or the image
 
 ### Security
 
-- [ ] `MISTRAL_API_KEY` is in environment, NOT in source or docker-compose
-- [ ] Supabase anon/service keys are in environment, NOT in source
-- [ ] The data directory (`~/Documents/sewn-db`, or whatever `--data-dir`/`SEWN_DATA_DIR` names) is NOT world-readable: `chmod 700 <data-dir>`
-- [ ] Admin owner_id allowlist is configured correctly (not empty, not wildcard)
-- [ ] `GET /metrics` is not publicly accessible (firewall or reverse proxy gate)
-- [ ] TLS is terminated at the reverse proxy (Sewn itself runs HTTP internally)
+- [ ] Data directory not world-readable: `chmod 700 ~/Documents/sewn-db`
+- [ ] `GET /metrics` gated by `METRICS_TOKEN` and/or the reverse proxy
+- [ ] TLS terminates at the reverse proxy — Sewn serves plain HTTP, and the gRPC
+      transport is **`.plaintext`**
+- [ ] gRPC port 9091 reachable only from Thread nodes. It is an unauthenticated
+      registration surface: anything that can reach it can register as a node
+- [ ] `GET /v1/stats`, `/v1/threads`, `/health`, and the auth routes are **open**.
+      `/v1/stats` has its own per-IP rate limiter; the others do not
+- [ ] Wallet registry is an **unencrypted property list** — accept or mitigate
 
-### Data Integrity
+### Data & fleet
 
-- [ ] Run `POST /v1/admin/audit/stale` — zero stale documents
-- [ ] HNSW WAL file is reasonable size (< 100MB pre-compaction)
-- [ ] Wallet registry has no negative balances
-- [ ] Gita registry market weights sum ≈ 1.0 per owner
+- [ ] `GET /v1/threads` shows every expected node with `is_active: true`
+- [ ] At least one node reports `accepting_storage: true`, or indexing silently
+      drops
+- [ ] `registry-wal` is a sane size (checkpoint fires at 16 MB)
+- [ ] No negative wallet balances
+- [ ] A restart reloads registry, Sinatra, and wallet state
 
-### Performance Baseline
+### Performance baseline
 
-- [ ] `/health` responds in < 5ms (p99)
-- [ ] `POST /v1/chat/completions` (non-stream) responds in < 2s (p95) for 512 max_tokens
-- [ ] `POST /v1/embeddings` responds in < 200ms (p95)
-- [ ] `POST /v1/search` responds in < 100ms (p95) with 10k+ documents in HNSW
-- [ ] Memory usage stable under sustained load (no leak over 1 hour run)
-
-### Oracle (if enabling)
-
-- [ ] `--node-id` is set to a stable UUID (not regenerated on restart)
-- [ ] Seed peers are reachable from the deployment host
-- [ ] WebSocket port is open in firewall rules
-- [ ] Gossip doesn't cause runaway message amplification (test with 3+ nodes)
+- [ ] `/health` < 5 ms p99
+- [ ] `/v1/chat/completions` non-stream p95 within budget for your model
+- [ ] `sewn.chat.ttft` acceptable — this is the number users feel
+- [ ] `sewn.index.queue_depth` returns to 0 after ingestion
+- [ ] Memory stable over a sustained hour
 
 ---
 
-## Docker Deployment
+## Deployment
 
 ```bash
-# Build
-docker build -t sewn-server:latest .
-
-# Run with environment
-docker run -d \
-  --name sewn \
-  -p 8080:8080 \
-  -v ~/.sewn:/root/.sewn \
-  -e MISTRAL_API_KEY=sk-... \
-  -e MLX_ENV=production \
-  sewn-server:latest \
-  --model /models/mistral-7b \
-  --host 0.0.0.0 \
-  --port 8080
-
-# Check health
-curl http://localhost:8080/health
-
-# Tail logs
-docker logs -f sewn
+./start.sh        # docker compose down, rebuild, up -d, wait for /health
+./stop.sh
 ```
 
-### docker-compose (development)
+`start.sh` polls `http://localhost:8080/health` for up to two minutes, then
+prints status and the last 20 log lines. A timeout warning usually means Swift is
+still compiling, not that the deploy failed.
 
-```bash
-docker-compose up -d
-docker-compose logs -f
-docker-compose down
+### docker-compose
+
+```yaml
+services:
+  sewn:
+    ports:
+      - "8080:8080"
+      - "9091:9091"          # gRPC — Thread registration
+    env_file: [.env]
+    volumes:
+      - sewn-volume-dev:/root/Documents/sewn-db
+    restart: unless-stopped
+  alloy:
+    image: grafana/alloy:latest
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+volumes:
+  sewn-volume-dev:
+    external: true           # ← must be created by hand first
 ```
 
----
+Three gotchas, all of which have bitten:
 
-## Startup Arguments Reference
+1. **The volume is `external: true`.** `docker volume create sewn-volume-dev`
+   before the first `up`, or compose refuses to start.
+2. **`docker-compose.yml` names `dockerfile: Dockerfile`, but the file on disk is
+   lowercase `dockerfile`.** This works on macOS's case-insensitive filesystem
+   and fails on a case-sensitive one. Rename or fix the reference before
+   deploying to Linux.
+3. **The container mounts `/root/Documents/sewn-db`**, matching the in-container
+   default data root. Changing `--data-dir` without changing the mount silently
+   writes to the container's ephemeral layer.
+
+The image is a two-stage build on `swift:6.0.0-jammy`, running
+`--host 0.0.0.0 --port 8080`. **The Linux image cannot serve the `local`
+provider** — MLX is macOS-only.
+
+### Flags
 
 ```bash
 ./sewn-server \
-  --model <path>                    # Required: path to MLX model OR model name for Mistral
-  --host 0.0.0.0                    # Default: localhost (change for external access)
-  --port 8080                        # Default: 8080
-  --mistral                          # Use Mistral API instead of local MLX
-  --vlm                              # Enable visual language model (experimental)
-  --embedding-model <path>           # Optional: separate embedding model
-  --enable-prompt-cache              # Enable KV cache
-  --prompt-cache-size-mb 1024        # Cache RAM limit (default 1GB)
-  --prompt-cache-ttl-minutes 30      # Cache TTL (default 30min)
-  --enable-oracle                    # Enable P2P mesh
-  --node-id <stable-uuid>            # Stable Oracle node identity
-  --peers "wss://a:8080,wss://b:8080" # Seed Oracle peers
+  --host 0.0.0.0 \
+  --port 8080 \
+  --data-dir ~/Documents/sewn-db \
+  --grpc-port 9091 \
+  --enable-threads \          # default true
+  --vlm \                     # multi-modal chat input
+  --enable-prompt-cache \
+  --prompt-cache-size-mb 1024 \
+  --prompt-cache-ttl-minutes 30
 ```
+
+Models come from the **environment**, not from flags. There is no `--model`,
+`--mistral`, `--embedding-model`, `--enable-oracle`, `--node-id`, or `--peers` —
+all removed.
 
 ---
 
-## Operational Runbooks
+## Observability
 
-### Runbook: Nightly HNSW Compaction
+Metrics at `GET /metrics` (Prometheus text, guarded by `METRICS_TOKEN`), scraped
+by the Alloy sidecar and pushed to Scaleway Cockpit (Mimir + Loki + Grafana).
 
-**When**: Daily, low-traffic window (e.g. 3am)
-**Why**: Removes tombstoned nodes, reduces WAL size, speeds up search
+### Structured logs
 
-```bash
-curl -X POST https://your-server/v1/admin/hnsw/compact \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-```
+`SewnLogger` emits JSON lines with a `service` field. Alloy's
+`loki.process "label_service"` stage promotes it to a `service_name` Loki label,
+which is what populates Cockpit's drilldown tabs (Sewn, Sinatra, Gita, GBT
+Training, Parking, Embedding). `requestId`, `ownerId`, and `documentId` are
+extracted too.
 
-Expected response: `{ "compacted_nodes": N, "elapsed_ms": N }`
+Non-JSON lines fall back to `service_name="sewn-server"`. (The Alloy config
+comment still calls those "Vapor framework output" — stale wording; the framework
+is Hummingbird.)
 
-Monitor: verify HNSW node count drops by any deleted documents since last compaction.
+Conduit's session and client logs route through `SewnConduitLogger` so they land
+in the same stream under `service: "Sewn"`. If session diagnostics are missing
+from Cockpit, that bridge is the thing to check.
 
-### Runbook: Weekly Audit & Reconcile
+### Metrics worth alerting on
 
-**When**: Weekly
-**Why**: Catch stale registry entries from partial failures
+| Metric | Watch for |
+|--------|-----------|
+| `sewn.index.queue_depth` | Unbounded growth ⇒ ingestion outpacing Thread |
+| `sewn.chat.ttft` | User-visible latency |
+| `sewn.chat.search_duration`, `sewn.chat.compact_duration` | Compaction is the dominant pre-stream cost |
+| `sewn.realtime.first_audio` | The number the two-pass design exists to lower |
+| `sewn.realtime.tts_failures_total` | Turns that lost audio |
+| `sewn.realtime.retrieval_failures_total` | Turns answered degraded |
+| `sinatra.unadjusted_total{reason}` | All `no_model`/`no_collector` ⇒ training never runs |
+| `sinatra.parked_records` | Pinned at 30 ⇒ the rolling cap is evicting |
+| `provider.llm_requests_total{model}` | Confirms which model is actually serving |
+| `provider.embedding_queue_depth` | Tasks waiting on an embedding slot |
 
-```bash
-# Step 1: Identify stale documents
-curl -X POST https://your-server/v1/admin/audit/stale \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+Also present: `sewn.search.*`, `sewn.hnsw.*` and `sewn.pq.*` (fed from
+Thread-reported stats, not a local graph), `sewn.batch.*`, `sinatra.*` training
+gauges.
 
-# Step 2: If stale_documents is non-empty, reconcile
-curl -X POST https://your-server/v1/admin/audit/reconcile \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"document_ids": [...]}'
-```
+### Grafana dashboards
 
-### Runbook: Sinatra Reset for Misbehaving Owner
-
-**When**: A specific user reports wildly wrong tone (very cold responses in emotional conversations)
-**Why**: GBT model may have overfit on unusual data
-
-```bash
-curl -X POST https://your-server/v1/frank/reset \
-  -H "Authorization: Bearer $USER_TOKEN" \
-  -d '{"owner_id": "uuid"}'
-```
-
-Sinatra will retrain from scratch over the next few inferences.
-
-### Runbook: Emergency Owner Data Delete
-
-**When**: User requests full data deletion (GDPR/privacy)
-**Why**: Complete erasure of all associated data
-
-```bash
-curl -X POST https://your-server/v1/admin/owner/delete \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"owner_id": "uuid"}'
-```
-
-Verify: check `GET /v1/admin/list/owners` — owner should no longer appear.
-
-### Runbook: Oracle Peer Recovery
-
-**When**: A peer node goes offline and comes back
-**Steps**:
-1. Peer reconnects via WebSocket (automatic if `--peers` is in startup args)
-2. Check `GET /oracle/nodes` — peer state should transition to `connected`
-3. If not reconnecting: POST new peer endpoint to `/oracle/peers`
-4. Trust score will resume from pre-disconnect value (persists across reconnects)
-
-### Runbook: Backup Before Migration
-
-**When**: Before any major schema change or infrastructure move
-
-```bash
-# For each owner
-for OWNER_ID in $(curl -X POST /v1/admin/list/owners -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.owners[]'); do
-  curl -X POST https://your-server/v1/storage/backup \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -d "{\"owner_id\": \"$OWNER_ID\"}"
-done
-```
+`Dashboards/*.json` — import via **Grafana → Dashboards → Import → Upload JSON**:
+`sewn-overview`, `sewn-database`, `sewn-ml-inference`, `sewn-batch-pipeline`,
+`sewn-downtime`, `sewn-ip-traffic`, `sewn-infrastructure`, `sewn-sinatra`.
 
 ---
 
-## Performance Tuning
+## Runbooks
 
-### HNSW Parameters
+### Retrieval returns nothing
 
-| Scenario | `M` | `efSearch` | Tradeoff |
-|----------|-----|-----------|---------|
-| Fast search, lower recall | 8 | 20 | Faster, slightly less accurate |
-| Default | 16 | 50 | Balanced |
-| High recall | 32 | 100 | Slower insertion and search, higher accuracy |
-| Very large graph (500k+ nodes) | 16 | 200 | More traversal per query for better recall at scale |
+```bash
+curl -s localhost:8080/v1/threads | jq
+```
 
-### Prompt Cache
+1. **No nodes** → nothing registered. Check port 9091 reachability from the node
+   and the node's own mothership address.
+2. **Nodes present, `is_active: false`** → heartbeats stopped. `isActive` is a
+   **60-second** window on `lastSeen`; entries are purged at 300 s.
+3. **A node advertises an unroutable host** → set `THREAD_HOST_OVERRIDE`.
+4. **Nodes active, searches still empty** → `_threadQueryClient` may be nil
+   (`--enable-threads false`), or the query is scoped to a group/owner with
+   nothing in it.
 
-- Enable for production workloads where users have repeat conversations
-- Disable if memory is constrained (cache consumes up to `--prompt-cache-size-mb`)
-- TTL of 30 minutes suits most conversational patterns
+Nothing in this path errors. Empty results are the only symptom.
 
-### GBT Training Frequency
+### Indexing accepted but documents unsearchable
 
-- Default park threshold (50 samples per owner) is conservative
-- For high-volume users: lower threshold to 20 (faster adaptation, more CPU)
-- For low-volume users: raise to 100 (fewer retrains, coarser model)
+1. `accepting_storage` on at least one node? Indexing targets **one** node, and
+   with none accepting it drops.
+2. `sewn.index.queue_depth` — is the queue draining?
+3. Logs for the backpressure warning: three retries at 500 ms / 1 s / 2 s, then
+   the batch is dropped with a warning. **This is the silent data-loss path** —
+   alert on it.
+4. `/v1/embeddings` returns as soon as the job is enqueued, so a 200 means
+   "accepted", not "stored".
+
+### Provider failures
+
+```bash
+curl -s localhost:8080/v1/providers | jq '.providers[] | {id, available, state, reason}'
+```
+
+`reason` is written to be read. Missing key → set it. `localNotBuilt` → non-macOS
+build or absent MLX. `failed` with a GPU remedy → `LocalGPU.remedy()` says what
+to do. Warm the on-device model with `POST /v1/providers/local/warm`.
+
+### Sinatra tone never changes
+
+1. `sinatra.unadjusted_total{reason}`:
+   - `no_model` / `no_collector` → the owner has never passed the training gate
+   - `no_registry` → persistence problem
+2. `POST /v1/frank/parking` — is anything parked? The gates are strict: user
+   reply ≥ 4 words, resonance confidence ≥ 0.55, and the excerpt must be a
+   verbatim substring.
+3. `POST /v1/frank/gbt` — inspect trees for overfit.
+4. `POST /v1/frank/export` before `POST /v1/frank/reset`, so a bad state can be
+   analyzed after wiping it.
+
+### Wallet or pricing looks wrong
+
+1. Find the turn's three `service: .gita, flow: .chat` log lines: **Token
+   Ledger**, **Cost Breakdown** (with surge), **Owner Payouts**.
+2. Check the invariant: `owners.earning.sum + serviceCharge == totalCost`.
+3. A new model missing from the `Gita.TokenLedger` catalog silently prices at
+   `mistral-medium` rates. This is the most common cause.
+4. Surge is 1.15× at load 1 of 10 by design, not a bug.
+
+### Clean shutdown
+
+`Sewn.shutdown()` calls `RegistryMutator.flushForShutdown()` — `saveNow` then
+truncate the WAL. Skipping it is survivable (the WAL replays at startup) but
+leaves work for boot.
+
+### Restoring after data loss
+
+There is **no `/v1/storage/*` backup or restore surface** — those routes were
+removed. Back up by snapshotting the data directory or the Docker volume. Thread
+nodes hold documents and vectors independently, so losing `sewn-db` loses
+billing stats, Sinatra models, and the wallet — **not the corpus**.
 
 ---
 
-## Monitoring
+## Audit Frequency
 
-### Key Prometheus Metrics to Watch
-
-| Metric | Alert If |
-|--------|---------|
-| `sewn_inference_count_total` | Drops to 0 (server stopped processing) |
-| `sewn_hnsw_node_count` | Decreases unexpectedly without delete operations |
-| `sewn_index_queue_depth` | Stays > 100 for > 5 minutes (indexing backlog) |
-| `sewn_sinatra_park_queue_depth` | > 500 per owner (GBT training not keeping up) |
-| `http_request_duration_seconds` p99 | > 5s for chat completions |
-| `sewn_oracle_peer_failures_total` | Rapid increase (peer connectivity issue) |
-
-### Log Levels
-
-Sewn uses `SewnLogger`. In production:
-- Set `MLX_ENV=production` → info-level logging only
-- Set `MLX_ENV=development` → debug-level (verbose, not for production)
+| Area | When |
+|------|------|
+| `GET /v1/threads` | Continuously, alerting |
+| `sewn.index.queue_depth`, drop warnings | Continuously, alerting |
+| Provider availability | On deploy and on key rotation |
+| Wallet invariant | After any release touching Gita |
+| Sinatra gates | Monthly, or on a tone complaint |
+| WAL size | Weekly |
+| Full pre-release checklist | Every production release |
 
 ---
 
-## Security Hardening
+## Known Operational Gaps
 
-- [ ] Reverse proxy (nginx/caddy) with TLS in front of Sewn (Sewn serves HTTP)
-- [ ] Rate limiting at reverse proxy (e.g. 60 req/min per IP for /v1/chat/completions)
-- [ ] `GET /metrics` blocked externally (internal-only scrape from Prometheus)
-- [ ] `~/.sewn/` data encrypted at rest (disk-level or application-level)
-  - **Note**: Application-level encryption is a TODO in `Storage.swift`
-- [ ] Supabase RLS (Row Level Security) policies reviewed for any Supabase tables used by backup/restore
-- [ ] Admin owner_id is a service account, not a user-facing account
-- [ ] Logs do not contain full JWT tokens (check `SewnLogger` redaction)
-
----
-
-## Disaster Recovery
-
-### Scenario: Server crash, WAL intact
-
-1. Restart server normally — WAL replays automatically
-2. Verify node count: `POST /v1/admin/system/stats`
-3. Run `POST /v1/admin/audit/stale` to catch any partial-write orphans
-
-### Scenario: Corrupt HNSW graph
-
-1. Stop server
-2. Delete `~/.sewn/global_graph` and `~/.sewn/personal_graphs/`
-3. Run `POST /v1/storage/restore` for each owner to re-index from Supabase backup
-4. Alternatively: rebuild from scratch via batch embeddings if backup is unavailable
-
-### Scenario: Corrupt Sinatra registry
-
-1. Stop server
-2. Delete `~/.sewn/sinatra/registry`
-3. Restart — Sinatra initializes fresh (no GBT models, will retrain from next inferences)
-4. No data loss — GBT models are learned, not user data
-
-### Scenario: Corrupt Gita wallet
-
-1. This is high-stakes — do NOT delete without audit
-2. Export current wallet data: `GET /v1/admin/list/owners` + `GET /v1/wallet` per owner
-3. Reconstruct from `credit_exchanges` records (CreditExchange → Transaction history)
-4. Wallet balance = sum of all royalty transactions - cashouts
+- **No backup/restore routes.** Volume snapshots only.
+- **`/v1/admin/owner/delete` reports `documentsRemoved: 0`** — `removeAll`
+  returns 0 now. `sinatraCleared` is accurate.
+- **Admin list and audit routes are stubs.** `list/owners`, `list/documents`,
+  `list/groups`, `audit/stale`, `audit/reconcile` return empty or zero.
+- **gRPC registration is unauthenticated.** Network-level control only.
+- **Wallet at rest is unencrypted.**
+- **`sewn-volume-dev` is `external: true`** and must be created manually.
+- **The `dockerfile` / `Dockerfile` casing mismatch** breaks case-sensitive
+  filesystems.

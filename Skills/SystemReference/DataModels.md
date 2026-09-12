@@ -1,572 +1,672 @@
 # Data Models Reference
 
-All major types across Sewn, Sinatra, Gita, and Oracle. Use this as a quick lookup when writing request/response handlers, tests, or new features.
+Every Swift type that crosses a boundary — persisted, sent on the wire, or shared
+between subsystems. Grouped by owning namespace.
+
+Conventions throughout:
+- **`CodingKeys` are snake_case** on the wire, camelCase in Swift.
+- **Tolerant decoders.** Most persisted types use `decodeIfPresent` with defaults
+  so an older on-disk file still loads. Follow this when adding a field.
+- **Owner ids are lowercased** at the boundary (`SewnRequest.from(_:)`).
+  Supabase `auth.uid()` is lowercase; `UUID.uuidString` is uppercase.
+- `FilePersistence` writes **property lists**, not JSON. Non-finite `Double`s
+  cannot be encoded.
 
 ---
 
-## Sewn (Database)
+## Core — `Sources/Core/Models/`
 
-### `Sewn.Document`
-Document-level metadata. One document = one source URL (a webpage, file, etc.).
+### Aliases
+
 ```swift
-struct Document {
-    let id: String          // UUID
-    let url: String         // Source URL
-    let owner_id: String    // Owner UUID
-    let created_at: Date
+typealias DocumentID = String
+typealias GroupID    = String
+typealias OwnerID    = String
+typealias OracleNodeID = UUID     // in Gita.Contribution.swift — vestigial, see below
+```
+
+### SewnRegistry
+
+```swift
+/// Lean billing-only registry. Document/group/ownership data lives on Thread nodes.
+struct SewnRegistry: Codable {
+    var documentStats: [DocumentID: Sewn.DocumentStats] = [:]
+    var bridgingEnabledOwners: Set<OwnerID> = []
 }
 ```
 
-### `Sewn.Partition`
-A chunk of a document with its embedding. One document → N partitions.
+Two fields. That is the whole registry. Its decoder ignores every legacy field
+(`ownersDocuments`, groups, access maps) so pre-split files decode without
+crashing.
+
 ```swift
-struct Partition {
-    let id: String                        // UUID
-    let documentId: String
-    let ownerId: String
-    let url: URL                          // source URL
-    var embedding: [Float]                // full-precision vector (1024-dim); cleared after PQ train
-    var compressedEmbedding: [UInt16]?    // PQ codes (16 × UInt16 = 32 bytes)
-    let mediaType: MediaType              // .text | .image
-    let text: String                      // raw chunk text (cleared after PartitionData written)
-    let hint: String                      // server-generated key phrases embedded alongside text
-}
+enum Access: String, Codable { case available, restricted, unknown }
+struct Owner: Codable, Hashable { let id: OwnerID }
 ```
 
-### `PartitionSlot`
-Lean in-memory record inside `PartitionIndex.slots`. Holds only identifiers and compressed codes — no text or URL (those live in `PartitionData` on disk).
-```swift
-struct PartitionSlot: Codable {
-    var id: String
-    var documentId: String
-    var compressedEmbedding: [UInt16]?
-}
-// Reconstructed on demand:
-func toPartition(metadata: PartitionData?) -> Sewn.Partition
-```
+`Owner` is the key type for every Sinatra per-owner map.
 
-### `PartitionData` / `PartitionDataLoader`
-Full content record for one partition, stored per-document in `documents/{id}-parts`. Loaded on demand during search result resolution; never held in the in-memory indices.
+### Sewn.Document
+
 ```swift
-struct PartitionData: Codable {
+struct Document: Codable {
     var id: String
     var url: URL
-    var mediaType: MediaType    // .text | .image
-    var data: String            // full text or base64 image
-    var hint: String
-    var ownerId: String
+    var ownerId: String        // "owner_id"
+    var createdAt: Date = .now // "created_at"
 }
 
-typealias PartitionDataLoader = (DocumentID, String) -> PartitionData?
-```
-
-### `GlobalPartitionTable`
-Wraps `HNSWGraph` and owns the two-tier global search pipeline. Stored as `PartitionTable.shard`. Transparent `Codable` — encodes/decodes as plain `HNSWGraph` (zero migration).
-```swift
-struct GlobalPartitionTable: Codable {
-    var graph: HNSWGraph    // underlying proximity graph
-    // + all HNSWGraph properties forwarded
+struct DocumentReference: Codable {
+    var id: String
+    var partitionId: String    // "partition_id"
+    var ownerId: String        // "owner_id"
+    var threadId: String? = nil  // "thread_id"  — which node served it
+    var shardIndex: Int? = nil   // "shard_index"
 }
-// Two-tier search entry point:
-mutating func search(
-    queryEmbedding: [Float], queryTagEmbedding: [Float]?,
-    k: Int, groupFilter: Set<DocumentID>?,
-    indices: [DocumentID: PartitionIndex],
-    sinatra: Sinatra, ...
-) -> (partitions: [(partition: Sewn.Partition, distance: Float)],
-      trace: HNSWGraph.SearchTrace)
 ```
 
-### `Sewn.Group`
-A named collection of documents with shared access control.
+`DocumentReference` is what a chat response returns in `references`. `threadId`
+is how a client can trace a citation back to the node that produced it.
+
+### Sewn.Partition
+
 ```swift
-struct Group {
+enum MediaType: String, Codable { case text, image /* … */ }
+
+struct Partition: Codable {
     let id: String
-    let label: String
-    let owner_id: String
-    var documents: [String]     // Document IDs
-    var access: SewnRegistry.Access
-    var total_earnings: Double  // Gita-tracked earnings
+    let documentId: String              // "document_id"
+    var url: URL
+    var embedding: [Float]
+    var compressedEmbedding: [UInt16]?  // "compressed_embedding" — PQ codes from Thread
+    var mediaType: MediaType = .text    // "media_type"
+    var text: String
+    var ownerId: String                 // "owner_id" — EMPTY means unauthenticated Thread
+    var metadata: Data?                 // opaque, passed through
 }
 ```
 
-### `Sewn.User`
-Thin wrapper around a user's groups. Returned from profile endpoints.
+Three things to know:
+
+- **`ownerId` may be an empty string.** Gita treats that as `nil` and attributes
+  the partition to its `threadId` instead. Never assume it is populated.
+- `text` is what Gita counts words from — the royalty share's entire basis.
+- `compressedEmbedding` is Thread's PQ code, carried for Sinatra's feature
+  vector, not for search.
+
+### Sewn.Group
+
 ```swift
-struct User {
-    let owner_id: String
-    var groups: [Group]
+struct Group: Codable {
+    var id: String
+    var label: String
+    var ownerId: String                 // "owner_id"
+    var documents: [Sewn.Document]
+    var access: SewnRegistry.Access?
+    var totalEarnings: Gita.Credits?    // "total_earnings"
+    var metadata: Metadata?
+}
+
+struct Metadata: Codable {
+    var description: String?
+    var tags: [String]
 }
 ```
 
-### `Sewn.DocumentStats`
-Engagement tracking per document.
+### Sewn.GroupKind
+
 ```swift
-struct DocumentStats {
-    let document_id: String
-    var view_count: Int
-    var total_earned: Double
-    var last_accessed: Date?
+enum GroupKind: String, Codable {
+    case memory, resonance, document
+
+    var billable: Bool { self != .resonance }
+    var label: String  // "Memory" | "Resonance" | "Document" — used in prompts and briefings
 }
 ```
 
-### `SewnRegistry`
-In-memory index — the primary access control and ownership lookup structure. Persisted to disk as JSON.
+Resolved from **deterministic group id patterns**:
+
+```
+"memory-<ownerId>"     → .memory
+"resonance-<ownerId>"  → .resonance
+anything else          → .document
+```
+
+> **Resonance groups are not billable.** They hold passages Sinatra extracted
+> from the assistant's own output — paying a user royalties for the assistant's
+> words would be circular. Any new group kind must make this decision explicitly.
+
+### Sewn.DocumentStats
+
 ```swift
-struct SewnRegistry {
-    var owners_documents: [Owner: Set<String>]   // owner → document IDs
-    var document_owners: [String: Owner]          // document ID → owner
-    var document_groups: [String: Set<String>]    // document ID → group IDs
-    var owners_groups: [Owner: Set<String>]       // owner → group IDs
-    var group_owners: [String: Owner]             // group ID → owner
-    var groups: [String: Group]                   // group ID → Group
-    var document_access: [String: Access]         // document ID → access level
-    var group_access: [String: Access]            // group ID → access level
-    var available_document_ids: Set<String>       // fast lookup for available docs
-    var bridging_enabled_owners: Set<Owner>       // owners with bridging on
-    var document_stats: [String: DocumentStats]   // document ID → stats
+struct DocumentStats: Codable {
+    var id: DocumentID
+    var totalEarned: Gita.Credits                       // "total_earned"
+    var retrievalCount: Int                             // "retrieval_count"
+    var sentimentSum: Double                            // "sentiment_sum"
+    var lastRetrieved: Date?                            // "last_retrieved"
+    var partitionRetrievalCount: [String: Int]          // "partition_retrieval_count"
+    var partitionSentiments: [String: PartitionSentiment] // "partition_sentiments"
+
+    var averageSentiment: Double    // sentimentSum / retrievalCount
+
+    struct PartitionSentiment: Codable {
+        var retrievalCount: Int  = 0
+        var sentimentSum: Double = 0.0
+        var lastRetrieved: Date? = nil
+        var averageSentiment: Double
+    }
+}
+```
+
+The only thing in `SewnRegistry.documentStats`. Sums and counts are **additive** —
+`SewnRegistry.addPerformance` merges by `+=` rather than overwriting, which is
+what makes WAL replay idempotent in aggregate. `partitionSentiments` is what
+gives Sinatra per-partition engagement rather than a document-level average.
+
+### Sewn.SearchResult
+
+```swift
+struct GraphTrace {
+    var matchedEntityIds: [String] = []
+    var expansionEdgeIds: [String] = []
+    var expandedDocuments: Int = 0
 }
 
-enum Access {
-    case available    // searchable by all
-    case restricted   // searchable by owner only
-    case unknown      // treat as restricted
+struct SearchChatResult {
+    var context: [String]
+    var adjustments: [SinatraAdjustment]
+    var references: [Sewn.DocumentReference]
+    var contribution: Gita.Contribution?
+    var partitions: [Sewn.Partition]
+    var trace: Sewn.GraphTrace?
+}
+```
+
+`GraphTrace` is unioned across Thread nodes — it is how a client can show *why* a
+document was retrieved, not just that it was.
+
+### SewnUpdate
+
+```swift
+struct SewnUpdate: Codable {
+    let documentId: String       // "document_id"
+    let operation: Operation
+    let targetGroupId: String?   // "target_group_id"
+
+    enum Operation: String, Codable { case remove, access, group }
+}
+```
+
+### SewnRequest
+
+```swift
+struct SewnRequest: Codable {
+    let ownerId: String              // "owner_id"
+    let group: Sewn.Group?
+    let groups: [Sewn.Group]?
+    let entities: [String]?
+    let tags: [String]?
+    let aggregate: Bool?
+    let scope: SewnRequestScope?     // .global | .personal
+    let threadIds: [String]?         // "thread_ids"
+    let personalThreadId: String?    // "personal_thread_id"
+    let requestID: String?           // "request_id"
+
+    func from(_ context: SewnRequestContext) throws -> SewnRequest
 }
 
-struct Owner: Hashable {
+enum SewnRequestScope: String, Codable { case global, personal }
+```
+
+`from(_:)` is the security boundary: it requires `context.authUserId` and
+**lowercases** the owner id. Never trust `ownerId` off the wire without it.
+
+### Sewn.BatchPutItem
+
+```swift
+struct BatchPutItem {
     let id: String
+    let texts: [String]
+    let tags: [String]
+    let tagsEmbedding: [Float]?
+    let mediaType: MediaType
+    let update: SewnUpdate?
+    let name: String?
+    let metadata: Data?
 }
 ```
 
-### `Sewn.SearchResult`
-One result from a vector search.
+The unit of the write queue. Coalescing merges arrays of these.
+
+### Smaller types
+
 ```swift
-struct SearchResult {
-    let partition_id: String
-    let document_id: String
-    let owner_id: String
-    let text: String
-    let score: Float        // cosine similarity 0.0–1.0
-    let isPeer: Bool        // from Oracle peer (not local)
+struct Cost { var tokens: Int; var cost: Int }
+struct User: Codable { var groups: [Sewn.Group] }
+struct Wearable: Codable {
+    var url: URL; var embedding: [Float]; var kind: Kind
+    enum Kind: String, Codable { case pin, ring, belt, bracelet, necklace, earring, glasses }
 }
 ```
 
-### `Sewn.Wearable`
-Lightweight context object passed between Sewn operations (carries owner_id, tone, request metadata).
+`Wearable` is forward-looking and unused on any live path.
+
+### Personality
+
 ```swift
-struct Wearable {
-    let owner_id: String
-    var tone: Sinatra.Tone?
-    var request_id: String
+struct Personality: Codable, Sendable, Equatable, Identifiable {
+    var id, name, tagline: String
+    var systemFragment: String
+    var citationEmphasis: Bool
+    var temperature: Float?
+    var topP: Float?
+    var modelOverride: String?
 }
+
+struct ResolvedChatPersona: Equatable, Sendable {
+    var name: String
+    var voice: String
+    var citationEmphasis: Bool
+    static let `default`: ResolvedChatPersona
+}
+```
+
+Persisted at `FilePersistence(key: "personalities")`, cached in a
+`LockedValue<[Personality]?>`, falling back to `Personality.defaults`.
+
+---
+
+## Sinatra — `Sources/Sinatra/Models/`
+
+### SinatraRegistry
+
+```swift
+struct SinatraRegistry: Codable {
+    var parked:            [SewnRegistry.Owner: [SinatraTrainingData.Parked]] = [:]
+    var parkedIndices:     [SewnRegistry.Owner: [SinatraTrainingData.ParkedIndex]] = [:]
+    var collectors:        [SewnRegistry.Owner: RetrievalDataCollector] = [:]
+    var dataSets:          [SewnRegistry.Owner: DataSet] = [:]
+    var models:            [SewnRegistry.Owner: GBTModel] = [:]
+    var harmonyMemories:   [SewnRegistry.Owner: HarmonyMemory] = [:]
+    var lastSentiments:    [SewnRegistry.Owner: Sinatra.Sentiment] = [:]
+    var lastSearchEntries: [SewnRegistry.Owner: [SinatraAdjustment.Entry]] = [:]
+    var lastTrajectories:  [SewnRegistry.Owner: SinatraTrajectorySnapshot] = [:]
+}
+```
+
+Nine per-owner maps in one property list. GBT trees serialize into `models`, so
+this file grows with model size × owner count.
+
+### Sinatra.Sentiment
+
+```swift
+struct Sentiment: Codable {
+    enum Kind: Codable, Equatable {
+        case positive, negative, neutral, mixed, ambiguous
+        case unknown(String)          // ← forward-compatible escape hatch
+    }
+    enum EmotionalTone: Codable, Equatable {
+        case angry, frustrated, satisfied, confused, indifferent,
+             excited, sarcastic, curious, awkward, anxious,
+             relieved, nostalgic, defensive, playful, disappointed,
+             hopeful, overwhelmed, amused, skeptical, embarrassed,
+             proud, lonely, grateful, receptive
+        case other(String)            // ← same
+    }
+    // reaction types, key phrases, confidence, notes, attentiveness
+}
+```
+
+> Both enums have a **catch-all case** with custom `Codable` that round-trips the
+> raw string. The LLM can return a value the schema did not anticipate without
+> the decode failing. Preserve this pattern in any new enum decoded from model
+> output.
+
+### SinatraTone
+
+```swift
+struct SinatraTone: Codable {
+    var temperature: Float
+    var topP: Float                   // "top_p"
+    var repetitionPenalty: Float      // "repetition_penalty"
+    var repetitionContextSize: Int    // "repetition_context_size"
+
+    static let base = SinatraTone(temperature: 0.4, topP: 0.9,
+                                  repetitionPenalty: 1.1, repetitionContextSize: 20)
+    static func from(_ adjustments: [SinatraAdjustment]) -> SinatraTone
+}
+```
+
+### SinatraAdjustment
+
+```swift
+struct SinatraAdjustment {
+    let partitionCount: Int
+    let original: [String]
+    let inferred: [String]
+    let pqDistanceThreshold: Float
+    var entries: [Entry]
+
+    struct Entry: Codable {
+        let partitionId: String       // "partition_id"
+        let originalDistance: Float   // "original_distance"
+        let adjustedDistance: Float   // "adjusted_distance"
+        let threshold: Float
+
+        var wasDropped: Bool          // adjustedDistance >= threshold
+        var factor: Float             // adjusted / original
+        var status: Status            // .boosted <0.98 | .unchanged | .demoted >1.02 | .dropped
+    }
+}
+```
+
+### ML types
+
+```swift
+struct GBTHyperparameters {
+    var nEstimators = 50, maxDepth = 4
+    var learningRate = 0.1, subsample = 0.8, colsampleByTree = 0.8
+    var regLambda = 1.0, regAlpha = 0.1, minChildWeight = 3.0, minSplitGain = 0.0
+    static func adaptive(datasetSize n: Int) -> GBTHyperparameters
+}
+
+struct IndicatorPeriods: Codable, Equatable {   // the 11 IMBHS dimensions
+    var emaPeriod, smaPeriod: Int
+    var macdFast, macdSlow, macdSignalPeriod: Int
+    var stochKPeriod, stochDSignal: Int
+    var momentumPeriod, velocityPeriod: Int
+    var avgVolPeriod, vwaPeriod: Int
+    static var bounds: [(min: Int, max: Int)]
+}
+
+struct HarmonyMemory: Codable {
+    private(set) var harmonies: [IndicatorPeriods]
+    private(set) var fitness: [Double]      // MAE; lower is better; .infinity = unevaluated
+    private(set) var generation: Int
+    private(set) var activePeriods: IndicatorPeriods
+}
+```
+
+> `HarmonyMemory.encode(to:)` maps non-finite fitness to
+> `Double.greatestFiniteMagnitude`, because `.infinity` cannot go into a property
+> list. Any new `Double` that can be infinite needs the same treatment.
+
+### Other Sinatra types
+
+```swift
+struct ResonancePartition { let documentId: String; let text: String; let embeddingData: [EmbeddingData] }
+struct ResonanceOutput: Decodable { let detected: Bool; let excerpt: String; let confidence: Double }
+struct PrepareResult { let ledger: Gita.TokenLedger
+                       let documentStatsUpdates: [DocumentID: Sewn.DocumentStats]
+                       let resonancePartition: Sinatra.ResonancePartition? }
+struct SinatraInference { /* partitionId, distance */ }
+struct SinatraTrainingData { struct Parked { … }; struct ParkedIndex { … } }
 ```
 
 ---
 
-## Sinatra (Sentiment / GBT)
+## Gita — `Sources/Gita/Models/`
 
-### `Sinatra.Sentiment`
-Classification of a single text segment.
+### Credits
+
 ```swift
-enum Sentiment: String, Codable {
-    case positive
-    case negative
-    case neutral
-}
+typealias Credits = Double
 
-struct SentimentResult {
-    let sentiment: Sentiment
-    let confidence: Double   // 0.0–1.0
+enum CreditConversion {
+    static let creditsPerDollar: Double = 100.0   // 1 credit == $0.01
+    static func toDollars(_:) / fromDollars(_:) / formattedCredits(_:) / formattedDollars(_:)
 }
 ```
 
-### `Sinatra.Sentiment.Weight`
-How much a specific partition contributed to the overall sentiment score.
+### Gita.Contribution
+
 ```swift
-struct Weight {
-    let partition_id: String
-    let sentiment: Sentiment
-    let magnitude: Double    // contribution weight
+struct TextSpan: Codable, Equatable { let lower: Int; let upper: Int }
+
+struct Contribution: Codable {
+    var owners: Set<Owner>
+    var totalPayout: Credits
+    var serviceCharge: Credits
+    var totalCost: Credits
+    var ledger: TokenLedger?
+    var spenderId: OwnerID?
+}
+
+struct Owner: Codable, Hashable {
+    var threadId: String
+    var ownerId: String?                            // nil ⇒ unauthenticated Thread
+    var documentIds: Set<String>
+    var influence: [DocumentID: Double]             // sums to 1 WITHIN this owner
+    var royalty: Double                             // this owner's share OF THE TURN
+    var spans: [Gita.TextSpan]
+    var documentSpans: [DocumentID: [Gita.TextSpan]]?
+    var earning: Credits
+    var identityKey: String { "\(threadId)|\(ownerId ?? "")" }
 }
 ```
 
-### `Sinatra.Tone`
-The LLM parameter adjustments output by the GBT model.
+Invariant: `owners.map(\.earning).sum + serviceCharge == totalCost`.
+
+`TextSpan` offsets are into the **stripped** (marker-free) visible text.
+
+### TokenLedger & pricing
+
 ```swift
-struct Tone {
-    var temperature: Double        // 0.0–2.0
-    var top_p: Double              // 0.0–1.0
-    var repetition_penalty: Double // 1.0–1.5 typical
-}
-```
-
-**Defaults** (from `GenerationDefaults.swift`): temperature=0.7, top_p=0.9, repetition_penalty=1.0
-
-**Sinatra adjustment logic**: If sentiment score > threshold (e.g. very negative), lower temperature (more deterministic, stable) and raise repetition_penalty. If strongly positive/creative, raise temperature and top_p.
-
-### `Sinatra.Inference`
-Full output of one GBT inference run.
-```swift
-struct Inference {
-    let score: Double       // aggregate sentiment score (signed: positive=high)
-    let tone: Tone          // resulting LLM parameter adjustments
-    let weights: [Sinatra.Sentiment.Weight]  // per-partition contributions
-}
-```
-
-### `Sinatra.TrainingData`
-One collected training sample (interaction signal for GBT retraining).
-```swift
-struct TrainingData {
-    let partition_id: String
-    let window_size: Int        // context window at time of retrieval
-    let recency_score: Double   // how recent was this partition
-    let sentiment_label: Sentiment
-    let retrieval_rank: Int     // position in search results
-    let timestamp: Date
-}
-```
-
-### `Sinatra.Trajectory`
-Time-series prediction output (sentiment trend over recent interactions).
-```swift
-struct Trajectory {
-    let timestamps: [Date]
-    let scores: [Double]
-    let predicted_next: Double
-    let trend: String    // "improving" | "declining" | "stable"
-}
-```
-
-### `Sinatra.Registry`
-Per-owner Sinatra state. Persisted to disk.
-```swift
-struct Registry {
-    var models: [String: GBTModel]              // owner_id → GBT model
-    var datasets: [String: [TrainingData]]       // owner_id → training samples
-    var harmony_memories: [String: HarmonyMemory] // owner_id → IMBHS state
-    var parked_partitions: [String: [String]]   // owner_id → partition IDs queued for training
-    var adjustments: [String: [Adjustment]]     // owner_id → recent tone adjustment history
-}
-```
-
-### `HarmonyMemory` (IMBHS — Iterated Memory-Based Harmony Search)
-Stores sentiment harmonies from past conversations. Used to detect sentiment patterns and initialize GBT training.
-```swift
-struct HarmonyMemory {
-    var harmonies: [[Double]]      // population of parameter vectors
-    var scores: [Double]           // fitness scores per harmony
-    var memory_size: Int           // max harmonies to retain
-    var iteration: Int             // current training iteration
-}
-```
-
-### `TechnicalIndicators`
-Signal processing on sentiment time-series. Produces input features for GBT.
-```swift
-// All computed from Sinatra.TrainingData score arrays:
-EMA(period: 5)       // Exponential Moving Average — tracks short-term sentiment
-SMA(period: 20)      // Simple Moving Average — baseline
-MACD                 // EMA(12) - EMA(26) — momentum divergence
-StochasticK         // (current - min) / (max - min) — relative position
-StochasticD         // SMA(3) of K — smoothed
-Momentum(period: 10) // current - value N periods ago
-```
-
----
-
-## Gita (Royalty / Wallet)
-
-### `Gita.Payload`
-Describes one LLM inference — input to royalty calculation.
-```swift
-struct Payload {
-    let inference_id: String
-    let owner_id: String             // requesting user
-    let partitions: [PartitionRef]   // partitions that contributed to context
-    let peer_results: [OraclePartitionResult]  // from Oracle peers (if any)
-    let token_count: Int             // tokens generated (for billing)
-    let timestamp: Date
+struct ModelPricing {
+    let promptCreditsPerToken: Credits
+    let completionCreditsPerToken: Credits
+    func cost(promptTokens: Int, completionTokens: Int) -> Credits
 }
 
-struct PartitionRef {
-    let partition_id: String
-    let document_id: String
-    let owner_id: String
-    let score: Float                 // similarity score (used for weighting)
-}
-```
+// static catalog; unknown models fall back to mistral-medium rates,
+// tinker:// checkpoints bill at inkling rates
+static let pricing: [String: ModelPricing]
+static func pricing(for model: String) -> ModelPricing
 
-### `Gita.Contribution`
-Credit allocated to one owner for one inference.
-```swift
-struct Contribution {
-    let owner_id: String
-    let credits: Double
-    let partition_ids: [String]      // which of their partitions contributed
-}
-```
-
-### `Gita.Result`
-Full royalty calculation output for one inference.
-```swift
-struct Result {
-    let inference_id: String
-    let contributions: [Contribution]   // per-owner credit allocations
-    let service_charge: Double          // platform fee
-    let total_credits: Double           // sum of all contributions
-}
-```
-
-### `Gita.Registry` (Market Registry)
-Tracks documents and partitions as market "securities."
-```swift
-struct Registry {
-    var document_records: [String: DocumentRecord]    // document_id → record
-    var partition_records: [String: PartitionRecord]  // partition_id → record
-}
-
-struct DocumentRecord {
-    let document_id: String
-    let owner_id: String
-    var market_weight: Double       // relative market cap (updated after each inference)
-    var performance_score: Double   // 0.0–1.0 rolling performance
-    var total_earned: Double        // all-time credits earned
-    var inference_count: Int
-}
-
-struct PartitionRecord {
-    let partition_id: String
-    let document_id: String
-    var share_count: Int            // how many times this partition was retrieved
-    var total_earned: Double
-}
-```
-
-### `Gita.WalletRegistry`
-All owner wallets. Persisted to disk.
-```swift
-struct WalletRegistry {
-    var wallets: [String: Wallet]           // owner_id → wallet
-    var credit_exchanges: [String: [CreditExchange]]  // owner_id → exchanges
-}
-
-struct Wallet {
-    let owner_id: String
-    var balance: Double
-    var total_earned: Double
-    var transactions: [Transaction]
-}
-
-struct Transaction {
-    let id: String
-    let type: TransactionType       // .royalty | .cashout | .serviceCharge
-    let amount: Double
-    let created_at: Date
-    let inference_id: String?
-}
-```
-
-### `Gita.CreditExchange`
-Records one inference-to-credit conversion event.
-```swift
-struct CreditExchange {
-    let inference_id: String
-    let owner_id: String
-    let credits_earned: Double
-    let contributions: [Contribution]
-    let timestamp: Date
-}
-```
-
-### `Gita.TokenLedger`
-Tracks token consumption per inference (for future billing/metering).
-```swift
 struct TokenLedger {
-    let inference_id: String
-    let prompt_tokens: Int
-    let completion_tokens: Int
-    let total_tokens: Int
-    let model: String
+    // one Line per LLM call; totals roll up automatically
+    mutating func record(model: String, promptTokens: Int, completionTokens: Int)
 }
 ```
 
-### `Gita.ServiceCharge`
-Platform fee deducted per inference.
+### ServiceChargeStrategy
+
 ```swift
-struct ServiceCharge {
-    let inference_id: String
-    let amount: Double
-    let rate: Double        // e.g. 0.05 = 5% of total credits
+struct ServiceChargeStrategy {
+    enum Pricing {
+        case fixed(Credits)
+        case scaled(baseRate: Double, surge: SurgeParameters?)
+    }
+    struct SurgeParameters {
+        let maxConcurrentLoad: Int
+        let maxSurgeMultiplier: Double
+        func multiplier(currentLoad: Int) -> Double   // linear 1.0 → max
+    }
+    static let `default` = /* scaled(0.20, surge: 10 concurrent → 2.5×) */
+    static func flat(_ credits: Credits) -> ServiceChargeStrategy
 }
 ```
+
+### Spans & payload
+
+```swift
+struct CompactCitation { let partitionId: String; let keyWords: [String] }
+struct MarkerAnnotation { var visibleText: String
+                          var documentSpans: [DocumentID: [Gita.TextSpan]]
+                          var markerCount: Int }
+
+struct Payload {
+    let partitions: [Sewn.Partition]
+    let peerSources: [String: OracleNodeID]   // partitionId → node id
+    let coOwners: [DocumentID: Set<OwnerID>]
+    // dataSets — reserved for Sinatra trajectory predictions; not wired
+}
+
+struct Result { let contribution: Gita.Contribution? }
+```
+
+### Wallet
+
+```swift
+struct Wallet: Codable, Sendable {
+    static let initialBalance: Credits = 1_000_000
+
+    let ownerId: OwnerID              // "owner_id"
+    var balance: Credits
+    var exchanges: [CreditExchange]
+    var transactions: [Transaction]
+
+    var totalSpent: Credits      { exchanges.reduce(0) { $0 + $1.netCost } }      // derived
+    var totalCashedOut: Credits  { transactions.reduce(0) { $0 + $1.amount } }    // derived
+}
+
+struct WalletRegistry: Codable { /* wallets keyed by owner */ }
+struct CreditExchange: Codable { /* one priced inference; netCost */ }
+struct Transaction: Codable { let ownerId: OwnerID; let amount: Credits }
+```
+
+`totalSpent` and `totalCashedOut` are computed, never stored — they cannot drift
+from the records.
 
 ---
 
-## Oracle (P2P Mesh)
+## API — `Sources/API/Models/`
 
-### `OracleNode`
-Represents a peer in the P2P network.
+### Chat
+
 ```swift
-struct OracleNode {
-    let id: String              // stable UUID (from NodeIdentity)
-    let endpoint: String        // wss://host:port
-    var state: NodeState        // .connected | .disconnected | .unknown
-    var trust_score: Double     // 0.0–1.0 (updated via interaction history)
-    var knowledge_domains: [String]   // topic tags for selective fan-out
-    var parent_ids: [String]    // DAG parent nodes
-    var child_ids: [String]     // DAG child nodes
-    var success_count: Int      // successful query responses
-    var failure_count: Int      // failed/timeout responses
+struct ChatCompletionRequest: Codable    // see Skills/Chat/README.md for the full field list
+enum ChatMessageRequestRole: String { case user, assistant, system }
+struct ChatMessageRequestData { let role: ChatMessageRequestRole
+                                let content: ContentFragmentType
+                                let timestamp: Date? }
+enum ContentFragmentType { case text(String), fragments([ContentFragment]), none }
+
+struct ChatResult {
+    let input: UserInput
+    let references: [Sewn.DocumentReference]
+    let partitions: [Sewn.Partition]
+    let compactCitations: [Gita.CompactCitation]
+    let sourceIndex: [Int: DocumentID]
+    let personality: Personality?
+    let contribution: Gita.Contribution?
+    let tone: SinatraTone?
+    let autoMemory: Bool
+    let sinatraTask: Task<Sinatra.PrepareResult?, any Error>?
+}
+
+struct ChatCompletionResponse / ChatCompletionChunkResponse
+struct ChatCompletionDelta / ChatMessageResponseData / CompletionUsage
+```
+
+`ContentFragmentType` decodes from a single-value container, so `content` accepts
+either a string or a multi-modal array.
+
+### Realtime
+
+```swift
+struct RealtimeTurnStart: Decodable {
+    let type: String
+    let request: ChatCompletionRequest    // the SSE route's exact Codable
+    let tts: TTSOptions?                  // voice_id, model
+}
+struct RealtimeInboundProbe: Decodable { let type: String }
+enum RealtimePhase: String, Codable, Sendable { case opening, grounded }
+enum RealtimeOutbound: Sendable {
+    case phase(RealtimePhase), token(RealtimePhase, String)
+    case audioBegin(sampleRate: UInt32, channels: UInt16, bits: UInt16)
+    case pcm(Data), ttsFailed, metadata(chunkJSON: Data), turnEnd
+    case error(stage: String, message: String)
 }
 ```
 
-### `OracleEdge`
-A directed edge in the DAG.
+### Providers
+
 ```swift
-struct OracleEdge {
-    let from: String            // source node ID
-    let to: String              // target node ID
-    var weight: Double          // trust-weighted routing weight
-    let established: Date
-    var data_flow_count: Int    // number of queries routed over this edge
+enum LLMProvider: String, Codable, CaseIterable, Sendable { case mistral, tinker, local }
+enum ProviderUnavailable: Error, CustomStringConvertible, Equatable {
+    case missingKey(envVar: String), localNotBuilt, localFailed(String), utilityDisabled(LLMProvider)
 }
+struct ProviderCapabilities: Codable { var chat, skills, code, complete, vision, embeddings, speech: Bool }
+struct ProviderInfo: Codable { var id, displayName: String; var available, isDefault: Bool
+                               var state: String; var progress: Double?
+                               var model: String; var capabilities: ProviderCapabilities
+                               var reason: String? }
+struct ProvidersResponse: Codable { var providers: [ProviderInfo]; var `default`: String }
+struct ProviderWarmResponse: Codable { var accepted: Bool; var state, model: String }
 ```
 
-### `OracleQueryRequest`
-Distributed search request propagated through the mesh.
+> `LLMProvider`'s raw values are the wire, shared with Mary's `LLMEngineChoice`.
+> **Never rename a case.**
+
+### Graph & Stats
+
 ```swift
-struct OracleQueryRequest {
-    let query_id: String
-    let embedding: [Float]      // query vector
-    let owner_id: String
-    let scope: SearchScope      // .global | .personal | .group
-    let hop_limit: Int          // max 3 hops (default)
-    var visited_nodes: [String] // prevents cycles
-    let top_k: Int
-    let threshold: Float
-}
+struct GraphProxyRequest / GraphProxyResponse
+struct GraphProxyEntity / GraphProxyRelationship / GraphProxyDocument / GraphProxyStats
+struct StatsResponse { let publicDocumentCount, publicGroupCount: Int }
+struct ThreadNodesResponse   // mothership_id, enabled, nodes[]
 ```
 
-### `OracleQueryResponse`
-Response from a peer node.
+### Generation defaults
+
 ```swift
-struct OracleQueryResponse {
-    let query_id: String
-    let node_id: String
-    let results: [OraclePartitionResult]
+enum GenerationDefaults {
+    static let maxTokens = 128
+    static let temperature: Float = 0.8
+    static let topP: Float = 1.0
+    static let stream = false
+    static let repetitionPenalty: Float = 1.0
+    static let repetitionContextSize = 20
+    static let stopSequences: [String] = []
+    static let kvGroupSize = 64
+    static let quantizedKVStart = 0
 }
+struct StopCondition { let stopMet: Bool; let trimLength: Int }
 ```
 
-### `OraclePartitionResult`
-One search result from a peer.
-```swift
-struct OraclePartitionResult {
-    let partition_id: String
-    let document_id: String
-    let owner_id: String
-    let text: String
-    let score: Float
-    let source_node_id: String  // which peer returned this
-    let hop_count: Int
-}
-```
+### Errors
 
-### `OracleEvent`
-Gossip event propagated through the mesh.
-```swift
-enum OracleEvent {
-    case registryUpdate(owner_id: String, document_count: Int)
-    case nodeJoined(node_id: String, endpoint: String)
-    case nodeLeft(node_id: String)
-    case trustUpdate(node_id: String, new_score: Double)
-}
-```
-
-### `OracleSnapshot`
-Point-in-time topology snapshot.
-```swift
-struct OracleSnapshot {
-    let captured_at: Date
-    let local_node_id: String
-    let nodes: [OracleNode]
-    let edges: [OracleEdge]
-    let dag_depth: Int
-    let total_queries_handled: Int
-}
-```
+`Sources/API/Errors/` — `MLXServerError`, `ModelProviderError`, `ProcessingError`.
 
 ---
 
-## API Request/Response Models (Selected)
+## Conduit (external package)
 
-### Chat Request (`ChatCompletionRequest`)
+Defined in the sibling Conduit package, not here:
+
 ```swift
-struct ChatCompletionRequest: Content {
-    let model: String
-    let messages: [ChatMessage]
-    let stream: Bool?
-    let temperature: Double?
-    let top_p: Double?
-    let max_tokens: Int?
-    let repetition_penalty: Double?
+public struct ThreadNode: Sendable {
+    public let threadId: UUID
+    public var host: String
+    public let grpcPort: Int
+    public let httpPort: Int
+    public var lastSeen: Date
+    public var acceptingStorage: Bool
+    public var isActive: Bool { Date().timeIntervalSince(lastSeen) < 60 }
 }
 
-struct ChatMessage {
-    let role: String        // "user" | "assistant" | "system"
-    let content: String
-}
+public protocol ThreadRegistry: Sendable { /* register / heartbeat / updateAvailability */ }
+public protocol ConduitLogger { /* debug / info / warning / error */ }
 ```
 
-### Chat Response (`ChatCompletionResponse`)
-```swift
-struct ChatCompletionResponse: Content {
-    let id: String
-    let object: String      // "chat.completion"
-    let created: Int
-    let model: String
-    let choices: [Choice]
-    let usage: Usage?
-}
+Plus every generated `Thread_V1_*` message. See `Skills/Conduit/README.md`.
 
-struct Choice {
-    let index: Int
-    let message: ChatMessage
-    let finish_reason: String?
-}
-```
+---
 
-### Embedding Request
-```swift
-struct EmbeddingRequest: Content {
-    let input: String
-    let model: String?
-    let document_id: String?
-    let url: String?
-    let owner_id: String
-}
-```
+## Types That No Longer Exist
 
-### Search Request
-```swift
-struct SearchRequest: Content {
-    let query: String
-    let owner_id: String
-    let scope: String       // "global" | "personal" | "group"
-    let group_id: String?
-    let top_k: Int?
-    let threshold: Float?
-}
-```
+`PartitionTable`, `PartitionIndex`, `PartitionQuantizer`, `PartitionSlot`,
+`GlobalPartitionTable`, `HNSWGraph`, `HNSWVectorStore`, `HNSWTopologyWAL`,
+`HNSWNode`, and every Oracle type (`OracleQueryRequest`, `OracleQueryResponse`,
+`OraclePartitionResult`, `OracleNode`, trust scores, DAG topology).
 
-### Wallet Response
-```swift
-struct WalletResponse: Content {
-    let owner_id: String
-    let balance: Double
-    let total_earned: Double
-    let transactions: [Gita.Transaction]
-    let credit_exchanges: [Gita.CreditExchange]
-    let non_self_earnings: Double   // earnings from other users' queries
-}
-```
+The **one** survivor is `typealias OracleNodeID = UUID`, declared in
+`Gita.Contribution.swift`. It keys `Gita.Payload.peerSources`
+(`partitionId → node id`) and the `peerSources` parameter on
+`Gita.royalty(for:)`. Read it as the **Thread-node identity channel** — how an
+unauthenticated Thread gets attributed — not as evidence of a peer mesh.
+
+Also note `Sewn.Registry.swift`'s `Access` enum is still used, but only as
+`Sewn.Group.access`, populated **from Thread**, not from a local ownership map.

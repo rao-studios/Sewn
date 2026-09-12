@@ -1,306 +1,295 @@
 # Test Maintenance
 
-Guide to writing, organizing, and maintaining tests for Sewn. The existing test suite follows a "Flow" convention — each flow represents a user journey or system behavior.
+How the Sewn test suite is organized, and how to add to it.
+
+**Framework: XCTest**, `@testable import sewn_server` (module name is
+`sewn_server`, with an underscore). Web-layer tests use `HummingbirdTesting` and
+`HummingbirdWSTesting`, both declared on the test target in `Package.swift`.
+There is no `XCTVapor` — that dependency is gone.
+
+```bash
+swift test
+swift test --filter Flow2_GitaRoyaltyTests
+swift test --filter testEmptyPartitionsReturnsEmptyContribution
+```
 
 ---
 
-## Test Organization
+## Layout
 
 ```
 Tests/sewn-serverTests/
-├── FlowN_*.swift          — Feature flow tests (numbered 1–11, grow from here)
-├── SimpleTests.swift      — Basic sanity checks
-├── UtilsTests.swift       — Utility function tests
-├── SentenceBoundaryTests.swift
-├── TextCompletionParametersTests.swift
-├── RequestResponseTests.swift
-├── RegistryOwnershipTests.swift
-└── Fixtures.swift         — Shared test data factories
+├── Helpers/Fixtures.swift        — every factory and test double
+│
+├── Flow1_DocumentCIDTests        — content hashing / document identity
+├── Flow1_TagGeneratorTests       — tag extraction
+├── Flow1_TextChunkerTests        — 1500-char chunking, boundary preference
+│
+├── Flow2_GitaCreditTests         — credit math
+├── Flow2_GitaRoyaltyTests        — word-count shares, multi-owner, determinism
+├── Flow2_GitaSpanTests           — n-gram heuristic spans
+├── Flow2_GitaWalletTests         — wallet ops, derived totals
+│
+├── Flow3_SinatraTests            — the prepare loop
+├── Flow3_SinatraGBTTests         — training and prediction
+├── Flow3_SinatraMemoryBoundTests — the 30-entry parked cap
+├── Flow3_SinatraParkAlignmentTests — park/label alignment across turns
+├── Flow3_SinatraResetTests       — reset clears everything
+├── Flow3_SinatraExportImportTests — round-trip state
+│
+├── Flow4_DocumentStatsTests      — billing stat accumulation
+├── Flow4_RegistryWALTests        — WAL append, checkpoint, replay
+│
+├── Flow5_OwnerIdNormalizationTests — lowercase owner ids
+│
+├── Flow6_AutoMemoryTests         — triggers and policy modes
+├── Flow6_QueryExpansionTests     — expandQuery (currently original-only)
+│
+├── ChatPersonaTests              — persona resolution
+├── CodeCompleteTests             — /v1/code/complete
+├── CompleteTests                 — /v1/complete
+├── SkillsCompleteTests           — /v1/skills/complete, tool_calls
+├── DataDirectoryTests            — --data-dir / SEWN_DATA_DIR resolution
+├── LLMProviderTests              — the enum, serverDefault, localUtilityEnabled
+├── ProviderRoutingTests          — resolution, family rejection, 400/503
+├── MarkerSpanTests               — [[n]] parsing, stripping, offsets
+├── RealtimeTests                 — the turn engine, offline via Deps
+├── RequestResponseTests          — wire shapes
+├── SentenceBoundaryTests         — sentence splitting
+├── TextCompletionParametersTests — parameter precedence, token budgets
+├── UtilsTests / SimpleTests      — helpers and sanity
+└── VisionLookTests               — /v1/vision/look
 ```
 
-### Flow Numbering Convention
+### The Flow convention
 
-| Flow | Coverage |
+`FlowN_` groups tests by the user-facing journey they protect, not by source
+file:
+
+| Flow | Journey |
 |------|---------|
-| Flow1 | Document embedding, upload, CID |
-| Flow2 | Sinatra (GBT, resonance, park alignment, reset), Gita (credits, royalty, spans, wallet), document stats |
-| Flow3 | HNSW invariants, partition index, quantizer, HNSW search predicates, **GlobalPartitionTable** (two-tier search, tag filter, slot resolution, Sinatra side effects) |
-| Flow4 | Adaptive threshold |
-| Flow5 | Batch indexing |
-| Flow6 | Query expansion, auto-memory |
-| Flow7 | Orphan cleanup |
-| Flow8 | IndexQueue |
-| Flow9 | Vector persistence |
-| Flow10 | Owner ID normalization |
-| Flow11 | Indices split |
-| Flow16 | Deletion cleanup (`PartitionData` file written/purged on put/remove) |
-| Flow17 | Sinatra memory bounds |
-| **Flow12** | **Oracle P2P (to be written)** |
-| **Flow13** | **Marielle personalization (to be written)** |
+| **Flow1** | Ingest — identity, chunking, tagging |
+| **Flow2** | Money — Gita royalty, credits, spans, wallet |
+| **Flow3** | Learning — Sinatra in all its parts |
+| **Flow4** | Billing state — document stats, registry WAL |
+| **Flow5** | Identity normalization |
+| **Flow6** | Conversation memory — auto-memory, query expansion |
+
+Numbers are not contiguous, and old ones are **retired, not reused**. Flows 7–11
+and 16–17 covered orphan cleanup, the IndexQueue actor, vector persistence,
+indices splitting, and deletion cleanup — all for code that moved to Thread.
+Flow12 (Oracle) and Flow13 (Marielle) were reserved and never written; Oracle is
+gone, Marielle is still unimplemented.
+
+**Add to an existing flow when the journey matches.** Start a new number only for
+a genuinely new journey, and record it in the table above.
+
+Route-level and unit tests that do not map to a journey use a plain descriptive
+name (`ProviderRoutingTests`, `MarkerSpanTests`).
 
 ---
 
-## Test Template: New Flow Test
+## Fixtures
+
+`Helpers/Fixtures.swift` is the only place test data is constructed. Everything
+follows one convention: **a `.test` static, or a `test(…)` factory with
+defaults.**
 
 ```swift
-// Tests/sewn-serverTests/Flow12_OracleTests.swift
-import XCTest
-@testable import SewnServer
+func wipeSewnPersistenceFiles()            // clean the data dir between tests
 
-final class Flow12_OracleTests: XCTestCase {
-    
-    var sewn: Sewn!
-    var oracle: Oracle!
-    
-    override func setUp() async throws {
-        // Use in-memory persistence (no disk I/O in tests)
-        sewn = await Sewn(persistence: .inMemory)
-        oracle = Oracle(transport: MockOracleTransport(), delegate: sewn)
-    }
-    
-    override func tearDown() async throws {
-        // Clean up actor state
-        await sewn.reset()
-    }
-    
-    func test_queryFanOut_respectsHopLimit() async throws {
-        // Arrange
-        let query = OracleQueryRequest(
-            query_id: "test-q-1",
-            embedding: Fixtures.embedding(dimensions: 1024),
-            owner_id: "owner-a",
-            scope: .global,
-            hop_limit: 0,       // Should NOT fan out
-            visited_nodes: [],
-            top_k: 5,
-            threshold: 0.7
-        )
-        
-        // Act
-        let response = try await oracle.handleQuery(query)
-        
-        // Assert
-        XCTAssertEqual(response.results.count, 0)  // hop_limit = 0, no local docs
-    }
-    
-    func test_visitedNodes_preventsCycles() async throws {
-        // Arrange: pre-populate visited_nodes with local node ID
-        let localNodeId = await oracle.nodeId
-        let query = OracleQueryRequest(
-            query_id: "test-q-2",
-            embedding: Fixtures.embedding(dimensions: 1024),
-            owner_id: "owner-a",
-            scope: .global,
-            hop_limit: 3,
-            visited_nodes: [localNodeId],  // Already visited this node
-            top_k: 5,
-            threshold: 0.7
-        )
-        
-        // Act
-        let response = try await oracle.handleQuery(query)
-        
-        // Assert: returns early without processing
-        XCTAssertTrue(response.results.isEmpty)
-    }
+extension Logger        { static var test: Logger }
+extension SewnLogger    { static var test: SewnLogger }
+extension RegistryMutator { static func test() -> RegistryMutator }
+
+extension Sewn.Partition   { static func test(id:documentId:text:ownerId:…) -> Self }
+extension Sewn.Document    { static func test(…) -> Self }
+extension Sewn.Group       { static func test(…) -> Self }
+extension SewnRequest      { static func test(…) -> Self }
+extension Gita.TokenLedger { static var twoCall: Gita.TokenLedger }
+```
+
+### Embeddings
+
+```swift
+enum <Embeddings fixture> {
+    static let dim = 32                                  // NOT production dimensionality
+    static func zeros() -> [Float]
+    static func unit(axis: Int) -> [Float]
+    static func random(seed: UInt64) -> [Float]
+    static func random(dim: Int, seed: UInt64) -> [Float]
+    static func near(_ center: [Float], seed: UInt64) -> [Float]
+    static func l2(_ a: [Float], _ b: [Float]) -> Float
 }
 ```
 
----
+**Seeded, not random.** `random(seed:)` is deterministic, so a failure is
+reproducible. Never use `Float.random(in:)` in a test.
 
-## Test Template: Actor Unit Test
+### Test doubles
+
+A model-provider double implements the concurrency-slot protocol as no-ops:
 
 ```swift
-// Tests/sewn-serverTests/SomeActorTests.swift
-import XCTest
-@testable import SewnServer
+func acquirePreprocessSlot() async {}
+func releasePreprocessSlot() async {}
+func run(…) -> /* a scripted response */
+```
 
-final class SomeActorTests: XCTestCase {
-    
-    func test_registryMutator_serializesWrites() async throws {
-        let mutator = RegistryMutator()
-        var registry = SewnRegistry()
-        
-        // Concurrent writes — should not race
+That is how tests exercise generation paths with no network.
+
+---
+
+## Writing a Test
+
+### Unit test over a pure component
+
+```swift
+import XCTest
+@testable import sewn_server
+
+final class Flow2_GitaRoyaltyTests: XCTestCase {
+
+    private var gita: Gita!
+
+    override func setUp() {
+        super.setUp()
+        gita = Gita(logger: .test)
+    }
+
+    // MARK: - Edge cases
+
+    func testEmptyPartitionsReturnsEmptyContribution() {
+        let contribution = gita.royalty(for: [])
+        XCTAssertTrue(contribution.owners.isEmpty)
+    }
+
+    // MARK: - Single owner
+    // …
+}
+```
+
+House style: a file-header comment listing what the file covers, `// MARK:`
+sections grouping cases, private helpers that wrap the fixture factories, and
+`setUp` constructing a fresh subject with `.test` loggers.
+
+### Actor test
+
+```swift
+final class RegistryMutatorTests: XCTestCase {
+
+    override func setUp() async throws {
+        wipeSewnPersistenceFiles()
+    }
+
+    func test_concurrentAccumulation_doesNotLoseWrites() async {
+        let mutator = RegistryMutator.test()
+
         await withTaskGroup(of: Void.self) { group in
             for i in 0..<100 {
-                group.addTask {
-                    await mutator.addDocument(
-                        id: "doc-\(i)",
-                        owner: SewnRegistry.Owner(id: "owner-1"),
-                        to: &registry
-                    )
-                }
+                group.addTask { await mutator.accumulateEarnings(["doc-\(i)": 1.0]) }
             }
         }
-        
-        XCTAssertEqual(registry.owners_documents["owner-1"]?.count, 100)
+
+        let stats = mutator.snapshot?.documentStats ?? [:]
+        XCTAssertEqual(stats.count, 100)
     }
 }
 ```
 
----
+**`wipeSewnPersistenceFiles()` in `setUp` is mandatory** for anything that
+persists. Tests share one data directory; a leftover `registry` or `registry-wal`
+from a previous test will be loaded and will fail the next one in confusing ways.
 
-## Test Template: Route Integration Test
+### Realtime / turn-engine test
+
+The engine takes all provider work as closures, so drive it entirely offline:
 
 ```swift
-// Tests/sewn-serverTests/RouteTests.swift
-import XCTest
-import XCTVapor
-@testable import SewnServer
+let engine = RealtimeTurnEngine(
+    deps: .init(
+        opening:   { _ in scriptedStream(["Hi ", "there"]) },
+        retrieval: { ChatResult(input: .init(messages: []), references: []) },
+        grounded:  { _ in scriptedStream(["— about ", "HNSW[[1]]"]) },
+        tts:       { _ in scriptedPCM() }
+    ),
+    openingSystemPrompt: "",
+    historyMessages: [["role": "user", "content": "hello"]],
+    logger: .test
+)
 
-final class WalletRouteTests: XCTestCase {
-    
-    var app: Application!
-    
-    override func setUp() async throws {
-        app = try await Application.testable()  // Uses test fixtures
-    }
-    
-    override func tearDown() async throws {
-        app.shutdown()
-    }
-    
-    func test_wallet_returnsBalance() async throws {
-        // Arrange: index a document and run an inference to generate earnings
-        let ownerId = "test-owner-wallet"
-        try await Fixtures.indexDocument(app: app, ownerId: ownerId)
-        try await Fixtures.runInference(app: app, ownerId: ownerId)
-        
-        // Act
-        try app.test(.GET, "/v1/wallet", headers: [
-            "Authorization": "Bearer \(Fixtures.validToken(ownerId: ownerId))"
-        ]) { response in
-            // Assert
-            XCTAssertEqual(response.status, .ok)
-            let wallet = try response.content.decode(WalletResponse.self)
-            XCTAssertGreaterThan(wallet.total_earned, 0)
-        }
+var frames: [RealtimeOutbound] = []
+let summary = try await engine.run { frames.append($0) }
+```
+
+Assert on the **frame sequence**, not just the final text — ordering is the
+contract.
+
+### Route test
+
+```swift
+let app = /* build the router as configureRoutes does */
+try await app.test(.router) { client in
+    try await client.execute(uri: "/health", method: .get) { response in
+        XCTAssertEqual(response.status, .ok)
     }
 }
 ```
 
----
-
-## Fixtures (`Fixtures.swift`)
-
-The `Fixtures.swift` file provides reusable test data. Always extend it rather than hardcoding values in individual tests.
-
-**Actual helpers** (in `Fixtures.swift`):
-- `SewnLogger.test` / `Logger.test` — silent logger for tests
-- `TableMutator.test()` — in-memory mutator seeded with empty table
-- `RegistryMutator.test()` — mutator seeded with empty registry
-- `SewnRequest.test(ownerId:scope:)` — minimal request fixture
-- `Sewn.Document.test(id:ownerId:)` — document with example URL
-- `Sewn.Partition.test(id:documentId:embedding:text:hint:ownerId:)` — partition with all fields
-- `VectorFixtures.random(seed:)` / `.random(dim:seed:)` — deterministic 32-dim or N-dim vector
-- `VectorFixtures.near(_:seed:)` — perturbed copy (small noise) of a center vector
-- `VectorFixtures.unit(axis:)` — unit vector along one axis (32-dim)
-- `VectorFixtures.l2(_:_:)` — L2 distance between two vectors
-
-**Add new helpers when**:
-- 3+ tests need the same setup
-- The setup involves actor initialization with test-safe persistence
+Note that `/health` is registered as `"health"` without a leading slash.
 
 ---
 
-## Writing Tests for New Features
+## Rules
 
-### Step 1: Identify the flow number
-
-If the feature fits an existing flow (e.g. new Gita behavior → Flow2), add to that file. If it's a new system area, create `FlowN+1_*.swift`.
-
-### Step 2: Test the happy path first
-
-```swift
-func test_feature_happyPath() async throws {
-    // Arrange: minimal setup
-    // Act: call the thing
-    // Assert: verify the expected output
-}
-```
-
-### Step 3: Test failure modes
-
-```swift
-func test_feature_returnsErrorWhenInputInvalid() async throws { ... }
-func test_feature_gracefullyDegrades_whenDependencyFails() async throws { ... }
-```
-
-### Step 4: Test actor safety if touching mutators
-
-For any test that exercises `TableMutator`, `RegistryMutator`, or `PersonalHNSWMutator`, add a concurrent write test to prove serialization holds.
-
-### Step 5: Test persistence round-trip for new registry fields
-
-```swift
-func test_newField_persistsAndLoads() async throws {
-    let sewn = await Sewn(persistence: .tempDirectory)
-    await sewn.setSomeNewField("value", for: "owner-1")
-    
-    // Simulate restart
-    let reloaded = await Sewn(persistence: .tempDirectory)
-    let value = await reloaded.someNewField(for: "owner-1")
-    XCTAssertEqual(value, "value")
-}
-```
+1. **`wipeSewnPersistenceFiles()` in `setUp`** for anything touching disk.
+2. **Seeded embeddings only.** Determinism over realism.
+3. **Fixtures go in `Fixtures.swift`**, never inline in a test file.
+4. **No network.** Inject a double. If a path cannot be tested without the
+   network, that path needs a seam.
+5. **Test the gates.** Sinatra's word-count and resonance-confidence gates,
+   Gita's empty-partition and zero-word guards, provider family rejection — these
+   are where behavior actually lives.
+6. **Lowercase owner ids** in fixtures, matching `SewnRequest.from(_:)`.
+7. **Assert invariants, not just values.** `owners.earning.sum + serviceCharge ==
+   totalCost`; `influence` sums to 1 per owner; `royalty` sums to 1 across
+   owners.
+8. **Marker offsets are into stripped text.** A span test that passes against raw
+   text is testing the wrong thing.
 
 ---
 
-## Tests Still Needed (Gap Analysis)
+## Coverage Gaps
 
-| Area | Missing Test | Priority |
-|------|-------------|---------|
-| Oracle | Query fan-out, cycle prevention, hop limit, gossip | High |
-| Marielle | Open question confidence, proactive scoring, bridge with bridging disabled | High |
-| Chat | Sinatra tone override actually changes generation params | High |
-| Gita | `non_self_earnings` cross-owner tracking | Medium |
-| Gita | Peer results in payload (when Oracle enabled) | Medium |
-| Storage | Restore re-indexes correctly (node count before/after) | Medium |
-| Auth | Token expiry handling, refresh token rotation | Medium |
-| Admin | `audit/stale` + `audit/reconcile` round-trip | Low |
-| Sewn | `Sewn+Marielle.bridge` centroid intersection math | Low |
+| Area | State |
+|------|-------|
+| Marielle | **None.** Flow13 reserved, never written. Routes 503 |
+| Thread fan-out | No integration test — needs a Conduit-level double for `ThreadQueryClient` |
+| Conduit session / gRPC | Not covered here; belongs to Conduit |
+| Admin routes | Not covered. Several are stubs anyway |
+| Infinite leaderboard | Scoring and normalization untested |
+| Graph proxy | `fanoutGraph` merge rules (sum vs max) untested |
+| IMBHS | `HarmonyMemory` improvisation, PAR/BW schedules, fitness gating untested |
+| Stream billing | Mid-stream disconnect billing untested |
 
-Create `Flow12_OracleTests.swift` and `Flow13_MarielleTests.swift` next.
-
----
-
-## Writing Tests for `GlobalPartitionTable`
-
-When testing two-tier search behavior:
-
-1. Create a `GlobalPartitionTable` with a `HNSWVectorStore` attached (use `HNSWVectorStore.vectorDim` for vector dimensions — this is what the HNSW uses internally)
-2. Insert partitions via `table.add(partition:)` — this stores the embedding in the mmap'd vector store
-3. Build `PartitionIndex` entries by calling `index.train([partition], tags:tagsEmbedding:documentId:logger:)` with the same partition objects (PQ training consumes the embedding; the graph already has it stored separately)
-4. Use `PropertyListEncoder`/`PropertyListDecoder` for Codable round-trip tests (not `JSONEncoder` — `effectiveThreshold` starts as `Float.infinity` which JSON can't encode)
-5. Tag filter correctness: orthogonal unit vectors (`unit(axis: 0)` vs `unit(axis: 1)`) produce `tagDistance = 1.0`, which exceeds the default threshold (0.85) → excluded; identical vectors produce `tagDistance = 0.0` → always included
-6. Sinatra side effects: check `sinatra.registry?.parkedIndices[ownerKey]` after `search()` to verify `parkIndices` was called for documents with `tagsEmbedding != nil`
+The highest-value gap is a **`ThreadQueryClient` double**. It would unlock
+fan-out merge semantics, partial-failure degradation, index placement, and the
+graph merge rules — the behaviors most likely to regress, and currently the least
+covered.
 
 ---
 
-## Running Tests
+## When You Change Something
 
-```bash
-# All tests
-swift test
-
-# Specific flow
-swift test --filter Flow2
-
-# With verbose output
-swift test --verbose
-
-# Parallel (default in Swift 5.10+)
-swift test --parallel
-```
-
----
-
-## Test Stability Rules
-
-1. **No real disk I/O**: use `.inMemory` or `.tempDirectory` persistence, never `~/.sewn/`
-2. **No real network**: use `MockOracleTransport` and mock `NetworkService`
-3. **No real Supabase**: mock `SupabaseProvider` for auth in route tests
-4. **No sleep**: use `async/await` properly; if something needs time, it needs a redesign
-5. **Deterministic**: tests must pass in any order, in any OS thread scheduler state
-6. **No shared mutable state between tests**: each test gets a fresh actor instance in `setUp`
+| Change | Test to add or update |
+|--------|----------------------|
+| Royalty math | `Flow2_GitaRoyaltyTests` + the invariant assertions |
+| Span tiers | `Flow2_GitaSpanTests`, `MarkerSpanTests` |
+| A Sinatra gate | `Flow3_Sinatra*` — assert the gate *blocks*, not just that it passes |
+| A `SinatraRegistry` field | `Flow3_SinatraExportImportTests` round-trip |
+| A billing field | `Flow4_DocumentStatsTests` **and** `Flow4_RegistryWALTests` replay |
+| Parameter precedence | `TextCompletionParametersTests` |
+| Provider resolution | `ProviderRoutingTests`, `LLMProviderTests` |
+| A realtime frame | `RealtimeTests` — assert sequence |
+| Chunking or tagging | `Flow1_TextChunkerTests`, `Flow1_TagGeneratorTests` |
+| Anything keyed by owner id | `Flow5_OwnerIdNormalizationTests` |

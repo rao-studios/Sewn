@@ -1,227 +1,466 @@
-# Sinatra — Sentiment & GBT System
+# Sinatra — Sentiment, GBT & the Resonance Loop
 
-Sinatra is the emotional intelligence layer of Sewn. It analyzes conversation sentiment using a per-user Gradient Boosted Tree (GBT) model and adjusts LLM generation parameters accordingly. It also stores sentiment patterns in an Iterated Memory-Based Harmony Search (IMBHS) memory structure.
+Sinatra decides **how** to answer. A per-owner Gradient Boosted Trees model
+scores each turn's sentiment and engagement, adjusts retrieval distances, and
+tunes the next turn's generation parameters. An IMBHS harmony search tunes the
+model's own feature windows underneath that.
 
----
+It is the only part of Sewn that learns online, and it is **gated twice** so
+thin or ambiguous turns teach it nothing.
 
-## What Sinatra Does
-
-```
-User sends message
-    │
-    ├─ Retrieve partitions via Sewn.search()
-    │
-    ├─ Sinatra.infer(partitions, owner_id)
-    │   ├─ Score each partition's sentiment (positive/negative/neutral)
-    │   ├─ Weight contributions by retrieval score and recency
-    │   ├─ GBT inference → signed sentiment score
-    │   └─ Map score → Tone { temperature, top_p, repetition_penalty }
-    │
-    ├─ ModelProvider.generate(tone: sinatra_tone)  ← tone overrides request defaults
-    │
-    └─ Sinatra.park(partitions)  ← queue for background GBT retraining
-```
+Source: `Sources/Sinatra/`
 
 ---
 
-## Gradient Boosted Trees (GBT)
+## The Loop, End to End
 
-### What they are
-GBT is an ensemble ML method: an ordered sequence of shallow decision trees where each tree corrects the residual errors of the previous one. Training is additive (gradient descent in function space).
-
-**Why GBT instead of neural?**
-- Interpretable: you can inspect which features drove each decision
-- Fast inference: O(depth × trees) — typically <1ms per call
-- Trainable on small datasets: 50–200 samples is enough for a reasonable model
-- Per-user: one model per owner_id trained on their specific interaction history
-
-### Source files
 ```
-Sources/Sinatra/ML/GBT/
-  ├── GradientBoostedTrees.swift    — ensemble model (predict, add_tree)
-  ├── GBTTrainer.swift              — training loop (fit, update)
-  └── GBTHyperparameters.swift      — learning_rate, max_depth, n_estimators, etc.
-```
+New turn arrives (last user + assistant pair)
+    │
+    ├─ User reply ≥ 4 words?                     ← Sinatra.sentimentContextLimit
+    │     NO  → clear parked entries, skip sentiment AND training
+    │     YES ↓
+    │
+    ├─ Extract RESONANCE (LLM): which passage did the user respond to?
+    │     ├─ confidence ≥ 0.55                   ← resonanceConfidenceThreshold
+    │     └─ excerpt must be a VERBATIM substring of the assistant response
+    │                                              (hallucination guard)
+    │
+    ├─ Resonance detected?
+    │     NO, nothing parked  → nothing to do
+    │     NO, data parked     → DROP parked entries, training suppressed
+    │     YES, nothing parked → store resonance only (the onboarding path)
+    │     YES, data parked    ↓
+    │
+    ├─ Score SENTIMENT — forced structured tool call (`record_sentiment`)
+    │
+    ├─ Pace score: reply latency vs assistant length (~3 words/sec baseline)
+    ├─ Engagement composite = 0.4 × pace + 0.6 × attentiveness
+    ├─ Session boundary? pace < 0.1 AND attentiveness == 0.0
+    │     └─ also an auto-memory `.topicChange` trigger
+    │
+    ├─ Train per-owner GBT + harmony memory (IMBHS)
+    │
+    └─ Adjustments → SinatraTone for the NEXT turn
+         (PQ distance threshold, temperature, top-p, repetition penalty)
 
-### Hyperparameters
-
-| Parameter | Default | Effect |
-|-----------|---------|--------|
-| `learning_rate` | 0.1 | Step size per tree. Lower = more stable but needs more trees |
-| `max_depth` | 3 | Tree depth. 3–5 is usually optimal for this dataset size |
-| `n_estimators` | 100 | Number of trees. More = slower training but better fit |
-| `subsample` | 0.8 | Row sampling per tree (prevents overfitting) |
-| `min_samples_leaf` | 5 | Min samples to split — regularizes against overfitting |
-
-### Training signal
-Each training sample (`Sinatra.TrainingData`) represents one partition retrieval event:
-```
-Features:
-  - window_size (context window at retrieval time)
-  - recency_score (how recent is this partition)
-  - retrieval_rank (1st result vs 5th result)
-  - ema_score (exponential moving average of past sentiment)
-  - macd (momentum divergence signal)
-  - stochastic_k (relative position in sentiment range)
-  - momentum (score change over last 10 periods)
-
-Target:
-  - sentiment_label (positive=1, neutral=0, negative=-1)
+Retrieved partitions are PARKED, not trained on — the label is the user's
+next reply, which has not happened yet. The loop closes one turn later.
 ```
 
-Training happens in background (via `Sinatra+Park.swift`): partitions from each inference are "parked" in a queue, then processed when queue depth exceeds threshold.
+`Sinatra.prepare(_:request:modelProvider:provider:)` runs the whole thing and
+returns `PrepareResult`.
 
 ---
 
-## IMBHS — Iterated Memory-Based Harmony Search
+## PrepareResult
 
-### What it is
-Harmony Search is a metaheuristic optimizer inspired by musical improvisation. "Harmony Memory" stores a population of parameter vectors (harmonies). New harmonies are generated by combining existing ones with random perturbation.
+`Sources/Sinatra/Sinatra+PrepareResult.swift`
 
-In Sinatra's context, the "parameters" being optimized are sentiment weights across recent conversations, and the "fitness" is how well the predicted tone matched actual user engagement (measured by follow-up query recency and depth).
-
-### Source files
-```
-Sources/Sinatra/ML/
-  ├── HarmonyMemory.swift              — IMBHS state and update logic
-  └── RetrievalDataCollector.swift     — collects and buffers training signals
-```
-
-### Structure
 ```swift
-HarmonyMemory {
-    harmonies: [[Double]]    // NxM matrix — N harmonies, M sentiment parameters
-    scores: [Double]         // fitness per harmony
-    memory_size: Int         // max harmonies to keep (default 20)
-    iteration: Int
+struct PrepareResult {
+    let ledger: Gita.TokenLedger                          // tokens from Sinatra's OWN LLM calls
+    let documentStatsUpdates: [DocumentID: Sewn.DocumentStats]
+    let resonancePartition: Sinatra.ResonancePartition?    // non-nil ⇒ the training gate passed
+    static var empty: PrepareResult
 }
 ```
 
-### How it updates
-1. After each inference, compute interaction fitness score (did user continue? short gap = engaged)
-2. Generate new harmony by:
-   - Pick a parameter from memory with probability `HMS` (Harmony Memory Score)
-   - Or generate random within bounds with probability `1-HMS`
-   - Apply random perturbation `PAR` (Pitch Adjustment Rate)
-3. If new harmony score > worst in memory → replace worst
+Three things to know:
 
-### Why it's used alongside GBT
-GBT is trained on labeled data (sentiment labels). IMBHS explores the unlabeled parameter space of "how much should sentiment shift the tone?" The two systems operate at different levels: GBT classifies sentiment, IMBHS tunes the sensitivity of the tone adjustment.
+- `ledger` is empty on every early-exit path, because no LLM was invoked. Gita
+  still prices the turn against it, so Sinatra's cost is billed to the same turn
+  that incurred it.
+- `documentStatsUpdates` is applied by the **caller**
+  (`RegistryMutator.accumulatePerformance`), not by Sinatra. Sinatra has no
+  registry dependency by design.
+- A non-nil `resonancePartition` is the signal that the GBT + IMBHS training gate
+  passed for this cycle. The caller stores it via `BatchPutItem` +
+  `Sewn.enqueuePut`.
+
+---
+
+## Resonance Extraction
+
+`Sources/Sinatra/Sinatra+Resonance.swift`
+
+```swift
+static let resonanceGroupLabel = "Resonance"
+static let resonanceConfidenceThreshold: Double = 0.55
+
+struct ResonancePartition {
+    let documentId: String        // SHA-256 + numeric-string, same as Sewn.computeNumericHash
+    let text: String              // exact verbatim excerpt
+    let embeddingData: [EmbeddingData]
+}
+```
+
+The LLM returns `ResonanceOutput { detected, excerpt, confidence }`. Extraction
+returns `(nil, ledger)` — a clean miss — when any of these hold:
+
+1. `detected == false`, or `confidence < 0.55`.
+2. The excerpt is **not a verbatim substring** of the assistant response. This is
+   the hallucination guard: a model paraphrasing or normalizing whitespace is
+   treated as having found nothing.
+3. The embedding call fails.
+
+Resonance documents land in the owner's `"Resonance"` group, so future retrievals
+can surface passages the user has already engaged with.
+
+---
+
+## Sentiment Scoring
+
+`Sources/Sinatra/Sinatra+Sentiment.swift`
+
+Sentiment is a **forced structured tool call**, not a lexicon. The field
+constraints live in `Sinatra.sentimentSchema` (a JSON Schema) rather than in a
+wall of prompt rules:
+
+| Field | Constraint |
+|-------|-----------|
+| `sentiment` | one of `positive`, `negative`, `neutral`, `mixed`, `ambiguous` |
+| `emotional_tones` | 1–4 from a 25-value enum (`angry` … `grateful`, `receptive`, `other`) |
+| `reaction_types` | 1–4 from an 18-value enum (`agreement` … `testing`, `other`) |
+| `key_phrases` | 1–3 short strings quoting the user's signal-bearing words |
+| `confidence` | 0–1 |
+| `notes` | one sentence max; empty string when there is nothing to add |
+| `attentiveness` | object: `referenced_content`, `answered_posed_question`, `building`, … |
+
+### The word-count gate
+
+```swift
+static var sentimentContextLimit: Int = 4
+
+let wordCount = userContentString.split(whereSeparator: \.isWhitespace).count
+guard wordCount >= Sinatra.sentimentContextLimit else { /* clear parked, exit */ }
+```
+
+A three-word reply carries no reliable signal, and training on it poisons the
+model. "ok thanks" teaches nothing.
+
+### Pace and engagement
+
+```swift
+// ~3 words/second reading pace (0.3 s/word)
+let paceScore = parked != nil ? … : 0     // unmeasurable with no parked turn
+let engagementComposite = (paceScore * 0.4) + (attentivenessScore * 0.6)
+```
+
+Attentiveness is weighted higher than pace deliberately: *what* the user engaged
+with is a better signal than *how fast* they replied.
+
+### Session boundary detection
+
+```swift
+let paceCollapse       = paceScore < 0.1
+let attentivenessReset = attentivenessScore == 0.0
+let sessionBoundary    = paceCollapse && attentivenessReset
+// boundaryReason: .both | .paceCollapse | .attentivenessZero
+```
+
+Both conditions must hold. A slow reply that still references the content is a
+thoughtful reply, not a new session; a fast reply that ignores everything is a
+topic change but not a return-after-absence. `sessionBoundary` also fires
+`Sewn.AutoMemoryTrigger.topicChange`.
+
+---
+
+## Parking
+
+`Sources/Sinatra/Sinatra+Park.swift`
+
+```swift
+static let maxParkedEntries: Int = 30
+```
+
+Search results are parked as `SinatraTrainingData.Parked`
+(`id`, `documentId`, `partitionCompressedEmbedding`, `distance`) and wait for the
+user's next reply to supply the label.
+
+Two details encode past bugs:
+
+```swift
+// `default: []` — NOT `default: dataSets`. The latter inserts dataSets as the
+// default and then appends them again, storing every initial batch twice.
+registry.parked[owner, default: []].append(contentsOf: dataSets)
+
+// Rolling window: the DEFER path (ambiguous + low-confidence sentiment) would
+// otherwise accumulate parked data indefinitely across many turns.
+if count > Sinatra.maxParkedEntries {
+    registry.parked[owner] = Array(registry.parked[owner]!.dropFirst(count - maxParkedEntries))
+}
+```
+
+Depth is reported as `sinatra.parked_records`.
+
+---
+
+## Inference — Distance Adjustment
+
+`Sources/Sinatra/Sinatra+Inference.swift`
+
+```swift
+func infer(_ inference: SinatraInference,
+           registry: SinatraRegistry?,
+           documentStats: [DocumentID: Sewn.DocumentStats] = [:],
+           request: SewnRequest) -> SinatraInference.Result
+```
+
+Sinatra does not re-rank by "sentiment score". It **adjusts the PQ distance** of
+each retrieved partition: predicted-positive partitions get a lower (better)
+distance, predicted-negative a higher one.
+
+> **Pass the registry snapshot in.** Load `sinatra.registry` once *before* a
+> search loop and hand it to `infer`. Calling `infer` without it triggers a disk
+> read per partition result.
+
+`documentStats` supplies `partitionSentiments[partitionId].averageSentiment` to
+the feature vector, so inference reflects **per-partition** engagement rather
+than a document-level average.
+
+Every early exit is instrumented with a reason, which is the first thing to check
+when tone never changes:
+
+```
+sinatra.unadjusted_total{reason="no_registry"}
+sinatra.unadjusted_total{reason="no_collector"}
+sinatra.unadjusted_total{reason="no_model"}
+```
+
+### SinatraAdjustment.Entry
+
+```swift
+var factor: Float { adjustedDistance / originalDistance }   // < 1 boosted, > 1 demoted
+var wasDropped: Bool { adjustedDistance >= threshold }
+
+enum Status { case boosted, unchanged, demoted, dropped }
+// dropped: adjusted ≥ threshold
+// boosted: factor < 0.98
+// demoted: factor > 1.02
+// unchanged: otherwise (includes factor == 1.0, meaning no model applied)
+```
+
+---
+
+## Tone — Contraction-Weighted Confidence
+
+`Sources/Sinatra/Models/Sinatra.Tone.swift`
+
+Tone is derived from *how much Sinatra tightened the retrieval distances*, not
+from the sentiment label. Tighter distances mean the context is more reliable, so
+the model can afford to be more focused.
+
+```swift
+static let base = SinatraTone(
+    temperature: 0.4, topP: 0.9, repetitionPenalty: 1.1, repetitionContextSize: 20
+)
+```
+
+Algorithm:
+
+1. Parse every before/after distance across all adjustments.
+2. Contraction ratio = `avgOriginal / avgInferred`
+   (`> 1` tightened → high confidence; `< 1` expanded → low confidence).
+3. Map the ratio from the empirical range `[0.5, 2.0]` onto `[0.0, 1.0]`.
+4. Scale each parameter linearly from base toward its high-confidence target:
+
+| Parameter | Base → High confidence | Direction |
+|-----------|----------------------|-----------|
+| `temperature` | 0.40 → 0.25 | More focused |
+| `topP` | 0.90 → 0.75 | Narrower nucleus |
+| `repetitionPenalty` | 1.10 → 1.20 | Stronger with rich context |
+| `repetitionContextSize` | 20 → 30 | Wider look-back |
+
+With no adjustments at all, `.base` is returned unchanged. Note the direction:
+**high confidence lowers temperature.** A grounded answer should not wander.
+
+---
+
+## Gradient Boosted Trees
+
+```
+Sources/Sinatra/ML/GBT/
+  ├── GradientBoostedTrees.swift  — the ensemble (predict, add tree)
+  ├── GBTTrainer.swift            — the training loop
+  └── GBTHyperparameters.swift    — defaults + adaptive sizing
+```
+
+This is **GBT regression** on the distance target, not classification.
+
+| Hyperparameter | Default | Meaning |
+|---------------|---------|---------|
+| `nEstimators` | 50 | Boosting rounds |
+| `maxDepth` | 4 | Max depth per regression tree |
+| `learningRate` | 0.1 | η, per-tree shrinkage |
+| `subsample` | 0.8 | Row subsampling per tree |
+| `colsampleByTree` | 0.8 | Column subsampling per tree |
+| `regLambda` | 1.0 | L2 leaf regularization |
+| `regAlpha` | 0.1 | L1 leaf regularization |
+| `minChildWeight` | 3.0 | Min sum of hessians for a valid child |
+| `minSplitGain` | 0.0 | γ, min gain to create a split |
+
+`GBTHyperparameters.adaptive(datasetSize:)` resizes these at train time — a new
+owner with 20 samples does not get a 50-tree ensemble.
+
+**Why GBT and not a neural model?** Interpretable (`POST /v1/frank/gbt` dumps the
+trees), sub-millisecond inference, and trainable on 50–200 samples — which is
+what "per-owner" actually means on commodity hardware.
+
+---
+
+## IMBHS — What It Actually Optimizes
+
+`Sources/Sinatra/ML/HarmonyMemory.swift` + `IndicatorPeriods.swift`
+
+This is the part most often misdescribed. IMBHS does **not** tune sentiment
+weights. Its decision-variable vector is `IndicatorPeriods` — the **11 lookback
+windows** of the technical indicators that feed the GBT feature vector.
+
+```swift
+struct IndicatorPeriods {           // the 11 IMBHS dimensions
+    var emaPeriod, smaPeriod: Int                            // level
+    var macdFast, macdSlow, macdSignalPeriod: Int            // EMA momentum
+    var stochKPeriod, stochDSignal: Int                      // oscillators
+    var momentumPeriod, velocityPeriod: Int                  // raw differentials
+    var avgVolPeriod, vwaPeriod: Int                         // volume
+}
+```
+
+Parameters:
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `memorySize` | 10 | H, harmonies retained |
+| `hmcr` | 0.9 | Harmony memory considering rate |
+| `parMin` → `parMax` | 0.1 → 0.5 | Pitch adjustment rate, rises **linearly** over NI |
+| `bwMax` → `bwMin` | 3 → 1 | Period step per dimension, decays **exponentially** over NI |
+| `ni` | 200 | Optimization horizon in cycles |
+| `cadence` | 5 | Runs every 5 training cycles |
+| `warmup` | 20 | Minimum cycles before activation |
+| `fitnessThreshold` | 0.01 | Requires a 1% MAE improvement to apply |
+
+**Fitness is MAE — lower is better**, and `.infinity` marks an unevaluated
+harmony. `Codable` conformance maps non-finite fitness to
+`Double.greatestFiniteMagnitude`, because `.infinity` is not representable in a
+property list.
+
+Improvisation is textbook IMBHS: with probability HMCR pick a value from memory
+and then with probability PAR nudge it by ±BW; otherwise pick uniformly within
+bounds. Rising PAR plus shrinking BW means the search explores widely early and
+refines late.
+
+Reference: [Improved Music Based Harmony Search Algorithm for Optimal Network
+Reconfiguration](https://www.researchgate.net/publication/261109581_Improved_Music_Based_Harmony_Search_algorithm_for_Optimal_Network_Reconfiguration).
 
 ---
 
 ## Technical Indicators
 
-`TechnicalIndicators.swift` computes signal processing features from the time-series of sentiment scores. These feed into GBT as features.
+`Sources/Sinatra/ML/TechnicalIndicators.swift` — financial time-series features
+applied to the sentiment/distance series. Every period argument is what IMBHS
+tunes.
 
-| Indicator | Formula | What it captures |
-|-----------|---------|-----------------|
-| EMA(5) | Exponential decay avg, period=5 | Short-term sentiment trend |
-| SMA(20) | Simple average, period=20 | Baseline sentiment level |
-| MACD | EMA(12) − EMA(26) | Momentum — is sentiment changing rapidly? |
-| Stochastic K | (current − min) / (max − min) | Relative position within sentiment range |
-| Stochastic D | SMA(3) of K | Smoothed relative position |
-| Momentum(10) | current − score[N-10] | Absolute change over 10 periods |
+| Method | Default period(s) |
+|--------|------------------|
+| `emaWA(period:alpha:)` | 10, α 0.3 |
+| `smaWA(period:)` | 20 |
+| `macD(fastPeriod:slowPeriod:)` | 5 / 15 |
+| `macDSignal(macdHistory:signalPeriod:)` | 9 |
+| `macDPreviousSignal(macdHistory:)` | — |
+| `stochasticK(period:)` | 14 |
+| `stochasticD(period:signalPeriod:)` | 14 / 3 |
+| `momentum(period:)` | 10 |
+| `velocity(period:)` | 10 |
+| `avgVolChange(period:lifetimeAvgInterval:)` | 10 |
+| `volumeWeightedAverage(period:)` | 15 |
 
-These are the same indicators used in financial time-series analysis, applied here to sentiment scores. The intuition: a sentiment that's been declining for 10 periods (negative momentum) should produce a different tone adjustment than one that just dipped once.
-
----
-
-## Sentiment Analysis Pipeline
-
-### Scoring one partition
-`Sinatra+Sentiment.swift` — per-partition sentiment classification:
-1. Tokenize partition text
-2. Apply lexicon-based scoring (positive/negative word lists) — fast, no model call
-3. Normalize by text length
-4. Output: `SentimentResult { sentiment, confidence }`
-
-### Aggregating across partitions
-`Sinatra+Inference.swift` — combine partition scores into one inference:
-1. Weight each partition's sentiment by its retrieval score (higher score = higher weight)
-2. Weight by recency (newer documents contribute more)
-3. Aggregate into signed score: positive=+1, negative=-1, neutral=0
-4. Apply GBT model: `score → Tone`
-
-### Tone Mapping
-```
-score > +0.6  → temperature: 0.9, top_p: 0.95   (creative, expansive)
-score 0 to 0.6 → defaults (temperature: 0.7, top_p: 0.9)
-score < -0.3  → temperature: 0.5, top_p: 0.8    (focused, stable)
-score < -0.6  → temperature: 0.4, top_p: 0.75, repetition_penalty: 1.2  (very grounded)
-```
-
-The exact boundaries are learned by GBT training. The above are approximate defaults.
+The intuition: sentiment that has declined for ten turns should produce a
+different adjustment than sentiment that just dipped once.
 
 ---
 
-## Partition Parking (`Sinatra+Park.swift`)
+## Registry & Persistence
 
-Parking is the mechanism for collecting training data without blocking the inference path.
+`SinatraRegistry` holds all Sinatra state for all owners, keyed by
+`SewnRegistry.Owner`:
 
 ```
-Inference completes
-    │
-    ├─ For each contributing partition:
-    │   └─ Sinatra.park(partition_id, owner_id, sentiment_label)
-    │
-    └─ Park queue grows until threshold (e.g. 50 samples)
-        │
-        └─ Background: GBTTrainer.fit(dataset) → update model
+models[owner]             — the per-owner GBTModel
+collectors[owner]         — RetrievalDataCollector (feature history)
+parked[owner]             — parked entries awaiting a label (cap 30)
+lastSearchEntries[owner]  — SinatraAdjustment.Entry records for Frank
+harmony memory            — IMBHS state
 ```
 
-**Why async?** GBT training on 50–200 samples takes 10–100ms. Blocking the response path for this is unacceptable. Parking defers training to a background task.
-
-`POST /v1/frank/parking` lets you inspect what's in the park queue for debugging.
-
----
-
-## Resonance Scoring (`Sinatra+Resonance.swift`)
-
-Resonance measures how "in sync" the current conversation is with the user's historical sentiment patterns. High resonance = conversation is aligned with user's typical emotional register. Low resonance = novel or divergent conversation.
-
-- Used by Marielle: high resonance → lower interject priority (already in familiar territory)
-- Used by Gita: high resonance → slightly higher royalty weight (familiar topics = higher engagement signal)
+Persisted through `SewnCache<SinatraRegistry>` over
+`FilePersistence(key: "sinatra/registry")`. Note the size characteristic: GBT
+trees serialize into the registry, so per-owner state grows with model size.
+Compaction of old training data is future work.
 
 ---
 
-## Sinatra Registry
-
-`Sinatra.Registry` is persisted to `~/.sewn/sinatra/registry`. It contains ALL Sinatra state for all owners.
-
-**Watch for**: The registry serializes GBT model trees as JSON. Large model (100 trees × depth 5) ≈ ~500KB per owner. With many owners, this can get large. Compaction of old training data is a future optimization.
-
----
-
-## Frank Debug Routes
+## Frank — Debug Routes
 
 | Route | Purpose |
 |-------|---------|
-| `POST /v1/frank/gbt` | Dump full GBT state (trees, hyperparameters, dataset, harmony memory) |
-| `POST /v1/frank/parking` | See what's parked awaiting training |
-| `POST /v1/frank/reset` | Wipe all Sinatra state for an owner (fresh start) |
+| `POST /v1/frank/gbt` | Full GBT state — trees, hyperparameters, feature names |
+| `POST /v1/frank/parking` | Live pipeline snapshot: parked entries, last search adjustments |
+| `POST /v1/frank/reset` | Wipe all Sinatra state for the authenticated owner |
+| `POST /v1/frank/export` | Export the owner's Sinatra state |
+| `POST /v1/frank/import` | Import previously exported state |
+| `POST /v1/admin/sinatra/gbt` | Same as `/v1/frank/gbt`, for any owner (admin) |
 
-Use Frank when:
-- A user's tone adjustments are wrong (reset + observe if it self-corrects)
-- GBT is producing extreme temperature values (inspect trees for overfitting)
-- Training data is corrupted or stale
+Use Frank when tone never changes (check `sinatra.unadjusted_total` reasons
+first), when temperature pins to an extreme (inspect trees for overfit), or when
+parked data looks stale.
+
+Export/import is covered by `Flow3_SinatraExportImportTests.swift`; the reset
+path by `Flow3_SinatraResetTests.swift`.
+
+---
+
+## Metrics
+
+| Metric | Meaning |
+|--------|---------|
+| `sinatra.inferences_total` | GBT inference calls |
+| `sinatra.adjustments_total` | Inferences where an adjustment was applied |
+| `sinatra.unadjusted_total{reason}` | Early exits, by reason |
+| `sinatra.parked_records` | Parked entries for the last owner touched |
+| `sinatra.sentiment_weight` / `sinatra.sentiment_confidence` | Last scored turn |
+| `sinatra.feature_vectors_generated_total` / `…_skipped_total` | Feature construction |
+| `sinatra.dataset_size` | Training set size |
+| `sinatra.training_duration` | Train time |
+| `sinatra.model_trees_total` | Ensemble size |
+| `sinatra.model_initial_prediction` | The ensemble's base prediction |
 
 ---
 
 ## Building a New Feature That Touches Sinatra
 
-Checklist:
-1. **New sentiment feature** → add to `RetrievalDataCollector+Models.swift`, compute in `TechnicalIndicators.swift`
-2. **New tone mapping** → update `Sinatra+Inference.swift` tone mapping logic
-3. **New GBT hyperparameter** → add to `GBTHyperparameters.swift`, document the default and rationale
-4. **Changing training trigger** → update park threshold in `Sinatra+Park.swift`
-5. **New HarmonyMemory behavior** → update `HarmonyMemory.swift` + document IMBHS tuning change
-6. **Tests** → `Flow2_SinatraTests.swift`, `Flow2_SinatraGBTTests.swift`, `Flow2_SinatraResonanceTests.swift`
+1. **New feature in the vector** → `RetrievalDataCollector+Models.swift`, compute
+   it in `TechnicalIndicators.swift`. If it has a lookback window, add the
+   dimension to `IndicatorPeriods` **and** its bounds, or IMBHS will not tune it.
+2. **New tone parameter** → `SinatraTone` + the scaling table in `from(_:)`.
+   Document base and high-confidence targets.
+3. **New GBT hyperparameter** → `GBTHyperparameters` plus `adaptive(datasetSize:)`.
+4. **Changing a gate** → `sentimentContextLimit`, `resonanceConfidenceThreshold`,
+   or the session-boundary conditions. These are the guards that keep the model
+   from training on noise; loosen them with tests.
+5. **New registry field** → remember it serializes into every owner's state, and
+   that non-finite doubles cannot go into a property list.
+6. **Tests** → `Flow3_Sinatra*.swift` (GBT, memory bounds, park alignment, reset,
+   export/import).
 
 ---
 
-## Known TODOs / Design Gaps
+## Known Gaps
 
-- `Gita.Payload.dataSets`: marked as future prediction tracking — Sinatra will eventually feed trajectory predictions into Gita's royalty weighting
-- Tone adjustment is currently heuristic-mapped after GBT score. The long-term plan is for GBT to directly output tone parameters as continuous targets (regression, not classification)
-- Lexicon-based sentiment scoring is fast but coarse. A small classification model (e.g. DistilBERT fine-tuned for sentiment) would improve accuracy significantly once on-device inference is viable
+- Tone is derived from retrieval contraction, not directly predicted. The
+  long-term plan is for GBT to output tone parameters as continuous targets.
+- `Gita.Payload.dataSets` is reserved for feeding Sinatra trajectory predictions
+  into royalty weighting; not wired.
+- Sentiment requires an LLM round trip per turn. On the `local` provider it is
+  **off** unless `SEWN_LOCAL_UTILITY=1`, because on one GPU it serializes behind
+  every turn.
