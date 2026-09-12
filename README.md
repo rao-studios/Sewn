@@ -1025,9 +1025,10 @@ Four pre-built dashboards in [`Dashboards/`](Dashboards/). Import via **Grafana 
 - A Mistral API key — vision, embeddings, and speech have no on-device
   equivalent yet, whichever chat provider is selected
 - One or more running [Thread](https://github.com/riteshpakala/Totem) nodes
-- Two sibling local packages, checked out beside this repository:
-  [`Conduit`](https://github.com/rao-studios/Conduit) (gRPC session layer) and
-  `Frigate` (the vendored MLX stack)
+- [`Frigate`](https://github.com/rao-studios/Frigate) (the vendored MLX stack)
+  checked out beside this repository — it is still a path dependency.
+  [`Conduit`](https://github.com/rao-studios/Conduit) resolves from its URL and
+  needs no checkout
 
 ## Dependencies
 
@@ -1042,8 +1043,8 @@ Four pre-built dashboards in [`Dashboards/`](Dashboards/). Import via **Grafana 
 | [swift-prometheus](https://github.com/swift-server/swift-prometheus) | Prometheus metrics backend |
 | [grpc-swift](https://github.com/grpc/grpc-swift) | gRPC client/server for Thread integration |
 | [swift-protobuf](https://github.com/apple/swift-protobuf) | Generated Thread message types |
-| `Conduit` (local) | Thread session manager and gRPC registration service |
-| `Frigate` (local) | Vendored MLX stack for the on-device `local` provider — macOS only |
+| [`Conduit`](https://github.com/rao-studios/Conduit) | Thread session manager and gRPC registration service (branch `main`, revision pinned) |
+| `Frigate` (local path) | Vendored MLX stack for the on-device `local` provider — macOS only |
 
 ---
 
