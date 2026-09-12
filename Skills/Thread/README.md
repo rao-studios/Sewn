@@ -13,8 +13,8 @@ index, remove, library, graph, and update request across the ones that are live.
 ## Who Owns What
 
 The wire and the session machinery are **not** in this repository. They live in
-the sibling [Conduit](https://github.com/rao-studios/Conduit) package
-(`.package(path: "../../../rao/repositories/Conduit")`).
+the [Conduit](https://github.com/rao-studios/Conduit) package
+(`.package(url: "https://github.com/rao-studios/Conduit.git", branch: "main")`).
 
 | Type | Defined in |
 |------|-----------|

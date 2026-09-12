@@ -1,14 +1,16 @@
 # Conduit — The gRPC Session Layer
 
-Conduit is the sibling Swift package that owns the wire between Sewn and Thread.
-Sewn depends on it by path:
+Conduit is the Swift package that owns the wire between Sewn and Thread. Sewn
+depends on it by URL:
 
 ```swift
-.package(path: "../../../rao/repositories/Conduit")
-// .package(url: "https://github.com/rao-studios/Conduit.git", branch: "main")
+.package(url: "https://github.com/rao-studios/Conduit.git", branch: "main")
 ```
 
-**It must be checked out beside this repository or the build fails.**
+It is **untagged**, so it tracks `main` and the exact revision is pinned in
+`Package.resolved`. `swift package update` moves that pin — review the diff, it
+is a real dependency bump. For local work against a sibling checkout, swap in
+`.package(path: "../Conduit")`.
 
 This skill covers the transport. For how Sewn *uses* it, see
 `Skills/Thread/README.md`.

@@ -21,12 +21,24 @@ let package = Package(
     .package(url: "https://github.com/grpc/grpc-swift-nio-transport.git", from: "1.0.0"),
     .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.28.0"),
-    .package(path: "../../../rao/repositories/Conduit"),
+    // Conduit: the gRPC session layer Thread nodes register against.
+    // Untagged, so it tracks `main`; the exact revision is pinned in
+    // Package.resolved. For local work, swap in `.package(path: "../Conduit")`.
+    .package(url: "https://github.com/rao-studios/Conduit.git", branch: "main"),
     // Frigate: the vendored MLX stack, for the on-device (`local`) provider.
     // macOS only — the products below are conditioned, and every call site is
     // behind `#if canImport(MLXLLM)`.
+    //
+    // STILL A PATH DEPENDENCY, and not by preference: Frigate's own manifest
+    // carries `.package(path: "../VisionAX")`, and SwiftPM refuses a
+    // revision-based dependency whose package depends on a local one —
+    //   "package 'frigate' is required using a revision-based requirement and
+    //    it depends on local package 'visionax', which is not supported"
+    // Fixing this means one line in rao-studios/Frigate: point VisionAX at
+    // https://github.com/rao-studios/VisionAX.git (public, no path deps of its
+    // own). Once that lands, this becomes:
+    //   .package(url: "https://github.com/rao-studios/Frigate.git", branch: "main"),
     .package(path: "../Frigate"),
-    // .package(url: "https://github.com/rao-studios/Conduit.git", branch: "main")
   ],
   targets: [
     .executableTarget(

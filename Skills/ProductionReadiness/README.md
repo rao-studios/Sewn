@@ -8,9 +8,12 @@ Checklists, deployment procedure, and runbooks for Sewn in production.
 
 ### Build
 
-- [ ] Two sibling packages are checked out beside this repo: **`Conduit`**
-      (`../../../rao/repositories/Conduit`) and **`Frigate`** (`../Frigate`).
-      Both are path dependencies — a missing checkout fails the build.
+- [ ] **`Conduit`** resolves from `https://github.com/rao-studios/Conduit.git`
+      (branch `main`, revision pinned in `Package.resolved`) — no checkout needed
+- [ ] **`Frigate`** is still a **path dependency** (`../Frigate`) and must be
+      checked out beside this repo, or the build fails. It cannot move to a URL
+      until its own manifest stops depending on `../VisionAX` by path — SwiftPM
+      refuses a revision-based dependency that depends on a local package
 - [ ] `swift build -c release` succeeds
 - [ ] `swift test` passes
 - [ ] `swiftlint` clean (`.swiftlint.yml` at the root; SwiftLint is a package
