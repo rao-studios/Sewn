@@ -5,7 +5,6 @@ extension NetworkService {
     enum BaseEndpoint : String, Codable {
         case mistral = "api.mistral.ai"
         case tinker = "tinker.thinkingmachines.dev"
-        case airtable = "api.airtable.com"
         case supabase = "supabase.seer.services"
 
         var host: String { rawValue }
@@ -26,7 +25,6 @@ extension NetworkService {
             switch self {
             case .mistral:  return "MISTRAL_API_KEY"
             case .tinker:   return "TINKER_API_KEY"
-            case .airtable: return "AIRTABLE_API_KEY"
             case .supabase: return "SUPABASE_SERVICE_KEY"
             }
         }

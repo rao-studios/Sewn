@@ -14,13 +14,18 @@ func configureRoutes(
     _ router: Router<SewnRequestContext>,
     _ sewn: Sewn,
     modelProvider: ModelProvider,
-    isVLM: Bool
+    isVLM: Bool,
+    serverMode: Bool
 ) {
     registerThreadNodesRoute(router, sewn)
 
     // Open routes — no auth required.
     registerHealthRoute(router)
-    registerMetricsRoute(router)
+    // Only a hosted server is scraped (Alloy → Cockpit). A Sewn launched for
+    // one Mac has no scraper and no METRICS_TOKEN to guard the route with.
+    if serverMode {
+        registerMetricsRoute(router)
+    }
     registerStatsRoute(router, sewn)
     registerAuthSignInRoute(router)
     registerAuthSignUpRoute(router, sewn)
@@ -118,7 +123,9 @@ func loadDotEnv(path: String = ".env") {
         let key = String(trimmed[..<eq])
         let value = String(trimmed[trimmed.index(after: eq)...])
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-        setenv(key, value, 1)
+        // Never overwrite: a key the launching app hands over (Ambient's
+        // Settings) beats the checkout's .env, as in Thread's loader.
+        setenv(key, value, 0)
     }
 }
 
@@ -154,10 +161,13 @@ struct SewnServer: AsyncParsableCommand {
     @ArgumentParser.Option(name: .long, help: "Directory for on-disk state (default ~/Documents/sewn-db; env SEWN_DATA_DIR).")
     var dataDir: String?
 
+    @ArgumentParser.Flag(name: .long, help: "Hosted server for remote peers: serves /metrics for Alloy, guarded by METRICS_TOKEN.")
+    var serverMode: Bool = false
+
     enum CodingKeys: CodingKey {
         case host, port, vlm
         case enablePromptCache, promptCacheSizeMB, promptCacheTTLMinutes
-        case enableThreads, grpcPort, dataDir
+        case enableThreads, grpcPort, dataDir, serverMode
     }
 
     @MainActor
@@ -211,7 +221,7 @@ struct SewnServer: AsyncParsableCommand {
         router.middlewares.add(IPMetricsMiddleware())
 
         // ── Register ALL routes before Application.init freezes the responder ─
-        configureRoutes(router, sewn, modelProvider: modelProvider, isVLM: vlm)
+        configureRoutes(router, sewn, modelProvider: modelProvider, isVLM: vlm, serverMode: serverMode)
         let wsRouter = configureWebSocketRoutes(sewn, modelProvider: modelProvider)
 
         // ── Build Application AFTER all routes are registered ─────────────────
@@ -250,6 +260,17 @@ struct SewnServer: AsyncParsableCommand {
                 "Startup", "On-device provider: not built (MLX is macOS-only)", service: .startup)
         }
         sewnLogger.info("Startup", "VLM mode: \(vlm ? "enabled" : "disabled")", service: .startup)
+        if serverMode {
+            let metricsToken = ProcessInfo.processInfo.environment["METRICS_TOKEN"] ?? ""
+            if metricsToken.isEmpty {
+                sewnLogger.warning(
+                    label: "Startup",
+                    "Server mode without METRICS_TOKEN: /metrics is open to anyone who can reach \(host):\(port)",
+                    service: .startup)
+            } else {
+                sewnLogger.info("Startup", "Server mode: /metrics guarded by METRICS_TOKEN", service: .startup)
+            }
+        }
         sewnLogger.info(
             "Startup",
             "Prompt cache: \(enablePromptCache ? "enabled (size: \(promptCacheSizeMB)MB, TTL: \(promptCacheTTLMinutes)min)" : "disabled")",

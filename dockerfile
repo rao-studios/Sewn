@@ -25,4 +25,4 @@ COPY --from=builder /build/.build/release/sewn-server /app/
 EXPOSE 8080
 
 # Run with the correct flags
-CMD ["/app/sewn-server", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/app/sewn-server", "--host", "0.0.0.0", "--port", "8080", "--server-mode"]

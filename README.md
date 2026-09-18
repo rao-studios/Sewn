@@ -555,7 +555,7 @@ All endpoints below require `Authorization: Bearer <access_token>` unless noted.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/health` | None | Health check |
-| `GET` | `/metrics` | Token | Prometheus metrics |
+| `GET` | `/metrics` | Token | Prometheus metrics. `--server-mode` only |
 | `GET` | `/v1/models` | None | List available models |
 | `GET` | `/v1/threads` | None | List registered Thread nodes |
 
@@ -932,7 +932,7 @@ Create a `.env` file in the project root:
 SUPABASE_URL=https://<your-supabase-project>.supabase.co
 SUPABASE_ANON_KEY=<your-anon-key>
 
-# Observability (Scaleway Cockpit)
+# Observability (Scaleway Cockpit) — hosted servers run with --server-mode only
 COCKPIT_TOKEN=<token-from-cockpit-console>
 COCKPIT_METRICS_ENDPOINT=https://<project-id>.metrics.cockpit.fr-par.scw.cloud/api/v1/push
 COCKPIT_LOGS_ENDPOINT=https://<project-id>.logs.cockpit.fr-par.scw.cloud/loki/api/v1/push
@@ -969,6 +969,7 @@ up as `available: false` on `GET /v1/providers` — it never stops the server.
 | `--enable-prompt-cache` | Enable KV-cache reuse for common prompt prefixes |
 | `--prompt-cache-size-mb` | Max prompt cache size in MB (default: 1024) |
 | `--prompt-cache-ttl-minutes` | Prompt cache TTL in minutes (default: 30) |
+| `--server-mode` | Hosted server for remote peers: serves `GET /metrics` for Alloy, guarded by `METRICS_TOKEN`. The Docker image passes it; a Sewn launched for one Mac (Ambient) does not |
 
 Models are selected by environment variable rather than by flag — see
 [Providers](#providers--which-backend-answers) and
@@ -1001,7 +1002,7 @@ Sewn ships a full observability stack on [Scaleway Cockpit](https://www.scaleway
 | `provider.embedding_request_duration` | Histogram | Embedding API round-trip time (ms) |
 | `provider.embedding_queue_depth` | Gauge | Tasks waiting for an embedding concurrency slot |
 
-Metrics are at `GET /metrics`, scraped by Alloy every 30 seconds.
+Metrics are at `GET /metrics`, scraped by Alloy every 30 seconds. The route exists only under `--server-mode` (the Docker image passes it); the `COCKPIT_*` values are read by Alloy, never by Sewn.
 
 ### Grafana Dashboards
 

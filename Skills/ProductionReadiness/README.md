@@ -35,7 +35,7 @@ Every variable Sewn actually reads:
 | `TINKER_API_KEY` | Only for `tinker` | 503 per request when absent |
 | `SUPABASE_SERVICE_KEY` | For service-role calls | |
 | `ADMIN_USER_ID` | For any admin route | Unset ⇒ every admin route 403s |
-| `METRICS_TOKEN` | Recommended | Guards `GET /metrics` |
+| `METRICS_TOKEN` | Under `--server-mode` | Guards `GET /metrics`; a startup warning names it when absent |
 | `SEWN_GLOBAL_LLM` | No | `mistral` \| `tinker` \| `local`; unknown values fall back to mistral |
 | `SEWN_DATA_DIR` | No | Storage root; `--data-dir` wins |
 | `SEWN_CHAT_MODEL`, `TINKER_MODEL`, `SEWN_LOCAL_MODEL` | No | Per-provider chat model |
@@ -44,19 +44,21 @@ Every variable Sewn actually reads:
 | `SEWN_LOCAL_UTILITY` | No | `1` lets Sinatra/auto-memory/compaction run on-device |
 | `THREAD_HOST_OVERRIDE` | No | Rewrites a registering node's advertised host |
 | `SEWN_REGION` | No | Log/metric labeling |
-| `COCKPIT_TOKEN`, `COCKPIT_METRICS_ENDPOINT`, `COCKPIT_LOGS_ENDPOINT` | For observability | Read by Alloy, not by Sewn |
-| `AIRTABLE_API_KEY` | No | Only if the Airtable endpoint is used |
+| `COCKPIT_TOKEN`, `COCKPIT_METRICS_ENDPOINT`, `COCKPIT_LOGS_ENDPOINT` | For observability | Read by Alloy, not by Sewn. Hosted servers only |
 
 - [ ] `SUPABASE_URL` and `SUPABASE_ANON_KEY` are set. **These two `fatalError` at
       startup** — unlike LLM keys, which degrade to a 503
 - [ ] `ADMIN_USER_ID` is the intended single account. It is **one id, not an
       allowlist**
 - [ ] No secrets in source, `docker-compose.yml`, or the image
+- [ ] The server runs with `--server-mode` (the Dockerfile's `CMD` passes it);
+      without it there is no `/metrics` for Alloy to scrape
 
 ### Security
 
 - [ ] Data directory not world-readable: `chmod 700 ~/Documents/sewn-db`
-- [ ] `GET /metrics` gated by `METRICS_TOKEN` and/or the reverse proxy
+- [ ] `GET /metrics` (registered only under `--server-mode`) gated by
+      `METRICS_TOKEN` and/or the reverse proxy
 - [ ] TLS terminates at the reverse proxy — Sewn serves plain HTTP, and the gRPC
       transport is **`.plaintext`**
 - [ ] gRPC port 9091 reachable only from Thread nodes. It is an unauthenticated

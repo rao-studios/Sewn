@@ -27,7 +27,7 @@ final class LLMProviderTests: XCTestCase {
     func testAMissingKeyIsAnAnswerNotACrash() {
         // The whole point of apiKeyIfPresent: a client may select a provider
         // whose key was never configured, and the server must survive saying so.
-        XCTAssertNoThrow(NetworkService.BaseEndpoint.airtable.apiKeyIfPresent)
+        XCTAssertNoThrow(NetworkService.BaseEndpoint.tinker.apiKeyIfPresent)
         XCTAssertEqual(NetworkService.BaseEndpoint.tinker.apiKeyEnvVar, "TINKER_API_KEY")
         XCTAssertEqual(NetworkService.BaseEndpoint.mistral.apiKeyEnvVar, "MISTRAL_API_KEY")
     }

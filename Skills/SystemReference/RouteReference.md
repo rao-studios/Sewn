@@ -24,7 +24,7 @@ wsRouter (BasicWebSocketRequestContext) — bearer checked in shouldUpgrade
 | Method | Path | File | Notes |
 |--------|------|------|-------|
 | `GET` | `/health` | `Health.swift` | Note: registered as `"health"`, no leading slash |
-| `GET` | `/metrics` | `Metrics.swift` | Prometheus text. Guarded by `METRICS_TOKEN` |
+| `GET` | `/metrics` | `Metrics.swift` | Prometheus text. Guarded by `METRICS_TOKEN`. Registered only under `--server-mode` |
 | `GET` | `/v1/stats` | `Stats.swift` | Public document + group counts. **Rate limited per IP → 429** |
 | `GET` | `/v1/threads` | `Thread.swift` | Registered Thread nodes + mothership id |
 | `POST` | `/v1/auth/sign-up` | `Auth.swift` | |

@@ -223,7 +223,9 @@ log line — rather than by reading code.
 
 ### Observability
 
-- [ ] `GET /metrics` returns Prometheus text and is gated by `METRICS_TOKEN`
+- [ ] Under `--server-mode`, `GET /metrics` returns Prometheus text and is gated
+      by `METRICS_TOKEN`; without the flag the route is absent and answers
+      like any unknown path (401 from the auth layer)
 - [ ] Log lines carry a `service` field, so Cockpit's `service_name` label
       populates
 - [ ] Conduit session logs appear under `service: "Sewn"`
