@@ -8,12 +8,14 @@ actor SewnGRPCServer {
     private var serverTask: Task<Void, Error>?
 
     @discardableResult
-    func start(registry: RegistryMutator, nodeId: UUID, grpcPort: Int, sessionManager: ThreadSessionManager, logger: SewnLogger) -> ThreadSessionManager {
+    /// Binds where the HTTP server binds (`--host`): loopback for a Sewn an app
+    /// launched for itself, 0.0.0.0 only where a deployment asks for it.
+    func start(registry: RegistryMutator, nodeId: UUID, host: String, grpcPort: Int, sessionManager: ThreadSessionManager, logger: SewnLogger) -> ThreadSessionManager {
         let service = ThreadRegistrationServiceImpl(registry: registry, mothershipId: nodeId, sessionManager: sessionManager, logger: SewnConduitLogger(base: logger))
         serverTask = Task {
             let server = GRPCServer(
                 transport: .http2NIOPosix(
-                    address: .ipv4(host: "0.0.0.0", port: grpcPort),
+                    address: .ipv4(host: host, port: grpcPort),
                     transportSecurity: .plaintext,
                     config: .defaults {
                         $0.rpc.maxRequestPayloadSize = 100 * 1024 * 1024
@@ -39,8 +41,18 @@ actor SewnGRPCServer {
                 ),
                 services: [service]
             )
-            logger.info("SewnGRPCServer", "gRPC server listening on port \(grpcPort)", service: .startup)
-            try await server.serve()
+            logger.info("SewnGRPCServer", "gRPC server listening on \(host):\(grpcPort)", service: .startup)
+            do {
+                try await server.serve()
+            } catch is CancellationError {
+                // stop() — a shutdown, not a failure.
+            } catch {
+                // Most often the port is taken. Dying loudly beats serving
+                // HTTP with no mothership: the launcher sees the exit, and a
+                // Thread never registers with whatever holds this port.
+                logger.error("SewnGRPCServer", "gRPC server on \(host):\(grpcPort) failed: \(error)", service: .startup)
+                exit(EXIT_FAILURE)
+            }
         }
         return sessionManager
     }

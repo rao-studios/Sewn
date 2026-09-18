@@ -208,6 +208,7 @@ struct SewnServer: AsyncParsableCommand {
             await grpcServer.start(
                 registry: sewn.nonisolatedRegistryMutator,
                 nodeId: sewn.nodeId,
+                host: host,
                 grpcPort: grpcPort,
                 sessionManager: sessionManager,
                 logger: SewnLogger(logger)
@@ -217,11 +218,18 @@ struct SewnServer: AsyncParsableCommand {
 
         // ── Router + middleware ───────────────────────────────────────────────
         let router = Router(context: SewnRequestContext.self)
-        router.middlewares.add(CORSMiddleware(
-            allowOrigin: .all,
-            allowHeaders: [.accept, .authorization, .contentType, .origin, .userAgent, HTTPField.Name("X-Requested-With")!],
-            allowMethods: [.get, .post, .delete, .options]
-        ))
+        if StackSecret.isLocalMode {
+            // Launched by an app for itself: no browser is a client, so no
+            // CORS — and every request must carry the app's secret. Added
+            // before any route: Hummingbird binds middleware at registration.
+            router.middlewares.add(StackSecretMiddleware<SewnRequestContext>())
+        } else {
+            router.middlewares.add(CORSMiddleware(
+                allowOrigin: .all,
+                allowHeaders: [.accept, .authorization, .contentType, .origin, .userAgent, HTTPField.Name("X-Requested-With")!],
+                allowMethods: [.get, .post, .delete, .options]
+            ))
+        }
         router.middlewares.add(IPMetricsMiddleware())
 
         // ── Register ALL routes before Application.init freezes the responder ─

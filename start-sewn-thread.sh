@@ -55,8 +55,7 @@ echo "==> Starting Sewn   (HTTP :8080, gRPC :9091)"
   cd "$SEWN_DIR"
   .build/release/sewn-server \
     --port 8080 \
-    --grpc-port 9091 \
-    --enable-threads
+    --grpc-port 9091
 ) > "$LOG_DIR/sewn.log" 2>&1 &
 SEWN_PID=$!
 echo "    PID $SEWN_PID  →  $LOG_DIR/sewn.log"

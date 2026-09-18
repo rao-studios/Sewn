@@ -28,6 +28,13 @@ func registerRealtimeRoute(
     router.ws(
         "/v1/realtime/chat",
         shouldUpgrade: { request, _ in
+            // Its own router: the HTTP middleware never sees this route, so
+            // local mode's check is made here too.
+            if let refusal = StackSecret.refusal(
+                authority: request.head.authority,
+                presented: request.headers[StackSecret.headerName]) {
+                throw refusal
+            }
             // Same bearer scheme as AuthMiddleware, validated before the
             // upgrade completes. The result is cached by token, so the
             // handler's second validate() is a dictionary hit.
