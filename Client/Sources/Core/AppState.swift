@@ -21,11 +21,17 @@ enum Screen: String, CaseIterable, Identifiable {
     }
 }
 
-/// Development sign-in used for auto-login on launch. The account is a shared
-/// test identity — replace via Settings → Account for a personal session.
-enum TestCredentials {
-    static let email = "dev@example.com"
-    static let password = "REDACTED-PASSWORD"
+/// Development sign-in used for auto-login on launch, read from the launch
+/// environment (SEWN_DEV_EMAIL, SEWN_DEV_PASSWORD) — never from source. Unset,
+/// there is no auto-login: sign in through Settings → Account.
+enum DevCredentials {
+    static var current: (email: String, password: String)? {
+        let environment = ProcessInfo.processInfo.environment
+        guard let email = environment["SEWN_DEV_EMAIL"], !email.isEmpty,
+              let password = environment["SEWN_DEV_PASSWORD"], !password.isEmpty
+        else { return nil }
+        return (email, password)
+    }
 }
 
 /// App-wide state container (single source of truth, injected via environment).
@@ -60,16 +66,17 @@ final class AppState: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Signs in with the test credentials when no session exists. Safe to call
-    /// repeatedly — retried whenever a Sewn becomes reachable (readyEpoch).
+    /// Signs in with the environment's dev credentials when no session exists.
+    /// Safe to call repeatedly — retried whenever a Sewn becomes reachable
+    /// (readyEpoch). No credentials in the environment, no auto-login.
     func autoSignIn() {
-        guard autoSignInTask == nil else { return }
+        guard autoSignInTask == nil, let credentials = DevCredentials.current else { return }
         autoSignInTask = Task { [weak self] in
             defer { self?.autoSignInTask = nil }
             guard let self, await !self.sewnAPI.isSignedIn else { return }
             do {
-                try await self.sewnAPI.signIn(email: TestCredentials.email,
-                                              password: TestCredentials.password)
+                try await self.sewnAPI.signIn(email: credentials.email,
+                                              password: credentials.password)
                 self.sessionEpoch += 1
             } catch {
                 // Sewn not up yet or auth unavailable — retried on next readyEpoch.
