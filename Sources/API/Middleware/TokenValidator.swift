@@ -84,6 +84,12 @@ enum TokenValidator {
         return validated
     }
 
+    /// Drops a token from the cache, so the next request re-asks Supabase.
+    /// Sign-out calls this; otherwise a signed-out token keeps passing.
+    static func evict(_ token: String) {
+        cache.withLock { $0[token] = nil }
+    }
+
     /// The token's `exp` claim minus a minute of slack — safe to trust without
     /// signature verification because it only bounds how long a Supabase-
     /// confirmed token stays cached, never extends a rejected one.

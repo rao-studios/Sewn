@@ -25,7 +25,9 @@ extension NetworkService {
             switch self {
             case .mistral:  return "MISTRAL_API_KEY"
             case .tinker:   return "TINKER_API_KEY"
-            case .supabase: return "SUPABASE_SERVICE_KEY"
+            // Supabase is reached as the anon role, never the service role:
+            // Sewn holds no key that bypasses row-level security.
+            case .supabase: return "SUPABASE_ANON_KEY"
             }
         }
 

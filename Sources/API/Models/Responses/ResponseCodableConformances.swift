@@ -8,6 +8,7 @@ import Hummingbird
 // MARK: - Auth
 extension SignInResponse: ResponseCodable {}
 extension SignUpResponse: ResponseCodable {}
+extension AccountKeysResponse: ResponseCodable {}
 
 // MARK: - Chat Completions
 extension ChatCompletionResponse: ResponseCodable {}

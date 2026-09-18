@@ -33,7 +33,6 @@ Every variable Sewn actually reads:
 | `SUPABASE_ANON_KEY` | **Yes — `fatalError` if absent** | Auth |
 | `MISTRAL_API_KEY` | Effectively yes | Chat, and vision/embeddings/speech for *every* provider |
 | `TINKER_API_KEY` | Only for `tinker` | 503 per request when absent |
-| `SUPABASE_SERVICE_KEY` | For service-role calls | |
 | `ADMIN_USER_ID` | For any admin route | Unset ⇒ every admin route 403s |
 | `METRICS_TOKEN` | Under `--server-mode` | Guards `GET /metrics`; a startup warning names it when absent |
 | `SEWN_GLOBAL_LLM` | No | `mistral` \| `tinker` \| `local`; unknown values fall back to mistral |
@@ -51,6 +50,10 @@ Every variable Sewn actually reads:
 - [ ] `ADMIN_USER_ID` is the intended single account. It is **one id, not an
       allowlist**
 - [ ] No secrets in source, `docker-compose.yml`, or the image
+- [ ] No service-role key anywhere: Sewn reaches Supabase as the anon role and
+      the caller's JWT, so row-level security is the whole rule
+- [ ] `supabase/migrations` applied, and Auth → "Confirm email" is on — the
+      `ambient_keys` policy counts on unconfirmed sign-ups having no session
 - [ ] The server runs with `--server-mode` (the Dockerfile's `CMD` passes it);
       without it there is no `/metrics` for Alloy to scrape
 

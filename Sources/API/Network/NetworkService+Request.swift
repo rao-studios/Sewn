@@ -63,7 +63,6 @@ extension NetworkService {
         urlRequest.addValue("application/json", forHTTPHeaderField: "Content-Type")
         
         if configuration.base == .supabase {
-            urlRequest.addValue(configuration.base.apiKey, forHTTPHeaderField: "x-api-key")
             if let anonKey = ProcessInfo.processInfo.environment["SUPABASE_ANON_KEY"] {
                 urlRequest.addValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
                 urlRequest.addValue(anonKey, forHTTPHeaderField: "apikey")

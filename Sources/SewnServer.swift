@@ -32,6 +32,7 @@ func configureRoutes(
     registerAuthVerifyRoute(router, sewn)
     registerAuthRefreshRoute(router)
     registerAuthResetPasswordRoute(router)
+    registerAuthResendRoute(router)
 
     // Protected routes — AuthMiddleware validates the Supabase Bearer token
     // and populates context.authUserId before each handler runs.
@@ -75,8 +76,11 @@ func configureRoutes(
     registerListGroupsByDocumentsRoute(protected, sewn)
     /* Infinite — public group leaderboard and search */
     registerInfiniteRoutes(protected, sewn)
-    /* Auth — sign-out requires a live session */
+    /* Auth — sign-out and a new password require a live session */
     registerAuthSignOutRoute(protected)
+    registerAuthUpdatePasswordRoute(protected)
+    /* Account — the provider keys this account is handed */
+    registerAccountKeysRoute(protected)
     /* Graph — knowledge-graph query proxy (entity match + neighborhood) */
     registerGraphRoute(protected, sewn)
     /* Personalities — chat personas */

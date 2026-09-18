@@ -31,7 +31,13 @@ wsRouter (BasicWebSocketRequestContext) — bearer checked in shouldUpgrade
 | `POST` | `/v1/auth/sign-in` | `Auth.swift` | |
 | `POST` | `/v1/auth/verify` | `Auth.swift` | OTP — signup / recovery / magic link |
 | `POST` | `/v1/auth/refresh` | `Auth.swift` | |
-| `POST` | `/v1/auth/reset-password` | `Auth.swift` | |
+| `POST` | `/v1/auth/reset-password` | `Auth.swift` | Emails a recovery code |
+| `POST` | `/v1/auth/resend` | `Auth.swift` | `{email, type}` — `signup` re-sends the confirmation code, `recovery` a reset code. 202 |
+
+Supabase auth failures are mapped by `authHTTPError` (`Auth.swift`): wrong
+password 401, unconfirmed email 403, expired or wrong code 401, weak password
+422, rate limit 429, revoked refresh token 401. Each carries a sentence in
+`{"error":{"message":…}}`.
 
 `POST /v1/auth/sign-in`:
 
@@ -217,7 +223,9 @@ time**. No score is persisted.
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `POST` | `/v1/auth/sign-out` | Registered on the protected tree — needs a live session |
+| `POST` | `/v1/auth/sign-out` | Registered on the protected tree — needs a live session. Evicts the token from `TokenValidator`'s cache |
+| `POST` | `/v1/auth/update-password` | `{password}` — the last step of a reset, after the recovery code gives a session. 204 |
+| `GET` | `/v1/account/keys` | `AccountKeys.swift`. `{keys:[{name,value}]}` from Supabase `ambient_keys`, read with the caller's JWT (RLS: verified accounts). Missing table → empty list |
 
 ---
 

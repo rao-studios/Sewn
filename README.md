@@ -531,7 +531,10 @@ Powered by [Supabase](https://supabase.com) via [supabase-swift](https://github.
 | `POST` | `/v1/auth/verify` | Verify OTP (signup / recovery / magic link) |
 | `POST` | `/v1/auth/refresh` | Refresh an access token |
 | `POST` | `/v1/auth/reset-password` | Send a password recovery email |
+| `POST` | `/v1/auth/resend` | Send the signup or recovery code again |
 | `POST` | `/v1/auth/sign-out` | Invalidate the current session (requires Bearer) |
+| `POST` | `/v1/auth/update-password` | Set a new password (requires Bearer) |
+| `GET` | `/v1/account/keys` | Provider keys for a verified account, from `ambient_keys` (requires Bearer) |
 
 **`POST /v1/auth/sign-in`**
 ```json
