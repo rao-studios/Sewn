@@ -44,6 +44,7 @@ func configureRoutes(
         isVLM: isVLM
     )
     registerVisionLookRoute(protected)
+    registerVisionOntologyRoute(protected)
     registerProvidersRoutes(protected, modelProvider: modelProvider)
     registerCompleteRoute(protected, modelProvider: modelProvider)
     registerSkillsCompleteRoute(protected, modelProvider: modelProvider)
