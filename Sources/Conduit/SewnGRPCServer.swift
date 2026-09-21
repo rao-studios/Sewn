@@ -39,7 +39,12 @@ actor SewnGRPCServer {
                         $0.connection.keepalive.clientBehavior.minPingIntervalWithoutCalls = .seconds(10)
                     }
                 ),
-                services: [service]
+                services: [service],
+                // Local mode: the launcher's secret gates Register, Heartbeat,
+                // UpdateAvailability and Session, as StackSecretMiddleware does
+                // for HTTP. Hosted (no env var): nothing is installed.
+                interceptors: StackSecretServerInterceptor.forLocalMode(
+                    secret: StackSecret.value, logger: SewnConduitLogger(base: logger))
             )
             logger.info("SewnGRPCServer", "gRPC server listening on \(host):\(grpcPort)", service: .startup)
             do {
