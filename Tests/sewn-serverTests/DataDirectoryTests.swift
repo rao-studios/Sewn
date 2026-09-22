@@ -40,6 +40,30 @@ final class DataDirectoryTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.url.path))
     }
 
+    /// A root with a space, like a shared stack's `~/Library/Application Support/…/sewn-db`:
+    /// save must create the file, restore must read it back, and a nested key
+    /// must land too.
+    func testARootWithASpacePersistsAndRestores() {
+        let spaced = tempRoot.appendingPathComponent("Application Support/sewn-db")
+        FilePersistence.configure(dataDirectory: spaced.path)
+        let logger = Logger(label: "test")
+
+        let table = FilePersistence(key: "registry-probe", kind: .basic, logger: logger)
+        table.save(state: ["hello": 1])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: table.url.path(percentEncoded: false)), "created under the real path")
+        let restored: [String: Int]? = FilePersistence(key: "registry-probe", kind: .basic, logger: logger).restore()
+        XCTAssertEqual(restored, ["hello": 1])
+
+        let nestedKey = "sinatra/owner abc/A+B@v1-parts"
+        let nested = FilePersistence(key: nestedKey, kind: .basic, logger: logger)
+        nested.save(state: ["x"])
+        table.save(state: ["hello": 2])   // the overwrite path
+        let again: [String: Int]? = FilePersistence(key: "registry-probe", kind: .basic, logger: logger).restore()
+        XCTAssertEqual(again, ["hello": 2])
+        let nestedBack: [String]? = FilePersistence(key: nestedKey, kind: .basic, logger: logger).restore()
+        XCTAssertEqual(nestedBack, ["x"])
+    }
+
     func testTildeIsExpanded() {
         let root = FilePersistence.configure(dataDirectory: "~/sewn-data-dir-tilde-probe")
         XCTAssertFalse(root.path.contains("~"))
