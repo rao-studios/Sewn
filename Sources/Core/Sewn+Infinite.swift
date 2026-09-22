@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import RaoStack
 
 // MARK: - Internal metrics type
 
@@ -30,8 +31,9 @@ extension Sewn {
     /// Groups are sourced from Thread via `fanoutLibrary`; billing metrics come from
     /// the local `documentStats` registry. Ranking uses a weighted, min-max normalised
     /// composite score: 40% earnings, 30% retrievals, 20% sentiment, 10% doc count.
-    nonisolated func leaderboard(page: Int = 1, pageSize: Int = 20) async -> (entries: [InfiniteGroupEntry], total: Int) {
-        let (allGroups, _, _) = await fanoutLibrary(ownerId: "")
+    /// `app` is the caller's: on a shared stack only its own Threads' groups rank.
+    nonisolated func leaderboard(page: Int = 1, pageSize: Int = 20, app: RaoApp?) async -> (entries: [InfiniteGroupEntry], total: Int) {
+        let (allGroups, _, _) = await fanoutLibrary(ownerId: "", app: app)
         let publicGroups = allGroups.filter { $0.access == .available }
         guard !publicGroups.isEmpty else { return ([], 0) }
 
@@ -134,11 +136,12 @@ extension Sewn {
 
     /// Returns public groups whose label, description, or tags match `query`.
     /// Results are sorted by descending activity score. `limit` is clamped to [1, 100].
-    nonisolated func searchGroups(query: String, limit: Int = 20) async -> [Sewn.Group] {
+    /// `app` is the caller's: on a shared stack only its own Threads' groups match.
+    nonisolated func searchGroups(query: String, limit: Int = 20, app: RaoApp?) async -> [Sewn.Group] {
         guard !query.isEmpty else { return [] }
         let clampedLimit = max(1, min(100, limit))
 
-        let (allGroups, _, _) = await fanoutLibrary(ownerId: "")
+        let (allGroups, _, _) = await fanoutLibrary(ownerId: "", app: app)
         let publicGroups = allGroups.filter { $0.access == .available }
 
         let docStats = registry?.documentStats ?? [:]

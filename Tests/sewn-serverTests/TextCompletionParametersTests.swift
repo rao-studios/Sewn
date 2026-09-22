@@ -97,7 +97,8 @@ final class TextCompletionParametersTests: XCTestCase {
                 group: nil,
                 aggregate: true,
                 scope: .personal,
-                requestID: nil
+                requestID: nil,
+                callerApp: nil
             )
         )
         

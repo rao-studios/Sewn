@@ -480,7 +480,7 @@ final class Flow2_GitaCreditTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "alice", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "alice", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger,
                                                    strategy: .init(pricing: .scaled(baseRate: 0.20, surge: nil)),
                                                    request: request)
@@ -500,7 +500,7 @@ final class Flow2_GitaCreditTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "alice", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "alice", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger,
                                                    strategy: .init(pricing: .scaled(baseRate: 0.20, surge: nil)),
                                                    request: request)

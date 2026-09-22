@@ -35,7 +35,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = spenderId.map { SewnRequest(ownerId: $0, group: nil, aggregate: nil, scope: nil, requestID: nil) }
+        let request      = spenderId.map { SewnRequest(ownerId: $0, group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil) }
         return gita.priceContribution(
             contribution,
             ledger: ledger,
@@ -293,7 +293,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, request: request)
 
         let bob = priced.owners.first(where: { $0.ownerId == "bob" })!
@@ -311,7 +311,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, request: request)
 
         let carol = priced.owners.first(where: { $0.ownerId == "carol" })!
@@ -326,7 +326,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, request: request)
         let exchange     = Gita.CreditExchange(contribution: priced)
 
@@ -344,7 +344,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, request: request)
 
         let carol       = priced.owners.first(where: { $0.ownerId == "carol" })!
@@ -364,7 +364,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "alice", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "alice", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, request: request)
         let exchange     = Gita.CreditExchange(contribution: priced)
 
@@ -381,7 +381,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, request: request)
         let exchange     = Gita.CreditExchange(contribution: priced)
 
@@ -404,7 +404,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, request: request)
         let exchange     = Gita.CreditExchange(contribution: priced)
 
@@ -421,7 +421,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
         let strategy     = Gita.ServiceChargeStrategy.flat(5.0)
-        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, strategy: strategy, request: request)
         let exchange     = Gita.CreditExchange(contribution: priced)
 
@@ -441,7 +441,7 @@ final class Flow2_GitaWalletTests: XCTestCase {
         ]
         let contribution = gita.royalty(for: partitions)
         let ledger       = Gita.TokenLedger.test()
-        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil)
+        let request      = SewnRequest(ownerId: "bob", group: nil, aggregate: nil, scope: nil, requestID: nil, callerApp: nil)
         let priced       = gita.priceContribution(contribution, ledger: ledger, request: request)
         let exchange     = Gita.CreditExchange(contribution: priced)
 

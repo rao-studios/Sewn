@@ -166,7 +166,8 @@ extension Sewn {
             aggregate: nil,
             scope: nil,
             threadIds: request.personalThreadId.map { [$0] },
-            requestID: nil
+            requestID: nil,
+            callerApp: request.callerApp
         )
 
         let item = BatchPutItem(id: documentId, texts: summaryTexts, tags: memoryTags,

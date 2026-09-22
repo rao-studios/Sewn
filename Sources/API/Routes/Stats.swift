@@ -8,6 +8,7 @@
 import Foundation
 import Hummingbird
 import HTTPTypes
+import RaoStack
 
 struct StatsResponse: Codable {
     let publicDocumentCount: Int
@@ -51,11 +52,14 @@ func registerStatsRoute(_ router: some RouterMethods<SewnRequestContext>, _ sewn
             ?? context.remoteAddress?.ipAddress
             ?? "unknown"
 
-        guard await limiter.allow(ip: ip) else {
+        // Per app as well as per address: on a shared stack every app calls
+        // from 127.0.0.1, and one app's polling must not use up another's.
+        let app = context.callerApp
+        guard await limiter.allow(ip: "\(app?.rawValue ?? "-")|\(ip)") else {
             throw HTTPError(.tooManyRequests)
         }
 
-        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: "")
+        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: "", app: app)
         let publicGroups = groups.filter { $0.access == .available }
         let groupCount    = publicGroups.count
         let documentCount = publicGroups.reduce(0) { $0 + $1.documents.count }

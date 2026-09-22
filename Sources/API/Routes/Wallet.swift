@@ -51,7 +51,7 @@ func registerWalletRoute(_ router: some RouterMethods<SewnRequestContext>, _ sew
 
         let normalizedId = ownerId.lowercased()
 
-        let (rawGroups, _, _) = await sewn.fanoutLibrary(ownerId: normalizedId)
+        let (rawGroups, _, _) = await sewn.fanoutLibrary(ownerId: normalizedId, app: context.callerApp)
         let docStats = sewn.registry?.documentStats ?? [:]
         let groups: [Sewn.Group] = rawGroups.map { group in
             var g = group

@@ -301,7 +301,7 @@ final class Flow2_GitaRoyaltyTests: XCTestCase {
         ledger.record(model: "mistral-medium", promptTokens: 100, completionTokens: 0)
         let priced = gita.priceContribution(unpriced, ledger: ledger,
                                              strategy: .flat(0),
-                                             request: SewnRequest(ownerId: "charlie", scope: .personal))
+                                             request: SewnRequest(ownerId: "charlie", scope: .personal, callerApp: nil))
 
         let earnings = gita.documentEarnings(from: priced)
         XCTAssertEqual(earnings["doc-shared"] ?? 0, priced.totalPayout, accuracy: 0.001,
@@ -321,7 +321,7 @@ final class Flow2_GitaRoyaltyTests: XCTestCase {
         ledger.record(model: "mistral-medium", promptTokens: 100, completionTokens: 0)
         let priced = gita.priceContribution(unpriced, ledger: ledger,
                                              strategy: .flat(0),
-                                             request: SewnRequest(ownerId: "alice", scope: .personal))
+                                             request: SewnRequest(ownerId: "alice", scope: .personal, callerApp: nil))
 
         let earnings = gita.documentEarnings(from: priced)
         let bobEarning = priced.owners.first(where: { $0.ownerId == "bob" })?.earning ?? 0

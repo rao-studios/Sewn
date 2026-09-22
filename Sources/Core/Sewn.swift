@@ -13,6 +13,7 @@
 import Conduit
 import Foundation
 import Logging
+import RaoStack
 
 actor Sewn {
     internal let logger: SewnLogger
@@ -25,6 +26,11 @@ actor Sewn {
     /// Persistent node identity for this Sewn instance.
     let nodeId: UUID
 
+    /// How this Sewn's local stack is secured, decided once at start: open
+    /// (hosted, dev), one app's secret, or every app's on a shared ~/.rao
+    /// stack — where it also decides which Threads a request may reach.
+    nonisolated let stack: StackMode
+
     /// Type-erased ThreadQueryClient (cast to ThreadQueryClient where needed).
     /// Stored as Sendable to keep the actor's stored properties isolation-clean.
     nonisolated(unsafe) var _threadQueryClient: (any Sendable)?
@@ -35,17 +41,19 @@ actor Sewn {
     // The actor's isolation prevents concurrent access to `pending` and `isProcessing`.
     // When drain() is suspended awaiting a mutator, new enqueue() calls only append to
     // `pending[]` — they do NOT execute because `isProcessing` blocks a second drain.
-    // This preserves the ordering guarantee: no removeBatch can interleave mid-putBatch.
+    // This preserves the ordering guarantee: no removeAll can interleave mid-putBatch.
+    // Every job carries its SewnRequest, and with it the caller app its fan-out is
+    // scoped to; puts only coalesce when they act for the same app (`canCoalesce`).
 
     private enum WriteJob {
         case put([Sewn.BatchPutItem], SewnRequest)
-        case removeBatch([(documentId: String, ownerId: String)])
         case removeAll(ownerId: String, request: SewnRequest, CheckedContinuation<Int, Never>)
     }
     private var pending: [WriteJob] = []
     private var isProcessing = false
 
-    init() {
+    init(stack: StackMode = .open) {
+        self.stack = stack
         var baseLogger = Logger(label: "sewn-logger")
         baseLogger.logLevel = .debug
         self.baseLogger = baseLogger
@@ -348,6 +356,26 @@ extension Sewn {
     }
 }
 
+// MARK: - Caller scope
+
+extension Sewn {
+    /// The Thread nodes a request acting for `app` may reach. Open and one-app
+    /// stacks have one caller, so every node. A shared stack reaches only the
+    /// caller's own app's nodes — and none for a request that lost its app on
+    /// the way, which is a bug worth a log line, never a reason to guess.
+    nonisolated func nodeScope(for app: RaoApp?) -> NodeScope {
+        guard case .multiApp = stack else { return .all }
+        guard let app else {
+            logger.warning(
+                label: "Node Scope",
+                "Shared stack: a Thread fan-out ran for no app — it reaches no Thread",
+                service: .sewn)
+            return .none
+        }
+        return .app(app)
+    }
+}
+
 // MARK: - Nonisolated mutator access (safe: let constants of Sendable actor types)
 
 extension Sewn {
@@ -372,11 +400,6 @@ extension Sewn {
         enqueue(.put(items, request))
     }
 
-    /// Enqueue a batch-remove job. Returns immediately; the job runs when the queue drains.
-    func enqueueRemoveBatch(_ items: [(documentId: String, ownerId: String)]) {
-        enqueue(.removeBatch(items))
-    }
-
     /// Enqueue a remove-all job and suspend until it completes.
     /// Returns the number of documents removed, even when earlier jobs are still queued.
     func removeAll(ownerId: String, request: SewnRequest) async -> Int {
@@ -393,6 +416,16 @@ extension Sewn {
         Task { await self.drain() }
     }
 
+    /// Whether a queued put may ride in the batch of the put ahead of it. A
+    /// merged batch is indexed as `base` — one owner, one group, one Thread —
+    /// so `next` must match on all three, and on a shared stack that Thread
+    /// must belong to the app both act for.
+    static func canCoalesce(_ next: SewnRequest, into base: SewnRequest) -> Bool {
+        next.ownerId == base.ownerId
+            && next.group?.id == base.group?.id
+            && next.callerApp == base.callerApp
+    }
+
     private func drain() async {
         while !pending.isEmpty {
             if case .put(let firstItems, let baseReq) = pending[0] {
@@ -400,8 +433,7 @@ extension Sewn {
                 var consumed = 1
                 while consumed < pending.count && merged.count < Self.maxCoalesceItems {
                     guard case .put(let nextItems, let nextReq) = pending[consumed],
-                          nextReq.ownerId == baseReq.ownerId,
-                          nextReq.group?.id == baseReq.group?.id else { break }
+                          Self.canCoalesce(nextReq, into: baseReq) else { break }
                     merged.append(contentsOf: nextItems)
                     consumed += 1
                 }
@@ -422,9 +454,6 @@ extension Sewn {
         switch job {
         case .put(let items, let request):
             await putBatch(items, request: request)
-
-        case .removeBatch(let items):
-            await _removeBatch(items: items)
 
         case .removeAll(let ownerId, let request, let continuation):
             let count = await _removeAll(ownerId: ownerId, request: request)

@@ -58,6 +58,9 @@ let package = Package(
         .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
         .product(name: "SwiftProtobuf", package: "swift-protobuf"),
         .product(name: "Conduit", package: "Conduit"),
+        // The shared ~/.rao contract: stack modes, secrets, /health proof,
+        // RAO_HOME's layout and the provider keys every app shares.
+        .product(name: "RaoStack", package: "Conduit"),
         .product(name: "MLX", package: "Frigate", condition: .when(platforms: [.macOS])),
         .product(name: "MLXLMCommon", package: "Frigate", condition: .when(platforms: [.macOS])),
         .product(name: "MLXLLM", package: "Frigate", condition: .when(platforms: [.macOS])),
@@ -74,6 +77,8 @@ let package = Package(
         "sewn-server",
         .product(name: "HummingbirdTesting", package: "hummingbird"),
         .product(name: "HummingbirdWSTesting", package: "hummingbird-websocket"),
+        .product(name: "Conduit", package: "Conduit"),
+        .product(name: "RaoStack", package: "Conduit"),
       ]
     )
   ]

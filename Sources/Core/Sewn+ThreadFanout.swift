@@ -1,10 +1,25 @@
+//
+//  Sewn+ThreadFanout.swift
+//  sewn-server
+//
+//  WHAT: Every call Sewn makes to its Thread nodes: search, index, remove,
+//        library, graph, updates, stats.
+//  IN:   A SewnRequest, or an explicit owner plus the caller app.
+//  OUT:  Merged results from the nodes the caller may reach.
+//  PIN:  Each function asks the registry for nodes in the caller's
+//        `NodeScope` first and narrows from there. On a shared ~/.rao stack
+//        that is the calling app's own Threads; client-named thread ids only
+//        ever filter that list, so a client can't name another app's node.
+//
+
 import Conduit
 import Foundation
+import RaoStack
 
 // MARK: - Low-level fan-out primitives
 
 extension Sewn {
-    /// Fan search out to all active Thread nodes. Sewn passes `queryText` (raw string);
+    /// Fan search out to the caller's active Thread nodes. Sewn passes `queryText` (raw string);
     /// each Thread embeds it locally before running its hybrid KG + PQ search.
     /// Returns the merged results plus a merged graph trace (entity matches and
     /// expansion edges unioned across nodes).
@@ -14,7 +29,7 @@ extension Sewn {
         topK: Int = 3
     ) async -> (results: [Thread_V1_ThreadPartitionResult], trace: Thread_V1_ThreadGraphTrace?) {
         guard let client = _threadQueryClient as? ThreadQueryClient else { return ([], nil) }
-        let nodes = await nonisolatedRegistryMutator.activeNodes
+        let nodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: request.callerApp))
         guard !nodes.isEmpty else { return ([], nil) }
 
         var req = Thread_V1_ThreadSearchRequest()
@@ -64,7 +79,8 @@ extension Sewn {
     }
 
     /// Route index items to a specific Thread node, or pick the first node available for storage.
-    /// If `request.threadIds` is set, targets the first matching active node.
+    /// If `request.threadIds` is set, targets the first matching active node. Every
+    /// candidate — `targetNode` included — must be in the caller's scope.
     /// Returns `(success, threadId)` — threadId is the UUID string of the node used.
     @discardableResult
     nonisolated func fanoutIndex(
@@ -73,19 +89,24 @@ extension Sewn {
         targetNode: ThreadNode? = nil
     ) async -> (success: Bool, threadId: String?) {
         guard let client = _threadQueryClient as? ThreadQueryClient else { return (false, nil) }
+        let scope = nodeScope(for: request.callerApp)
 
         let node: ThreadNode
         if let targetNode {
+            guard scope.admits(targetNode) else {
+                logger.warning("fanoutIndex: Thread \(targetNode.threadId) is outside the caller's scope — not indexed", service: .sewn, request: request)
+                return (false, nil)
+            }
             node = targetNode
         } else if let ids = request.threadIds, !ids.isEmpty {
-            let allNodes = await nonisolatedRegistryMutator.activeNodes
-            guard let matched = allNodes.first(where: { ids.contains($0.threadId.uuidString) }) else {
-                logger.warning("fanoutIndex: requested threadIds \(ids) not found among active nodes", service: .sewn, request: request)
+            let scopedNodes = await nonisolatedRegistryMutator.activeNodes(in: scope)
+            guard let matched = scopedNodes.first(where: { ids.contains($0.threadId.uuidString) }) else {
+                logger.warning("fanoutIndex: requested threadIds \(ids) not found among the caller's active nodes", service: .sewn, request: request)
                 return (false, nil)
             }
             node = matched
         } else {
-            guard let picked = await nonisolatedRegistryMutator.availableForStorage.first else {
+            guard let picked = await nonisolatedRegistryMutator.availableForStorage(in: scope).first else {
                 // TODO: trigger automatic Thread spawn when no node is available for storage.
                 // Sewn will eventually provision a new Thread, register it, and it will appear
                 // in availableForStorage — at which point putBatch's retry loop will succeed.
@@ -123,21 +144,24 @@ extension Sewn {
         return (true, threadIdStr)
     }
 
-    /// Removes `documentIds` from Thread nodes.
-    /// - `targetThreadIds`: when non-nil, only sends to those specific Thread UUIDs;
-    ///   when nil (default), broadcasts to all active nodes.
+    /// Removes `documentIds` from the caller's Thread nodes.
+    /// - `targetThreadIds`: when non-nil, only sends to those specific Thread UUIDs
+    ///   among the caller's; when nil (default), broadcasts to all of the caller's
+    ///   active nodes.
+    /// - `app`: the app the removal acts for (`SewnRequest.callerApp`).
     nonisolated func fanoutRemove(
         documentIds: [String],
         ownerId: String,
-        targetThreadIds: [String]? = nil
+        targetThreadIds: [String]? = nil,
+        app: RaoApp?
     ) async {
         guard let client = _threadQueryClient as? ThreadQueryClient else { return }
-        let allNodes = await nonisolatedRegistryMutator.activeNodes
+        let scopedNodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: app))
         let nodes: [ThreadNode]
         if let ids = targetThreadIds {
-            nodes = allNodes.filter { ids.contains($0.threadId.uuidString) }
+            nodes = scopedNodes.filter { ids.contains($0.threadId.uuidString) }
         } else {
-            nodes = allNodes
+            nodes = scopedNodes
         }
         await withTaskGroup(of: Void.self) { group in
             for node in nodes {
@@ -231,28 +255,30 @@ private func mergeThreadGroups(_ threadGroups: [Sewn.Group], into groupMap: inou
 }
 
 extension Sewn {
-    /// Fans out gRPC Library to active Thread nodes and coalesces results.
+    /// Fans out gRPC Library to the caller's active Thread nodes and coalesces results.
     ///
     /// - Parameters:
     ///   - limit: When set, fetches one page of this size from each Thread using `afterId` as the
     ///     cursor. When nil, fetches all pages and returns the full library.
     ///   - afterId: Anchor cursor (group id) for the next page; empty = start of list.
-    ///   - threadIds: When set, only fans out to Threads whose UUID is in this list.
+    ///   - threadIds: When set, only fans out to the caller's Threads whose UUID is in this list.
+    ///   - app: The app the request acts for (`SewnRequest.callerApp`).
     nonisolated func fanoutLibrary(
         ownerId: String,
         limit: Int? = nil,
         afterId: String = "",
-        threadIds: [String]? = nil
+        threadIds: [String]? = nil,
+        app: RaoApp?
     ) async -> (groups: [Sewn.Group], hasMore: Bool, nextAfterId: String) {
         guard let client = _threadQueryClient as? ThreadQueryClient else { return ([], false, "") }
-        let allNodes = await nonisolatedRegistryMutator.activeNodes
+        let scopedNodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: app))
         let nodes: [ThreadNode]
         if let ids = threadIds, !ids.isEmpty {
-            nodes = allNodes.filter { ids.contains($0.threadId.uuidString) }
+            nodes = scopedNodes.filter { ids.contains($0.threadId.uuidString) }
         } else if !ownerId.isEmpty {
-            nodes = await nonisolatedRegistryMutator.threadNodesForOwner(ownerId, allNodes: allNodes)
+            nodes = await nonisolatedRegistryMutator.threadNodesForOwner(ownerId, scopedNodes: scopedNodes)
         } else {
-            nodes = allNodes
+            nodes = scopedNodes
         }
         guard !nodes.isEmpty else { return ([], false, "") }
 
@@ -324,23 +350,24 @@ extension Sewn {
         return (sorted, hasMore, sorted.last?.id ?? "")
     }
 
-    /// Fans out a document-ID-filtered Library request to targeted Thread nodes.
+    /// Fans out a document-ID-filtered Library request to the caller's targeted Thread nodes.
     /// Uses the Thread's reverse `documentGroups` map — no full library scan.
     /// Returns matching groups and a documentId → groupId map.
     nonisolated func fanoutLibraryByDocuments(
         ownerId: String,
         documentIds: [String],
-        threadIds: [String]? = nil
+        threadIds: [String]? = nil,
+        app: RaoApp?
     ) async -> (groups: [Sewn.Group], documentGroups: [String: String]) {
         guard let client = _threadQueryClient as? ThreadQueryClient else { return ([], [:]) }
-        let allNodes = await nonisolatedRegistryMutator.activeNodes
+        let scopedNodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: app))
         let nodes: [ThreadNode]
         if let ids = threadIds, !ids.isEmpty {
-            nodes = allNodes.filter { ids.contains($0.threadId.uuidString) }
+            nodes = scopedNodes.filter { ids.contains($0.threadId.uuidString) }
         } else if !ownerId.isEmpty {
-            nodes = await nonisolatedRegistryMutator.threadNodesForOwner(ownerId, allNodes: allNodes)
+            nodes = await nonisolatedRegistryMutator.threadNodesForOwner(ownerId, scopedNodes: scopedNodes)
         } else {
-            nodes = allNodes
+            nodes = scopedNodes
         }
         guard !nodes.isEmpty else { return ([], [:]) }
 
@@ -379,7 +406,7 @@ extension Sewn {
 // MARK: - Graph fan-out
 
 extension Sewn {
-    /// Fans out a knowledge-graph query to all active Thread nodes and merges the
+    /// Fans out a knowledge-graph query to the caller's active Thread nodes and merges the
     /// results: entities dedupe by id (mention counts summed, max score), relationships
     /// dedupe by id (weights summed), documents dedupe by id, stats summed.
     nonisolated func fanoutGraph(
@@ -389,11 +416,12 @@ extension Sewn {
         kinds: [String] = [],
         hops: Int = 1,
         limit: Int = 20,
-        includeDocuments: Bool = true
+        includeDocuments: Bool = true,
+        app: RaoApp?
     ) async -> Thread_V1_ThreadGraphQueryResponse {
         var merged = Thread_V1_ThreadGraphQueryResponse()
         guard let client = _threadQueryClient as? ThreadQueryClient else { return merged }
-        let nodes = await nonisolatedRegistryMutator.activeNodes
+        let nodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: app))
         guard !nodes.isEmpty else { return merged }
 
         var req = Thread_V1_ThreadGraphQueryRequest()
@@ -461,7 +489,7 @@ extension Sewn {
 // MARK: - Update fan-out
 
 extension Sewn {
-    /// Broadcasts a group access/label/metadata update to all active Thread nodes.
+    /// Broadcasts a group access/label/metadata update to the caller's active Thread nodes.
     /// Returns true if at least one Thread confirmed success.
     @discardableResult
     nonisolated func fanoutUpdateGroup(
@@ -471,10 +499,11 @@ extension Sewn {
         label: String?,
         description: String?,
         tags: [String]?,
-        updateMetadata: Bool = false
+        updateMetadata: Bool = false,
+        app: RaoApp?
     ) async -> Bool {
         guard let client = _threadQueryClient as? ThreadQueryClient else { return false }
-        let nodes = await nonisolatedRegistryMutator.activeNodes
+        let nodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: app))
         guard !nodes.isEmpty else { return false }
 
         var req = Thread_V1_ThreadUpdateGroupRequest()
@@ -500,17 +529,18 @@ extension Sewn {
         }
     }
 
-    /// Broadcasts a document access/group update to all active Thread nodes.
+    /// Broadcasts a document access/group update to the caller's active Thread nodes.
     /// Returns true if at least one Thread confirmed success.
     @discardableResult
     nonisolated func fanoutUpdateDocument(
         documentId: String,
         ownerId: String,
         access: String?,
-        groupId: String?
+        groupId: String?,
+        app: RaoApp?
     ) async -> Bool {
         guard let client = _threadQueryClient as? ThreadQueryClient else { return false }
-        let nodes = await nonisolatedRegistryMutator.activeNodes
+        let nodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: app))
         guard !nodes.isEmpty else { return false }
 
         var req = Thread_V1_ThreadUpdateDocumentRequest()
@@ -531,11 +561,11 @@ extension Sewn {
         }
     }
 
-    /// Fetches registry stats from all active Thread nodes in parallel.
+    /// Fetches registry stats from the caller's active Thread nodes in parallel.
     /// Returns a map of threadId (UUID string) → stats response.
-    nonisolated func fanoutStats() async -> [String: Thread_V1_ThreadStatsResponse] {
+    nonisolated func fanoutStats(app: RaoApp?) async -> [String: Thread_V1_ThreadStatsResponse] {
         guard let client = _threadQueryClient as? ThreadQueryClient else { return [:] }
-        let nodes = await nonisolatedRegistryMutator.activeNodes
+        let nodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: app))
         guard !nodes.isEmpty else { return [:] }
 
         let req = Thread_V1_ThreadStatsRequest()

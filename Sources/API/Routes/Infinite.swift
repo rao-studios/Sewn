@@ -27,7 +27,7 @@ private func registerInfiniteLeaderboardRoute(_ router: some RouterMethods<SewnR
         let page     = request.uri.queryParameters.get("page").flatMap(Int.init(_:))      ?? 1
         let pageSize = request.uri.queryParameters.get("page_size").flatMap(Int.init(_:)) ?? 20
 
-        let (entries, total) = await sewn.leaderboard(page: page, pageSize: pageSize)
+        let (entries, total) = await sewn.leaderboard(page: page, pageSize: pageSize, app: context.callerApp)
 
         return InfiniteLeaderboardResponse(
             entries:  entries,
@@ -54,7 +54,7 @@ private func registerInfiniteSearchRoute(_ router: some RouterMethods<SewnReques
             "Received infinite-search request: query='\(searchRequest.query)' limit=\(limit)"
         )
 
-        let groups = await sewn.searchGroups(query: searchRequest.query, limit: limit)
+        let groups = await sewn.searchGroups(query: searchRequest.query, limit: limit, app: context.callerApp)
 
         return InfiniteSearchResponse(groups: groups, total: groups.count)
     }

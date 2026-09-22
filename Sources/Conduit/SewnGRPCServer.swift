@@ -3,6 +3,7 @@ import Foundation
 import GRPCCore
 import GRPCNIOTransportHTTP2
 import Logging
+import RaoStack
 
 actor SewnGRPCServer {
     private var serverTask: Task<Void, Error>?
@@ -10,8 +11,23 @@ actor SewnGRPCServer {
     @discardableResult
     /// Binds where the HTTP server binds (`--host`): loopback for a Sewn an app
     /// launched for itself, 0.0.0.0 only where a deployment asks for it.
-    func start(registry: RegistryMutator, nodeId: UUID, host: String, grpcPort: Int, sessionManager: ThreadSessionManager, logger: SewnLogger) -> ThreadSessionManager {
-        let service = ThreadRegistrationServiceImpl(registry: registry, mothershipId: nodeId, sessionManager: sessionManager, logger: SewnConduitLogger(base: logger))
+    /// `stack` decides who may register: anyone (open), the one app's Thread
+    /// (single), or each app's Thread on a shared stack — where the secret it
+    /// registers with records which app the node belongs to.
+    func start(registry: RegistryMutator, nodeId: UUID, host: String, grpcPort: Int, stack: StackMode, sessionManager: ThreadSessionManager, logger: SewnLogger) -> ThreadSessionManager {
+        let service = ThreadRegistrationServiceImpl(
+            registry: registry,
+            mothershipId: nodeId,
+            sessionManager: sessionManager,
+            logger: SewnConduitLogger(base: logger),
+            callerResolver: stack.grpcResolver
+        )
+        // A shared stack takes any app's secret and names the app; one app's
+        // stack takes its one secret; hosted (open): nothing is installed.
+        let interceptors = stack.grpcResolver.map {
+            StackSecretServerInterceptor.forLocalMode(resolver: $0, logger: SewnConduitLogger(base: logger))
+        } ?? StackSecretServerInterceptor.forLocalMode(
+            secret: stack.singleSecret, logger: SewnConduitLogger(base: logger))
         serverTask = Task {
             let server = GRPCServer(
                 transport: .http2NIOPosix(
@@ -40,11 +56,10 @@ actor SewnGRPCServer {
                     }
                 ),
                 services: [service],
-                // Local mode: the launcher's secret gates Register, Heartbeat,
-                // UpdateAvailability and Session, as StackSecretMiddleware does
-                // for HTTP. Hosted (no env var): nothing is installed.
-                interceptors: StackSecretServerInterceptor.forLocalMode(
-                    secret: StackSecret.value, logger: SewnConduitLogger(base: logger))
+                // Local mode: the stack's secrets gate Register, Heartbeat,
+                // UpdateAvailability and Session, as StackSecretMiddleware
+                // does for HTTP.
+                interceptors: interceptors
             )
             logger.info("SewnGRPCServer", "gRPC server listening on \(host):\(grpcPort)", service: .startup)
             do {

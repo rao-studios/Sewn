@@ -7,6 +7,7 @@ import Prometheus
 import Hummingbird
 import HummingbirdWebSocket
 import HTTPTypes
+import RaoStack
 
 // MARK: - Route configuration
 
@@ -20,7 +21,7 @@ func configureRoutes(
     registerThreadNodesRoute(router, sewn)
 
     // Open routes — no auth required.
-    registerHealthRoute(router)
+    registerHealthRoute(router, stack: sewn.stack)
     // Only a hosted server is scraped (Alloy → Cockpit). A Sewn launched for
     // one Mac has no scraper and no METRICS_TOKEN to guard the route with.
     if serverMode {
@@ -119,6 +120,8 @@ func configureWebSocketRoutes(
 
 // MARK: - .env loader
 
+/// The checkout's `.env`, last in line: process environment, then
+/// RAO_HOME/sewn/sewn.env on a shared stack, then this.
 func loadDotEnv(path: String = ".env") {
     guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return }
     for line in contents.split(separator: "\n") {
@@ -177,14 +180,7 @@ struct SewnServer: AsyncParsableCommand {
 
     @MainActor
     func run() async throws {
-        // ── Load .env before anything reads environment variables ────────────
-        loadDotEnv()
-
-        // ── Storage root: --data-dir beats SEWN_DATA_DIR beats ~/Documents/sewn-db
-        let dataRoot = FilePersistence.configure(
-            dataDirectory: dataDir ?? ProcessInfo.processInfo.environment["SEWN_DATA_DIR"])
-
-        // ── Logging ──────────────────────────────────────────────────────────
+        // ── Logging (first, so a refusal to start can say why) ───────────────
         LoggingSystem.bootstrap { label in
             var handler = StreamLogHandler.standardOutput(label: label)
             handler.logLevel = .debug
@@ -192,13 +188,55 @@ struct SewnServer: AsyncParsableCommand {
         }
         var logger = Logger(label: "sewn")
         logger.logLevel = .debug
+
+        // ── RAO_HOME: set only by a launcher running the shared ~/.rao stack ─
+        let home: RaoHome?
+        do {
+            home = try RaoHome.fromEnvironment()
+        } catch {
+            logger.critical("RAO_HOME: \(error)")
+            Foundation.exit(EXIT_FAILURE)
+        }
+
+        // ── Environment before anything reads it. Neither loader overwrites,
+        //    so: process environment > RAO_HOME/sewn/sewn.env > ./.env. The
+        //    shared file never supplies a secret, a key or RAO_HOME itself.
+        if let home {
+            let applied = EnvFile.apply(home.sewnEnvFile, denying: SewnEnvironmentFile.deniedKeys)
+            if !applied.isEmpty { logger.info("sewn.env: \(applied.joined(separator: ", "))") }
+        }
+        loadDotEnv()
+
+        // ── Storage root: --data-dir beats SEWN_DATA_DIR beats RAO_HOME/sewn/db
+        //    beats ~/Documents/sewn-db
+        let dataRoot = FilePersistence.configure(
+            dataDirectory: dataDir
+                ?? ProcessInfo.processInfo.environment["SEWN_DATA_DIR"]
+                ?? home.map { PrivateFile.path($0.sewnDataDirectory) })
         logger.info("Storage root: \(dataRoot.path)")
+
+        // ── Stack: open, one app's secret, or every app's (RAO_HOME) ─────────
+        let environment = ProcessInfo.processInfo.environment
+        let stack: StackMode
+        do {
+            stack = try StackMode.sewn(environment: environment)
+        } catch {
+            logger.critical("Stack: \(error)")
+            Foundation.exit(EXIT_FAILURE)
+        }
+        logger.info("Stack: \(stack.summary)")
+        for issue in stack.keyring?.lastIssues ?? [] {
+            logger.warning("Stack: skipped a secret — \(issue)")
+        }
+        if StackMode.ignoresSingleSecret(sewnEnvironment: environment) {
+            logger.warning("Stack: AMBIENT_STACK_SECRET is set but ignored — RAO_HOME's per-app secrets win")
+        }
 
         // ── Metrics ──────────────────────────────────────────────────────────
         MetricsSystem.bootstrap(PrometheusMetricsFactory())
 
         // ── Core services ─────────────────────────────────────────────────────
-        let sewn = Sewn()
+        let sewn = Sewn(stack: stack)
         let modelProvider = ModelProvider(logger: logger)
 
         // ── Wire Thread gRPC ───────────────────────────────────────────────────
@@ -211,6 +249,7 @@ struct SewnServer: AsyncParsableCommand {
                 nodeId: sewn.nodeId,
                 host: host,
                 grpcPort: grpcPort,
+                stack: stack,
                 sessionManager: sessionManager,
                 logger: SewnLogger(logger)
             )
@@ -219,11 +258,12 @@ struct SewnServer: AsyncParsableCommand {
 
         // ── Router + middleware ───────────────────────────────────────────────
         let router = Router(context: SewnRequestContext.self)
-        if StackSecret.isLocalMode {
-            // Launched by an app for itself: no browser is a client, so no
-            // CORS — and every request must carry the app's secret. Added
-            // before any route: Hummingbird binds middleware at registration.
-            router.middlewares.add(StackSecretMiddleware<SewnRequestContext>())
+        if stack.isLocal {
+            // Launched by an app (or every app, on a shared stack): no browser
+            // is a client, so no CORS — and every request must carry a secret
+            // this Sewn knows, which also names the calling app. Added before
+            // any route: Hummingbird binds middleware at registration.
+            router.middlewares.add(StackSecretMiddleware<SewnRequestContext>(mode: stack))
         } else {
             router.middlewares.add(CORSMiddleware(
                 allowOrigin: .all,

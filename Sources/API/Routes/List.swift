@@ -17,7 +17,7 @@ func registerListDocumentsRoute(_ router: some RouterMethods<SewnRequestContext>
 
         context.logger.info("Received documents request for owner: \(ownerId)")
 
-        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId)
+        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId, app: sewnReq.callerApp)
 
         var seen = Set<String>()
         var documents: [Sewn.Document] = []
@@ -45,7 +45,8 @@ func registerListGroupsByDocumentsRoute(_ router: some RouterMethods<SewnRequest
         let (groups, documentGroups) = await sewn.fanoutLibraryByDocuments(
             ownerId: ownerId,
             documentIds: listRequest.documentIds,
-            threadIds: sewnReq.threadIds
+            threadIds: sewnReq.threadIds,
+            app: sewnReq.callerApp
         )
 
         return GroupsByDocumentsResponse(groups: groups, documentGroups: documentGroups, access: [:])
@@ -68,7 +69,8 @@ func registerListGroupsRoute(_ router: some RouterMethods<SewnRequestContext>,
             ownerId: ownerId,
             limit: limit,
             afterId: afterId,
-            threadIds: threadIds
+            threadIds: threadIds,
+            app: sewnReq.callerApp
         )
         var resp = GroupListResponse(groups: groups, access: [:])
         resp.hasMore     = hasMore

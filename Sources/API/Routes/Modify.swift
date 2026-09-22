@@ -42,7 +42,8 @@ func registerModifyRoute(_ router: some RouterMethods<SewnRequestContext>,
                     documentId: id,
                     ownerId: ownerId,
                     access: newAccess.rawValue,
-                    groupId: nil
+                    groupId: nil,
+                    app: sewnReq.callerApp
                 )
                 if ok { resolvedDocumentAccess = newAccess }
                 context.logger.info("modify .access — documentId: \(id), access: \(newAccess.rawValue), success: \(ok)")
@@ -53,7 +54,8 @@ func registerModifyRoute(_ router: some RouterMethods<SewnRequestContext>,
                     documentId: id,
                     ownerId: ownerId,
                     access: nil,
-                    groupId: targetGroupId
+                    groupId: targetGroupId,
+                    app: sewnReq.callerApp
                 )
                 if ok { resolvedGroupId = targetGroupId }
                 context.logger.info("modify .group — documentId: \(id), targetGroup: \(targetGroupId), success: \(ok)")
@@ -88,7 +90,7 @@ func registerModifyGroupRemoveRoute(_ router: some RouterMethods<SewnRequestCont
             "Received modify-group-remove request for group: \(groupId), owner: \(ownerId)"
         )
 
-        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId)
+        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId, app: sewnReq.callerApp)
         guard let group = groups.first(where: { $0.id == groupId && $0.ownerId == ownerId }) else {
             context.logger.warning(
                 "modify-group-remove rejected — owner \(ownerId) does not own group \(groupId)"
@@ -120,7 +122,7 @@ func registerModifyGroupRoute(_ router: some RouterMethods<SewnRequestContext>,
 
         context.logger.info("Received modify-group request for group: \(groupId), owner: \(ownerId)")
 
-        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId)
+        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId, app: sewnReq.callerApp)
         guard groups.contains(where: { $0.id == groupId && $0.ownerId == ownerId }) else {
             context.logger.warning("modify-group rejected — owner \(ownerId) does not own group \(groupId)")
             return .init(groupId: groupId, access: nil, label: nil, user: sewn.user(for: ownerId))
@@ -132,7 +134,8 @@ func registerModifyGroupRoute(_ router: some RouterMethods<SewnRequestContext>,
             access: modifyRequest.access.rawValue,
             label: modifyRequest.label,
             description: nil,
-            tags: nil
+            tags: nil,
+            app: sewnReq.callerApp
         )
 
         context.logger.info("modify-group complete — group \(groupId), success=\(success)")
@@ -161,7 +164,7 @@ func registerModifyGroupMetadataRoute(_ router: some RouterMethods<SewnRequestCo
             "Received modify-group-metadata request for group: \(groupId), owner: \(ownerId)"
         )
 
-        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId)
+        let (groups, _, _) = await sewn.fanoutLibrary(ownerId: ownerId, app: sewnReq.callerApp)
         guard groups.contains(where: { $0.id == groupId && $0.ownerId == ownerId }) else {
             context.logger.warning("modify-group-metadata rejected — owner \(ownerId) does not own group \(groupId)")
             return .init(groupId: groupId, label: nil, metadata: nil, user: sewn.user(for: ownerId))
@@ -174,7 +177,8 @@ func registerModifyGroupMetadataRoute(_ router: some RouterMethods<SewnRequestCo
             label: metadataRequest.label,
             description: meta.description,
             tags: meta.tags,
-            updateMetadata: true
+            updateMetadata: true,
+            app: sewnReq.callerApp
         )
 
         context.logger.info("modify-group-metadata complete — group \(groupId), success=\(success)")

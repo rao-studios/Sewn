@@ -122,7 +122,8 @@ func registerGraphRoute(
             kinds: graphReq.kinds ?? [],
             hops: graphReq.hops ?? 1,
             limit: graphReq.limit ?? 20,
-            includeDocuments: graphReq.includeDocuments ?? true
+            includeDocuments: graphReq.includeDocuments ?? true,
+            app: sewnReq.callerApp
         )
 
         return GraphProxyResponse(

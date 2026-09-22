@@ -41,6 +41,8 @@ struct ThreadNodeEntry: Codable {
     let isActive: Bool
     let acceptingStorage: Bool
     let stats: ThreadNodeStats?
+    /// The app the node registered for on a shared stack; left out when nil.
+    let app: String?
 
     enum CodingKeys: String, CodingKey {
         case threadId         = "thread_id"
@@ -51,13 +53,16 @@ struct ThreadNodeEntry: Codable {
         case isActive        = "is_active"
         case acceptingStorage = "accepting_storage"
         case stats
+        case app
     }
 }
 
+/// `GET /v1/threads` — the caller's Thread nodes. On a shared stack, only the
+/// calling app's; everywhere else, every node, as before.
 func registerThreadNodesRoute(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
-    router.get("/v1/threads") { _, _ async throws -> ThreadNodesResponse in
-        let all = await sewn.nonisolatedRegistryMutator.allNodes
-        let statsMap = await sewn.fanoutStats()
+    router.get("/v1/threads") { _, context async throws -> ThreadNodesResponse in
+        let all = await sewn.nonisolatedRegistryMutator.allNodes(in: sewn.nodeScope(for: context.callerApp))
+        let statsMap = await sewn.fanoutStats(app: context.callerApp)
 
         var totalDocumentCount = 0
         var totalGroupCount = 0
@@ -84,7 +89,8 @@ func registerThreadNodesRoute(_ router: some RouterMethods<SewnRequestContext>, 
                 lastSeen: node.lastSeen,
                 isActive: node.isActive,
                 acceptingStorage: node.acceptingStorage,
-                stats: nodeStats
+                stats: nodeStats,
+                app: node.app
             )
         }
 

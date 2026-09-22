@@ -11,12 +11,18 @@
 //  auto_memory) and `turn.end`. Client close (or a `cancel` frame) at any
 //  point cancels all in-flight work — that IS the barge-in path.
 //
+//  Its own router: StackSecretMiddleware never sees it, so the upgrade is
+//  admitted against the stack here, and the turn re-admits the upgrade
+//  request to learn which app it acts for (shouldUpgrade can't hand values
+//  on). Every SewnRequest the turn builds carries that app.
+//
 
 import Foundation
 import Hummingbird
 import HummingbirdWebSocket
 import Logging
 import NIOCore
+import RaoStack
 
 // MARK: - Registration
 
@@ -29,12 +35,10 @@ func registerRealtimeRoute(
         "/v1/realtime/chat",
         shouldUpgrade: { request, _ in
             // Its own router: the HTTP middleware never sees this route, so
-            // local mode's check is made here too.
-            if let refusal = StackSecret.refusal(
+            // local mode's check is made here too — same refusals, same codes.
+            _ = try sewn.stack.admittedApp(
                 authority: request.head.authority,
-                presented: request.headers[StackSecret.headerName]) {
-                throw refusal
-            }
+                presented: request.headers[.ambientSecret])
             // Same bearer scheme as AuthMiddleware, validated before the
             // upgrade completes. The result is cached by token, so the
             // handler's second validate() is a dictionary hit.
@@ -124,6 +128,20 @@ private func handleRealtimeTurn(
         }
     }
 
+    // ── Caller app ───────────────────────────────────────────────────────────
+    // shouldUpgrade admitted this request but can't pass what it learned;
+    // admitting the same request again names the app its secret belongs to.
+    // It only fails if that secret was revoked in between.
+    let callerApp: RaoApp?
+    do {
+        callerApp = try sewn.stack.admittedApp(
+            authority: context.request.head.authority,
+            presented: context.request.headers[.ambientSecret])
+    } catch {
+        try? await send(.error(stage: "request", message: "\(error)"))
+        return
+    }
+
     // ── turn.start ───────────────────────────────────────────────────────────
     let reader = InboundReader(inbound.messages(maxSize: maxFrameSize))
     guard let first = try await reader.next(), case .text(let startText) = first else {
@@ -167,7 +185,8 @@ private func handleRealtimeTurn(
         scope: chatRequest.sewn.scope,
         threadIds: chatRequest.sewn.threadIds,
         personalThreadId: chatRequest.sewn.personalThreadId,
-        requestID: requestID
+        requestID: requestID,
+        callerApp: callerApp
     )
 
     SewnMetrics.realtimeTurns.increment()
@@ -378,7 +397,8 @@ private func handleRealtimeTurn(
                 aggregate: nil,
                 scope: nil,
                 threadIds: sewnRequest.personalThreadId.map { [$0] },
-                requestID: nil
+                requestID: nil,
+                callerApp: sewnRequest.callerApp
             )
             let item = Sewn.BatchPutItem(
                 id: resonance.documentId,

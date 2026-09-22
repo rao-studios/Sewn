@@ -61,7 +61,7 @@ extension SewnRequest {
         ownerId: String = "test-owner",
         scope: SewnRequestScope? = .personal
     ) -> SewnRequest {
-        SewnRequest(ownerId: ownerId, group: nil, aggregate: nil, scope: scope, requestID: nil)
+        SewnRequest(ownerId: ownerId, group: nil, aggregate: nil, scope: scope, requestID: nil, callerApp: nil)
     }
 }
 

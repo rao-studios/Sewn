@@ -7,9 +7,15 @@
 
 import Foundation
 import Hummingbird
+import RaoStack
 
 /// A payload in most endpoint requests to manage the requestor's
 /// identity when making any request.
+///
+/// PIN: `callerApp` is not part of the wire shape. It is the app whose stack
+/// secret the HTTP request carried (StackSecretMiddleware), set only by
+/// `from(_:)` and by code that derives a request from one that has it —
+/// never decoded, so no client can name another app's Threads.
 struct SewnRequest: Codable {
     // The owner/user id of the request.
     let ownerId: String
@@ -41,6 +47,13 @@ struct SewnRequest: Codable {
 
     let requestID: String?
 
+    /// The app this request acts for on a shared ~/.rao stack; every Thread
+    /// fan-out it drives is scoped to that app's nodes. Nil on an open or
+    /// one-app Sewn, and whenever it came from JSON.
+    let callerApp: RaoApp?
+
+    /// `callerApp` has no default on purpose: every construction says which
+    /// app it acts for (usually the request it was derived from's).
     init(ownerId: String,
          group: Sewn.Group? = nil,
          groups: [Sewn.Group]? = nil,
@@ -50,7 +63,8 @@ struct SewnRequest: Codable {
          scope: SewnRequestScope? = nil,
          threadIds: [String]? = nil,
          personalThreadId: String? = nil,
-         requestID: String? = nil) {
+         requestID: String? = nil,
+         callerApp: RaoApp?) {
         self.ownerId = ownerId
         self.group = group
         self.groups = groups
@@ -61,8 +75,10 @@ struct SewnRequest: Codable {
         self.threadIds = threadIds
         self.personalThreadId = personalThreadId
         self.requestID = requestID
+        self.callerApp = callerApp
     }
 
+    /// No `callerApp`: it never crosses the wire.
     enum CodingKeys: String, CodingKey {
         case ownerId = "owner_id"
         case group
@@ -88,6 +104,7 @@ struct SewnRequest: Codable {
         threadIds         = try c.decodeIfPresent([String].self,         forKey: .threadIds)
         personalThreadId  = try c.decodeIfPresent(String.self,           forKey: .personalThreadId)
         requestID        = try c.decodeIfPresent(String.self,           forKey: .requestID)
+        callerApp        = nil
     }
 
     func from(_ context: SewnRequestContext) throws -> SewnRequest {
@@ -108,7 +125,8 @@ struct SewnRequest: Codable {
             scope: self.scope,
             threadIds: self.threadIds,
             personalThreadId: self.personalThreadId,
-            requestID: context.id
+            requestID: context.id,
+            callerApp: context.callerApp
         )
     }
 }

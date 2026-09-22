@@ -235,7 +235,8 @@ func handleChatStreamCompletions(
                     aggregate: nil,
                     scope: nil,
                     threadIds: sewnRequest.personalThreadId.map { [$0] },
-                    requestID: nil
+                    requestID: nil,
+                    callerApp: sewnRequest.callerApp
                 )
                 let item = Sewn.BatchPutItem(
                     id: resonance.documentId,

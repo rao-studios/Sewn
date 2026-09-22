@@ -190,6 +190,9 @@ func registerAdminRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sew
         let id      = modifyRequest.update.documentId
         let update  = modifyRequest.update
         let group   = modifyRequest.sewn.group
+        // The target owner's request, acting for the admin caller's app.
+        let targetReq = SewnRequest(ownerId: ownerId, group: group, requestID: context.id,
+                                    callerApp: context.callerApp)
 
         context.logger.info("[Admin] modify \(update.operation.rawValue) doc: \(id), target owner: \(ownerId)")
 
@@ -202,7 +205,7 @@ func registerAdminRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sew
             updatedDocumentAccess = false
             updatedGroupAccess    = false
             updatedGroup          = false
-            await sewn.remove(documentId: id, group: group, ownerId: ownerId)
+            await sewn.remove(documentId: id, group: group, ownerId: ownerId, request: targetReq)
         case .access, .group:
             updatedDocumentAccess = false
             updatedGroupAccess    = false
@@ -316,8 +319,10 @@ func registerAdminRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sew
 
         context.logger.info("[Admin] owner/delete — purging all data for owner: \(ownerId)")
 
-        // Build a minimal SewnRequest for the removeAll call.
-        let sewnReq = SewnRequest(ownerId: ownerId, group: nil, aggregate: nil, scope: nil, requestID: nil)
+        // Build a minimal SewnRequest for the removeAll call, acting for the
+        // admin caller's app.
+        let sewnReq = SewnRequest(ownerId: ownerId, group: nil, aggregate: nil, scope: nil, requestID: nil,
+                                  callerApp: context.callerApp)
 
         // 1. Remove all documents, partition table entries, HNSW nodes, and registry entries.
         let docsRemoved = await sewn.removeAll(ownerId: ownerId, request: sewnReq)

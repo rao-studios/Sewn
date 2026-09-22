@@ -81,7 +81,9 @@ func registerEmbeddingsRoute(
             ))
         }
 
-        // Enrich group with merged tags before fan-out.
+        // Enrich group with merged tags before fan-out. Everything else rides
+        // through unchanged — the caller app scopes the index, and the
+        // client's thread ids still say where it lands.
         let enrichedReq: SewnRequest = {
             guard var g = sewnReq.group, !batchItems.isEmpty else { return sewnReq }
             let existingTags = g.metadata?.tags ?? []
@@ -92,9 +94,13 @@ func registerEmbeddingsRoute(
             meta.tags = merged
             g.metadata = meta
             return SewnRequest(ownerId: sewnReq.ownerId, group: g,
-                               groups: sewnReq.groups, tags: sewnReq.tags,
+                               groups: sewnReq.groups, entities: sewnReq.entities,
+                               tags: sewnReq.tags,
                                aggregate: sewnReq.aggregate, scope: sewnReq.scope,
-                               requestID: sewnReq.requestID)
+                               threadIds: sewnReq.threadIds,
+                               personalThreadId: sewnReq.personalThreadId,
+                               requestID: sewnReq.requestID,
+                               callerApp: sewnReq.callerApp)
         }()
 
         if !batchItems.isEmpty {
