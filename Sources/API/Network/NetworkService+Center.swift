@@ -1,5 +1,23 @@
+//
+//  NetworkService+Center.swift
+//  sewn-server
+//
+//  WHAT: The hosts Sewn calls out to and where each one's key comes from.
+//  IN:   Provider keys: RAO_HOME/keys/providers.json through RaoStack's
+//        ProviderKeyStore when a launcher set RAO_HOME (a key typed into any
+//        Rao app reaches this Sewn on its next call), else the process
+//        environment (a dev checkout's .env, a hosted deployment's secrets).
+//        Supabase: the environment only — the anon key is public
+//        configuration, not a user's key, and sewn.env may carry it.
+//  OUT:  `requireAPIKey()` for LLM hosts (a 503 when missing), `apiKey` for
+//        auxiliary services that degrade to unauthenticated requests.
+//  PIN:  Missing keys fail at call time, named, so misconfiguration is
+//        obvious; nothing here crashes the server.
+//
+
 import Foundation
 import Hummingbird
+import RaoStack
 
 extension NetworkService {
     enum BaseEndpoint : String, Codable {
@@ -18,25 +36,31 @@ extension NetworkService {
             }
         }
 
-        /// API keys come from the environment (`.env` is loaded into the process
-        /// environment at boot by `loadDotEnv`). Missing keys fail loudly at call
-        /// time with the variable name so misconfiguration is obvious.
+        /// The key's name: in the shared provider file and in the environment
+        /// (`.env` is loaded into the process environment at boot). Missing
+        /// keys fail loudly at call time with this name.
         var apiKeyEnvVar: String {
             switch self {
-            case .mistral:  return "MISTRAL_API_KEY"
-            case .tinker:   return "TINKER_API_KEY"
+            case .mistral:  return ProviderKeyStore.mistralAPIKey
+            case .tinker:   return ProviderKeyStore.tinkerAPIKey
             // Supabase is reached as the anon role, never the service role:
             // Sewn holds no key that bypasses row-level security.
             case .supabase: return "SUPABASE_ANON_KEY"
             }
         }
 
-        /// The key when the environment has one. Nil is an answer here, not
-        /// a crash: a client may select a provider whose key was never set.
+        /// The key when one is set. Nil is an answer here, not a crash: a
+        /// client may select a provider whose key was never set.
         var apiKeyIfPresent: String? {
-            guard let key = ProcessInfo.processInfo.environment[apiKeyEnvVar], !key.isEmpty
-            else { return nil }
-            return key
+            switch self {
+            case .mistral, .tinker:
+                // Shared file first (when RAO_HOME is set), then the environment.
+                return ProviderKeyStore.process.value(for: apiKeyEnvVar)
+            case .supabase:
+                guard let key = ProcessInfo.processInfo.environment[apiKeyEnvVar], !key.isEmpty
+                else { return nil }
+                return key
+            }
         }
 
         /// LLM hosts need their key; a missing one is a 503 to the client,
