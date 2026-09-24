@@ -105,10 +105,11 @@ func handleChatCompletions(
     // request didn't pin a model.
     let result: (choices: [ChatCompletionChoice], usage: Requests.Chat.Get.Usage, sinatra: LocalSinatraDiagnostics?)
     do {
-        // On-device turns hand SinatraMLX the retrieved context and the turn.
+        // On-device turns hand SinatraHarness the retrieved context and the turn.
         let localTurn = provider.isLocal
             ? LocalTurnContext.make(
-                owner: sewnRequest.ownerId, request: chatRequest, userMessageAt: chatResult.userMessageAt)
+                owner: sewnRequest.ownerId, request: chatRequest, userMessageAt: chatResult.userMessageAt,
+                bareSystem: chatResult.bareSystem)
             : nil
         result = try await modelProvider.run(
             userInput.prompt,

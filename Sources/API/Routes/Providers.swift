@@ -37,7 +37,7 @@ struct ProviderInfo: Codable, ResponseEncodable {
     var model: String
     var capabilities: ProviderCapabilities
     var reason: String?
-    /// SinatraMLX for the signed-in owner — the local row only.
+    /// SinatraHarness for the signed-in owner — the local row only.
     var sinatra: SinatraStatusInfo?
 
     enum CodingKeys: String, CodingKey {
@@ -157,20 +157,21 @@ func registerProvidersRoutes(
         return ProviderWarmResponse(accepted: true, state: state.name, model: model)
     }
 
-    /// One of the caller's SinatraMLX traces: how the injection moved the logits, step by step.
+    /// One of the caller's SinatraHarness traces: how the injection moved the logits, and what
+    /// the retrieved context did to the answer, step by step.
     router.get("/v1/providers/local/sinatra/traces/:traceId") { _, context async throws -> Response in
         guard let owner = context.authUserId?.lowercased() else { throw HTTPError(.unauthorized) }
         guard let raw = context.parameters.get("traceId"), let id = UUID(uuidString: raw) else {
             throw HTTPError(.badRequest, message: "traceId must be a UUID.")
         }
         guard let data = await modelProvider.local.traceJSON(owner: owner, turnId: id) else {
-            throw HTTPError(.notFound, message: "No SinatraMLX trace \(raw) for this account.")
+            throw HTTPError(.notFound, message: "No SinatraHarness trace \(raw) for this account.")
         }
         return sinatraJSONResponse(data)
     }
 
-    /// Entropy against personalization for the caller: what the injection did to decoding
-    /// on each traced turn, set against the implicit reward that turn earned.
+    /// Grounding over the caller's band: whether steering reduced drift, the first half of
+    /// the band against the second, and which documents the answers cite.
     router.get("/v1/providers/local/sinatra/analysis") { _, context async throws -> Response in
         guard let owner = context.authUserId?.lowercased() else { throw HTTPError(.unauthorized) }
         guard let data = await modelProvider.local.analysisJSON(owner: owner) else {

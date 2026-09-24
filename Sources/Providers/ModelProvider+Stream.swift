@@ -17,7 +17,7 @@ import FoundationNetworking
 struct StreamDelta: Codable {
     let role: String?
     let content: String?
-    /// SinatraMLX's report for an on-device turn: arrives once, after the text, with no content.
+    /// SinatraHarness's report for an on-device turn: arrives once, after the text, with no content.
     var sinatra: LocalSinatraDiagnostics? = nil
 }
 
@@ -32,7 +32,7 @@ extension ModelProvider {
     /// Anthropic events (`content_block_delta` → text, `message_stop` → end) are mapped
     /// into the internal `StreamDelta` contract so downstream handlers stay provider-agnostic.
     /// - Returns: An `AsyncThrowingStream` of `StreamDelta` tokens and the resolved model name.
-    /// `retrieved` and `turn` reach only the on-device provider, where SinatraMLX turns
+    /// `retrieved` and `turn` reach only the on-device provider, where SinatraHarness turns
     /// the retrieved context into an injection before decoding and learns from the
     /// user's next message. Hosted providers ignore both.
     func runStream(

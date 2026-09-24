@@ -2,11 +2,12 @@
 //  SewnProbe.swift
 //  sewn-probe
 //
-//  WHAT: Talk to a running Sewn from the terminal — stream a chat turn (and a follow-up
-//        that labels it), compare decoding with and without SinatraMLX, and read back
-//        what the injection did to the logits.
+//  WHAT: Talk to a running Sewn from the terminal — stream a chat turn (and follow-ups in
+//        the same conversation), compare decoding with and without SinatraHarness, and read
+//        back what the injection did to the logits and what the context did to the answer.
 //
 //    swift run sewn-probe chat --provider local "What do my notes say about X?" --then "Tell me more"
+//    swift run sewn-probe chat "How are you doing?" --then "What's the capital of France?" --then "How are you doing?"
 //    swift run sewn-probe chat --trace full --seed 1 "…"
 //    swift run sewn-probe compare --seed 1 "…"
 //    swift run sewn-probe providers | warm [--model id] | trace <id> | analysis
@@ -19,7 +20,7 @@ import Foundation
 struct SewnProbe: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sewn-probe",
-        abstract: "Probe Sewn's chat wire and SinatraMLX's on-device injection.",
+        abstract: "Probe Sewn's chat wire and SinatraHarness's on-device injection.",
         subcommands: [Chat.self, Compare.self, Providers.self, Warm.self, TraceCommand.self, Analysis.self])
 }
 
@@ -96,10 +97,10 @@ struct TurnOptions: ParsableArguments {
     @Option(help: "Temperature.")
     var temperature: Float?
 
-    @Option(help: "SinatraMLX mode: off, lexical, dense.")
+    @Option(help: "SinatraHarness mode: off, lexical, dense.")
     var mode: String?
 
-    @Option(help: "SinatraMLX trace: automatic, off, summary, full.")
+    @Option(help: "SinatraHarness trace: automatic, off, summary, full.")
     var trace: String?
 
     @Option(help: "Sampler seed (fixed seeds make decodes comparable).")
@@ -173,7 +174,7 @@ func runTurn(_ session: Connection.Session, body: Data, echo: Bool) async throws
 
 struct Chat: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Stream a chat turn; --then sends a follow-up that labels it through SinatraMLX's feedback loop.")
+        abstract: "Stream a chat turn and any follow-ups in the same conversation; each on-device turn reports SinatraHarness's grounding.")
 
     @OptionGroup var connection: Connection
     @OptionGroup var turn: TurnOptions
@@ -181,10 +182,10 @@ struct Chat: AsyncParsableCommand {
     @Argument(help: "The user's message.")
     var message: String
 
-    @Option(help: "A follow-up message sent after the reply (it labels the first turn).")
-    var then: String?
+    @Option(help: "A follow-up sent after the reply, with the conversation so far (repeatable).")
+    var then: [String] = []
 
-    @Option(help: "Seconds to wait before the follow-up (reply latency is part of the label).")
+    @Option(help: "Seconds to wait before each follow-up.")
     var pause: Double = 3
 
     @Option(help: "Trace steps to print when a trace was requested.")
@@ -192,35 +193,32 @@ struct Chat: AsyncParsableCommand {
 
     func run() async throws {
         let session = try await connection.connect()
-        var messages = [["role": "user", "content": message]]
-        Render.rule("you")
-        print(message)
-        Render.rule("\(turn.provider)\(turn.model.map { " · \($0)" } ?? "")")
-        let first = try await runTurn(session, body: turn.body(messages: messages, owner: session.ownerId, sinatra: turn.sinatraOptions), echo: true)
-        try await report(first, session: session)
-
-        guard let then else { return }
-        if pause > 0 { try await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000)) }
-        messages.append(["role": "assistant", "content": first.text])
-        messages.append(["role": "user", "content": then])
-        Render.rule("you")
-        print(then)
-        Render.rule("\(turn.provider)\(turn.model.map { " · \($0)" } ?? "")")
-        let second = try await runTurn(session, body: turn.body(messages: messages, owner: session.ownerId, sinatra: turn.sinatraOptions), echo: true)
-        try await report(second, session: session)
+        var messages: [[String: String]] = []
+        for (index, text) in ([message] + then).enumerated() {
+            if index > 0, pause > 0 { try await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000)) }
+            messages.append(["role": "user", "content": text])
+            Render.rule("you")
+            print(text)
+            Render.rule("\(turn.provider)\(turn.model.map { " · \($0)" } ?? "")  (\(messages.count) messages)")
+            let result = try await runTurn(session, body: turn.body(messages: messages, owner: session.ownerId, sinatra: turn.sinatraOptions), echo: true)
+            try await report(result, session: session)
+            messages.append(["role": "assistant", "content": result.text])
+        }
     }
 
     func report(_ result: TurnResult, session: Connection.Session) async throws {
         print(String(format: "\n(ttft %@, total %.2f s)", result.ttft.map { String(format: "%.2f s", $0) } ?? "–", result.total))
         guard let sinatra = result.sinatra else {
-            if turn.provider == "local" { print("(no sinatra object: the turn did not reach SinatraMLX)") }
+            if turn.provider == "local" { print("(no sinatra object: the turn did not reach SinatraHarness)") }
             return
         }
         Render.sinatra(sinatra)
-        if let brief = sinatra.trace, (turn.trace == "summary" || turn.trace == "full") {
-            let data = try await session.http.data("v1/providers/local/sinatra/traces/\(brief.traceId)")
+        let traced = turn.trace == "summary" || turn.trace == "full"
+        if traced, let id = sinatra.trace?.traceId ?? (sinatra.grounding?.measured == true ? sinatra.turnId : nil) {
+            let data = try await session.http.data("v1/providers/local/sinatra/traces/\(id)")
             let trace = try JSONDecoder().decode(Trace.self, from: data)
-            Render.trace(trace, steps: steps)
+            if trace.level != "off" { Render.trace(trace, steps: steps) }
+            if let grounding = trace.grounding { Render.grounding(grounding, steps: steps) }
         }
     }
 }
@@ -229,7 +227,7 @@ struct Chat: AsyncParsableCommand {
 
 struct Compare: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Send one message twice — SinatraMLX off, then on — with the same seed, and compare the decodes.")
+        abstract: "Send one message twice — SinatraHarness off, then on — with the same seed, and compare the decodes.")
 
     @OptionGroup var connection: Connection
     @OptionGroup var turn: TurnOptions
@@ -287,7 +285,7 @@ struct Compare: AsyncParsableCommand {
 // MARK: - Providers, warm, trace, analysis
 
 struct Providers: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Show GET /v1/providers, with SinatraMLX's status on the local row.")
+    static let configuration = CommandConfiguration(abstract: "Show GET /v1/providers, with SinatraHarness's status on the local row.")
     @OptionGroup var connection: Connection
 
     func run() async throws {
@@ -298,7 +296,10 @@ struct Providers: AsyncParsableCommand {
             print("\(mark) \(Render.pad(row.id, 8)) \(Render.pad(row.state, 9)) \(row.available ? "available" : "unavailable")  \(row.model)\(row.progress.map { String(format: "  %.0f%%", $0 * 100) } ?? "")")
             if let reason = row.reason { print("    \(reason)") }
             if let s = row.sinatra {
-                print("    sinatra: \(s.observations ?? 0) turns observed, \(s.labelled ?? 0) labelled, reliability \(Render.f(Float(s.reliability ?? 0), 2)), trained \(s.trainedAt ?? "never"), last |bias| \(Render.f(Float(s.lastBiasMagnitude ?? 0), 2))")
+                print("    sinatra: \(s.observations ?? 0) turns observed, \(s.turnsMeasured ?? s.labelled ?? 0) measured, reliability \(Render.f(Float(s.reliability ?? 0), 2)), trained \(s.trainedAt ?? "never"), last |bias| \(Render.f(Float(s.lastBiasMagnitude ?? 0), 2))")
+                if let grounding = s.groundingMean {
+                    print("    grounding \(Render.f(Float(grounding), 2)), drift \(Render.f(Float(s.driftMean ?? 0), 2)) nats, hallucination risk \(Render.f(Float(s.hallucinationRiskMean ?? 0), 3))")
+                }
                 if let store = s.store { print("    store: \(store)") }
             }
         }
@@ -320,7 +321,7 @@ struct Warm: AsyncParsableCommand {
 }
 
 struct TraceCommand: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "trace", abstract: "Render one of your SinatraMLX traces.")
+    static let configuration = CommandConfiguration(commandName: "trace", abstract: "Render one of your SinatraHarness traces.")
     @OptionGroup var connection: Connection
 
     @Argument(help: "Trace id (the `trace_id` from a turn's sinatra object).")
@@ -332,18 +333,36 @@ struct TraceCommand: AsyncParsableCommand {
     func run() async throws {
         let session = try await connection.connect()
         let trace = try JSONDecoder().decode(Trace.self, from: await session.http.data("v1/providers/local/sinatra/traces/\(id)"))
-        Render.trace(trace, steps: steps)
+        if trace.level != "off" { Render.trace(trace, steps: steps) }
+        if let grounding = trace.grounding { Render.grounding(grounding, steps: steps) }
     }
 }
 
 struct Analysis: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Entropy against personalization for your account.")
+    static let configuration = CommandConfiguration(abstract: "Grounding over time for your account: does steering reduce drift, which documents are cited.")
     @OptionGroup var connection: Connection
+
+    @Flag(help: "Print the raw JSON.")
+    var json = false
 
     func run() async throws {
         let session = try await connection.connect()
         let data = try await session.http.data("v1/providers/local/sinatra/analysis")
+        if !json, let report = try? JSONDecoder.probe.decode(GroundingReportPayload.self, from: data) {
+            Render.report(report)
+            return
+        }
         let object = try JSONSerialization.jsonObject(with: data)
         print(String(data: try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]), encoding: .utf8) ?? "")
+    }
+}
+
+extension JSONDecoder {
+    /// SinatraHarness's reports: ISO-8601 dates, non-finite floats as strings.
+    static var probe: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+        return decoder
     }
 }

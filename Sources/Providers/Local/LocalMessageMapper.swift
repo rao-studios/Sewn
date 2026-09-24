@@ -6,7 +6,12 @@
 //        MLX import — so it is unit-tested without a GPU.
 //  PIN:  Mistral-family Jinja templates demand strict user/assistant
 //        alternation and reject a bare "tool" role, so consecutive same-role
-//        turns merge rather than being sent as-is.
+//        turns merge rather than being sent as-is. The same templates glue the
+//        system prompt onto the front of the LAST user message
+//        ("[INST] {system}\n\n{user}[/INST]"). Fencing it as "standing
+//        instructions" was tried against Nemo 12B on Mary's prompt (2026-09-24)
+//        and did not stop it addressing the user by the persona's name; it added
+//        "Mary:" speaker labels instead, so the text goes in unmarked.
 //
 
 import Foundation

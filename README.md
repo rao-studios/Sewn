@@ -702,17 +702,20 @@ A turn on `local` therefore makes **no outbound request at all**: sentiment,
 compaction and auto-memory follow the turn's backend rather than quietly
 reaching a vendor the user did not choose.
 
-#### SinatraMLX on `local`
+#### SinatraHarness on `local`
 
-On-device chat turns run through [SinatraMLX](../../../repositories/SinatraMLX), a harness over Frigate's MLX with an **injection layer before decoding**. The partitions a turn retrieved are encoded with the LLM's own embedding table, never together with the prompt. A small time-series model weighs each partition from this user's implicit history with similar context, and the weights become a sparse bias added to the logits right before sampling. The feedback is implicit: the next user message labels the previous turn from how soon it came, how long it is, and how much it echoes each partition. Rewards, the stock-style indicators, IMBHS and the 30-day relevancy bands are described in SinatraMLX's README. Hosted providers never see any of this.
+On-device chat turns run through [SinatraHarness](../../../repositories/SinatraHarness), a harness over Frigate's MLX with an **injection layer before decoding**. The partitions a turn retrieved are encoded with the LLM's own embedding table, never together with the prompt. A small time-series model weighs each partition, and the weights become a sparse bias added to the logits right before sampling.
 
-* **Request.** An optional `sinatra` object on `/v1/chat/completions` (and the realtime `turn.start`): `{"mode": "off|lexical|dense", "trace": "automatic|off|summary|full", "seed": 1, "record": true}`. `record: false` plans and traces without recording the turn.
-* **Response.** On-device turns end the SSE stream with a metadata chunk carrying `sinatra`. The non-stream response carries the same object. It holds the turn id, mode, cold start, the partitions weighed, the bias size, the gate, the reward this message gave the previous turn, the owner's counts, and a trace summary: entropy before and after, KL, gain, divergence rate, and mass moved into the impact mask.
-* **`GET /v1/providers`.** The local row gains `sinatra`: observations, labelled, `trained_at`, reliability, `last_bias_magnitude` and store, for the signed-in owner.
+What it learns from is the answer itself, not the user's reply. After each turn the model scores its own answer twice: once with the system prompt and its retrieved context, and once with the same prompt without the context. That **grounding measurement** shows where the context moved the model, where the answer followed and where it drifted. It also gives each partition's citation value in the answer. It labels the turn at once, and the steer learns to lean toward what the context meant wherever answers keep drifting. The indicators, IMBHS and the 30-day relevancy bands now run over grounding. SinatraHarness's README has the definitions. Hosted providers never see any of this.
+
+* **The bare prompt.** `handleChat` builds the system prompt twice: with the retrieved context, and with the context left out and nothing else changed (`Sewn.systemPrompts`). Only the on-device provider receives the second one. Everything before the context is shared, so the bare side reuses the decode's KV cache for that prefix. Measuring takes about 0.6 s per 100 answer tokens on Nemo. It runs after the answer has streamed and before the trailing chunk, and gives way when another generation is waiting.
+* **Request.** An optional `sinatra` object on `/v1/chat/completions` (and the realtime `turn.start`): `{"mode": "off|lexical|dense", "trace": "automatic|off|summary|full", "seed": 1, "record": true}`. `record: false` plans, traces and measures without recording the turn.
+* **Response.** On-device turns end the SSE stream with a metadata chunk carrying `sinatra`. The non-stream response carries the same object. It holds the turn id, mode, cold start, the partitions weighed, the bias size, the gate and the owner's counts. When the injection ran it also carries a trace summary: entropy before and after, KL, gain, divergence rate, and mass moved into the impact mask. `grounding` is the measurement: the grounded share of content tokens, drift, context dependence, hallucination risk, parroting, and per-partition citations (nats, uptake, coverage).
+* **`GET /v1/providers`.** The local row gains `sinatra` for the signed-in owner: observations, labelled, `turns_measured`, `grounding_mean`, `drift_mean`, `hallucination_risk_mean`, `trained_at`, reliability, `last_bias_magnitude` and store.
 * **`POST /v1/providers/local/warm`.** Accepts an optional `{"model": "<hub id>"}` so a client can warm the model it will actually use.
-* **`GET /v1/providers/local/sinatra/traces/{id}`.** One of your traces, step by step: sampled and counterfactual token, entropy, KL, gain, ranks, and Δp over the impact mask.
-* **`GET /v1/providers/local/sinatra/analysis`.** Entropy against personalization for your account.
-* **Environment.** `SEWN_SINATRA_MODE`, `SEWN_SINATRA_TRACE` and `SEWN_SINATRA_ALPHA` set the defaults. The store lives under the data root in `sinatra-mlx/`. Sampling from the request (temperature, top_p, repetition) is now honoured on-device.
+* **`GET /v1/providers/local/sinatra/traces/{id}`.** One of your turns, step by step, in two layers. The injection layer shows the sampled and counterfactual token, entropy, KL, gain, ranks, and Δp over the impact mask. The grounding layer shows each token's influence, the step's KL, where the context pushed, and drift.
+* **`GET /v1/providers/local/sinatra/analysis`.** Grounding over your band: whether steering reduced drift, the first half of the band against the second, and which documents your answers cite.
+* **Environment.** `SEWN_SINATRA_MODE`, `SEWN_SINATRA_TRACE` and `SEWN_SINATRA_ALPHA` set the defaults. The store lives under the data root in `sinatra-harness/`; one left in `sinatra-mlx/` by the SinatraMLX-era build moves there on first start. Sampling from the request (temperature, top_p, repetition) is honoured on-device.
 * **Server-side Sinatra.** It still runs unchanged in this pass, including its resonance call to the server default. Removing it from Sewn is a later step.
 
 Try it from the terminal with `sewn-probe`, which signs in with `SEWN_DEV_EMAIL`/`SEWN_DEV_PASSWORD` or takes `--token`:
@@ -724,12 +727,13 @@ env -u HF_HOME SEWN_GLOBAL_LLM=local \
   .build/debug/sewn-server --port 8080 --grpc-port 9091
 swift run sewn-probe providers
 swift run sewn-probe chat "What do my notes say about the garden?" --then "Tell me more about the compost"
-swift run sewn-probe chat --trace full --seed 1 "…"        # per-step impact and heatmap
-swift run sewn-probe compare --seed 1 "…"                  # same seed, SinatraMLX off vs on
+swift run sewn-probe chat --trace full --seed 1 "…"        # per-step impact, heatmap, grounding table
+swift run sewn-probe compare --seed 1 "…"                  # same seed, SinatraHarness off vs on
+swift run sewn-probe analysis                              # grounding over your band
 swift run sewn-probe chat --app ambient "…"                # a RAO_HOME stack: secret from ~/.rao/secrets
 ```
 
-`./scripts/test-local-sinatra.sh` runs the wire tests and a live two-turn test through `LocalInference`. That test needs the model on disk and uses `SEWN_LOCAL_SINATRA_MODEL` to pick it.
+`./scripts/test-local-sinatra.sh` runs the wire tests and a live two-turn test through `LocalInference`, each turn measured against its context. That test needs the model on disk and uses `SEWN_LOCAL_SINATRA_MODEL` to pick it.
 
 **Models per provider** — `SEWN_CHAT_MODEL` / `TINKER_MODEL` / `SEWN_LOCAL_MODEL`
 for chat, `SEWN_CODING_MODEL` / `SEWN_LOCAL_CODING_MODEL` for `/v1/code/complete`,

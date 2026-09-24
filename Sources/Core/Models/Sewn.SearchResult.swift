@@ -27,7 +27,7 @@ extension Sewn {
         /// Raw partitions retained so span attribution can run after LLM generation.
         var partitions: [Sewn.Partition]
         var trace: Sewn.GraphTrace?
-        /// The partitions with their search scores, for the on-device provider's SinatraMLX.
+        /// The partitions with their search scores, for the on-device provider's SinatraHarness.
         var retrieved: [Sewn.RetrievedPartition] = []
 
         init(

@@ -1,5 +1,5 @@
 #!/bin/bash
-# WHAT: Run the on-device SinatraMLX tests, the live two-turn test included.
+# WHAT: Run the on-device SinatraHarness tests, the live two-turn test included.
 # IN:   SEWN_LOCAL_SINATRA_MODEL to pick the model (default Mistral Small 3.2 4-bit).
 # PIN:  The test bundle is code-signed at build time and a metallib copied into it breaks
 #       the seal, so it is removed before the build and installed after.

@@ -2,8 +2,8 @@
 //  Wire.swift
 //  sewn-probe
 //
-//  WHAT: The JSON the probe reads: stream chunks, SinatraMLX diagnostics and traces,
-//        provider rows. Mirrors of Sewn's and SinatraMLX's shapes, tolerant of extras.
+//  WHAT: The JSON the probe reads: stream chunks, SinatraHarness diagnostics and traces,
+//        provider rows. Mirrors of Sewn's and SinatraHarness's shapes, tolerant of extras.
 //
 
 import Foundation
@@ -67,8 +67,6 @@ struct SinatraDiagnostics: Codable {
     let biasTokens: Int
     let biasMaxAbs: Float
     let gate: Float
-    let previousReward: Float?
-    let previousReplyKind: String?
     let observations: Int
     let labelled: Int
     let reliability: Float
@@ -76,6 +74,7 @@ struct SinatraDiagnostics: Codable {
     let trainingScheduled: Bool
     let encodeMs: Double
     let trace: TraceBrief?
+    let grounding: GroundingBrief?
     enum CodingKeys: String, CodingKey {
         case turnId = "turn_id"
         case mode
@@ -85,17 +84,60 @@ struct SinatraDiagnostics: Codable {
         case biasTokens = "bias_tokens"
         case biasMaxAbs = "bias_max_abs"
         case gate
-        case previousReward = "previous_reward"
-        case previousReplyKind = "previous_reply_kind"
         case observations, labelled, reliability
         case trainedAt = "trained_at"
         case trainingScheduled = "training_scheduled"
         case encodeMs = "encode_ms"
-        case trace
+        case trace, grounding
+    }
+
+    /// What the retrieved context did to the answer: SinatraHarness's grounding measurement.
+    struct GroundingBrief: Codable {
+        struct Citation: Codable {
+            let partitionId: String
+            let documentId: String
+            let nats: Float
+            let uptake: Float
+            let coverage: Float
+            let parrot: Float
+            enum CodingKeys: String, CodingKey {
+                case partitionId = "partition_id"
+                case documentId = "document_id"
+                case nats, uptake, coverage, parrot
+            }
+        }
+        let measured: Bool
+        let skippedReason: String?
+        let grounding: Float
+        let drift: Float
+        let driftShare: Float
+        let contextDependence: Float
+        let meanContextKl: Float
+        let hallucinationRisk: Float
+        let parrotShare: Float
+        let contentTokens: Int
+        let prefillMs: Double
+        let scoreMs: Double
+        let attribution: [Citation]
+        enum CodingKeys: String, CodingKey {
+            case measured
+            case skippedReason = "skipped_reason"
+            case grounding, drift
+            case driftShare = "drift_share"
+            case contextDependence = "context_dependence"
+            case meanContextKl = "mean_context_kl"
+            case hallucinationRisk = "hallucination_risk"
+            case parrotShare = "parrot_share"
+            case contentTokens = "content_tokens"
+            case prefillMs = "prefill_ms"
+            case scoreMs = "score_ms"
+            case attribution
+        }
     }
 }
 
-/// SinatraMLX's InjectionTrace as `GET /v1/providers/local/sinatra/traces/{id}` returns it.
+/// SinatraHarness's InjectionTrace as `GET /v1/providers/local/sinatra/traces/{id}` returns it:
+/// the injection layer, and the grounding layer when the turn was measured.
 struct Trace: Decodable {
     struct Token: Decodable {
         let id: Int
@@ -140,6 +182,60 @@ struct Trace: Decodable {
         let firstDivergenceStep: Int?
         let partitionAttribution: [String: Float]
     }
+    struct Grounding: Decodable {
+        struct Step: Decodable {
+            let index: Int
+            let token: Int
+            let text: String?
+            let influence: Float
+            let contextKL: Float
+            let tuneText: String?
+            let tuneNats: Float
+            let drift: Float
+            let kind: String
+            let risk: Float
+            let pushes: [Token]?
+            let rankBare: Int?
+        }
+        struct Summary: Decodable {
+            let steps: Int
+            let contentTokens: Int
+            let grounding: Float
+            let unsupportedShare: Float
+            let contradictedShare: Float
+            let drift: Float
+            let driftShare: Float
+            let firstDriftStep: Int?
+            let contextDependence: Float
+            let meanContextKL: Float
+            let meanEntropyCtx: Float
+            let meanEntropyBare: Float
+            let hallucinationRisk: Float
+            let parrotShare: Float
+            let unattributed: Float
+        }
+        struct Attribution: Decodable {
+            let partitionId: String
+            let documentId: String
+            let nats: Float
+            let uptake: Float
+            let intent: Float
+            let coverage: Float
+            let parrot: Float
+            let relevancy: Float
+        }
+        let measured: Bool
+        let skippedReason: String?
+        let cacheReused: Bool
+        let promptTokens: Int
+        let bareTokens: Int
+        let sharedPrefixTokens: Int
+        let prefillMillis: Double
+        let scoreMillis: Double
+        let summary: Summary
+        let attribution: [Attribution]
+        let steps: [Step]
+    }
     let traceId: String
     let level: String
     let mode: String
@@ -147,6 +243,7 @@ struct Trace: Decodable {
     let mask: Mask?
     let steps: [Step]
     let summary: Summary
+    let grounding: Grounding?
 }
 
 struct ProvidersPayload: Decodable {
@@ -158,10 +255,18 @@ struct ProvidersPayload: Decodable {
             let reliability: Double?
             let lastBiasMagnitude: Double?
             let store: String?
+            let turnsMeasured: Int?
+            let groundingMean: Double?
+            let driftMean: Double?
+            let hallucinationRiskMean: Double?
             enum CodingKeys: String, CodingKey {
                 case observations, labelled, reliability, store
                 case trainedAt = "trained_at"
                 case lastBiasMagnitude = "last_bias_magnitude"
+                case turnsMeasured = "turns_measured"
+                case groundingMean = "grounding_mean"
+                case driftMean = "drift_mean"
+                case hallucinationRiskMean = "hallucination_risk_mean"
             }
         }
         let id: String
@@ -179,4 +284,42 @@ struct ProvidersPayload: Decodable {
     }
     let providers: [Row]
     let `default`: String
+}
+
+/// `GET /v1/providers/local/sinatra/analysis`: SinatraHarness's GroundingReport, read loosely.
+struct GroundingReportPayload: Decodable {
+    struct Correlation: Decodable {
+        let x: String
+        let y: String
+        let pearson: Double?
+        let n: Int
+    }
+    struct Bin: Decodable {
+        let label: String
+        let count: Int
+        let meanGrounding: Double?
+        let meanDrift: Double?
+        let meanRisk: Double?
+    }
+    struct Citation: Decodable {
+        let documentId: String
+        let turns: Int
+        let nats: Double
+        let meanUptake: Double
+    }
+    struct Row: Decodable {
+        let turnId: String
+        let grounding: Float
+        let drift: Float
+        let driftShare: Float
+        let hallucinationRisk: Float
+        let steered: Bool
+    }
+    let owner: String
+    let rows: [Row]
+    let correlations: [Correlation]
+    let bins: [Bin]
+    let citations: [Citation]
+    let mostDrifted: [Row]
+    let unmeasured: [String: Int]?
 }

@@ -2,10 +2,10 @@
 //  LocalSinatraTests.swift
 //  sewn-serverTests
 //
-//  The on-device provider's SinatraMLX wiring: the `sinatra` request object, the
-//  retrieved partitions handed over, sampling now honoured, the diagnostics on the wire,
-//  and — gated, with a real model — two turns through LocalInference where the second
-//  message labels the first.
+//  The on-device provider's SinatraHarness wiring: the `sinatra` request object, the
+//  retrieved partitions and the bare system prompt handed over, sampling honoured, the
+//  history the model sees, the diagnostics on the wire, and — gated, with a real model —
+//  two turns through LocalInference, each measured against its context as it finishes.
 //
 
 import Foundation
@@ -29,15 +29,25 @@ final class LocalSinatraWireTests: XCTestCase {
         XCTAssertNotNil(try chatRequest(#","sinatra":{"trace":"everything"}"#).sinatra?.validationError)
     }
 
-    func testTheTurnCarriesTheOwnerAndTheLabellingMessage() throws {
+    func testTheTurnCarriesTheOwnerAndTheBareSystem() throws {
         let request = try chatRequest(#","sinatra":{"seed":3}"#)
         let at = Date(timeIntervalSince1970: 1_758_000_000)
-        let turn = try XCTUnwrap(LocalTurnContext.make(owner: "Owner-1", request: request, userMessageAt: at))
+        let turn = try XCTUnwrap(LocalTurnContext.make(owner: "Owner-1", request: request, userMessageAt: at, bareSystem: "Be brief."))
         XCTAssertEqual(turn.owner, "owner-1")
-        XCTAssertEqual(turn.userMessageText, "What do my notes say?")
+        XCTAssertEqual(turn.bareSystem, "Be brief.")
         XCTAssertEqual(turn.userMessageAt, at)
         XCTAssertEqual(turn.options?.seed, 3)
-        XCTAssertNil(LocalTurnContext.make(owner: nil, request: request, userMessageAt: at))
+        XCTAssertNil(LocalTurnContext.make(owner: nil, request: request, userMessageAt: at, bareSystem: nil))
+    }
+
+    /// The bare prompt is the full one with the context left out and nothing else changed,
+    /// so everything before the context is a shared prefix.
+    func testTheBareSystemLeavesOnlyTheContextOut() {
+        let prompts = Sewn.systemPrompts(personaSection: "Your name is Mary.", instructions: "Be brief.", context: "--- CONTEXT ---\nThe garden gets sun.")
+        XCTAssertEqual(prompts.full, "Your name is Mary.\n\nBe brief.\n\n--- CONTEXT ---\nThe garden gets sun.")
+        XCTAssertEqual(prompts.bare, "Your name is Mary.\n\nBe brief.")
+        XCTAssertTrue(prompts.full.hasPrefix(prompts.bare!))
+        XCTAssertNil(Sewn.systemPrompts(personaSection: "Your name is Mary.", instructions: "Be brief.", context: "").bare)
     }
 
     func testRetrievedPartitionsKeepScoresAndDropDuplicates() {
@@ -56,7 +66,8 @@ final class LocalSinatraWireTests: XCTestCase {
     func testTheLocalRowAloneCarriesSinatraStatus() throws {
         let status = SinatraStatusInfo(
             observations: 12, labelled: 9, trainedAt: "2026-09-23T10:00:00Z", reliability: 0.4,
-            lastBiasMagnitude: 1.2, store: "/tmp/store")
+            lastBiasMagnitude: 1.2, store: "/tmp/store", turnsMeasured: 9, groundingMean: 0.75,
+            driftMean: 0.25, hallucinationRiskMean: 0.125)
         let local = providerInfo(.local, localState: .cold, localBuilt: true, sinatra: status)
         let hosted = providerInfo(.mistral, localState: .cold, localBuilt: true, sinatra: status)
         XCTAssertEqual(local.sinatra, status)
@@ -64,23 +75,35 @@ final class LocalSinatraWireTests: XCTestCase {
         let json = try XCTUnwrap(String(data: JSONEncoder().encode(local), encoding: .utf8))
         XCTAssertTrue(json.contains(#""trained_at":"2026-09-23T10:00:00Z""#))
         XCTAssertTrue(json.contains(#""last_bias_magnitude":1.2"#))
+        XCTAssertTrue(json.contains(#""turns_measured":9"#))
+        XCTAssertTrue(json.contains(#""grounding_mean":0.75"#))
+        XCTAssertTrue(json.contains(#""drift_mean":0.25"#))
     }
 
     func testTheTrailingChunkCarriesTheDiagnostics() throws {
         let diagnostics = LocalSinatraDiagnostics(
             turnId: "t", mode: "lexical", coldStart: true, partitions: 3, weightedPartitions: 1,
-            biasTokens: 40, biasMaxAbs: 1.5, gate: 0, previousReward: 0.8, previousReplyKind: "replied",
+            biasTokens: 40, biasMaxAbs: 1.5, gate: 0,
             observations: 2, labelled: 1, reliability: 0, trainedAt: nil, trainingScheduled: false,
             encodeMs: 2.5,
             trace: .init(
                 traceId: "x", level: "summary", seed: 1, steps: 10, meanEntropyPre: 1, meanEntropyPost: 0.8,
                 meanEntropyShift: -0.2, totalKl: 0.3, totalGain: 1.1, meanMassIntoMask: 0.05,
-                divergenceRate: 0.1, firstDivergenceStep: 4, flippedArgmaxSteps: 1, sampledInMaskShare: 0.3))
+                divergenceRate: 0.1, firstDivergenceStep: 4, flippedArgmaxSteps: 1, sampledInMaskShare: 0.3),
+            grounding: .init(
+                measured: true, skippedReason: nil, grounding: 0.75, drift: 0.25, driftShare: 0.125,
+                contextDependence: 42, meanContextKl: 1.5, hallucinationRisk: 0.03, parrotShare: 0.06,
+                contentTokens: 50, prefillMs: 76, scoreMs: 520,
+                attribution: [.init(partitionId: "p", documentId: "d", nats: 126, uptake: 0.625, coverage: 0.5, parrot: 0.0625)]))
         let chunk = ChatCompletionChunkResponse(id: "c", model: "m", choices: [], references: [], sinatra: diagnostics)
         let json = try XCTUnwrap(String(data: JSONEncoder().encode(chunk), encoding: .utf8))
         XCTAssertTrue(json.contains(#""sinatra":{"#))
-        XCTAssertTrue(json.contains(#""previous_reward":0.8"#))
         XCTAssertTrue(json.contains(#""mean_entropy_shift":-0.2"#))
+        XCTAssertTrue(json.contains(#""grounding":{"#))
+        XCTAssertTrue(json.contains(#""measured":true"#))
+        XCTAssertTrue(json.contains(#""drift_share":0.125"#))
+        XCTAssertTrue(json.contains(#""partition_id":"p""#))
+        XCTAssertFalse(json.contains("previous_reward"))
         let plain = ChatCompletionChunkResponse(id: "c", model: "m", choices: [], references: [])
         XCTAssertFalse(try XCTUnwrap(String(data: JSONEncoder().encode(plain), encoding: .utf8)).contains("sinatra\":{"))
     }
@@ -112,6 +135,25 @@ final class LocalSinatraWireTests: XCTestCase {
             tools: nil)
         XCTAssertEqual(conversation.system, "You are Mary.")
         XCTAssertEqual(conversation.turns.map(\.isUser), [true, false, true])
+    }
+
+    /// The store folder was `sinatra-mlx` before SinatraMLX became SinatraHarness: an existing
+    /// one moves across once, and a new store is never overwritten by an old one.
+    func testALegacyStoreMovesToTheNewFolderOnce() throws {
+        let files = FileManager.default
+        let root = files.temporaryDirectory.appendingPathComponent("sewn-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? files.removeItem(at: root) }
+        let legacy = root.appendingPathComponent(LocalStore.legacyFolder, isDirectory: true)
+        try files.createDirectory(at: legacy.appendingPathComponent("owners"), withIntermediateDirectories: true)
+
+        let store = LocalStore.directory(root: root)
+        XCTAssertEqual(store.lastPathComponent, "sinatra-harness")
+        XCTAssertTrue(files.fileExists(atPath: store.appendingPathComponent("owners").path(percentEncoded: false)))
+        XCTAssertFalse(files.fileExists(atPath: legacy.path(percentEncoded: false)))
+
+        try files.createDirectory(at: legacy, withIntermediateDirectories: true)
+        XCTAssertEqual(LocalStore.directory(root: root), store)
+        XCTAssertTrue(files.fileExists(atPath: legacy.path(percentEncoded: false)), "a store already in place is left alone")
     }
 
     /// After the 200 is out, a failure has to say so in the stream itself.
@@ -161,7 +203,7 @@ final class LocalSinatraWireTests: XCTestCase {
 /// test bundle, and SEWN_LOCAL_SINATRA_TESTS=1 (SEWN_LOCAL_SINATRA_MODEL picks the model).
 final class LocalSinatraLiveTests: XCTestCase {
 
-    func testASecondMessageLabelsTheFirstTurn() async throws {
+    func testEachTurnIsMeasuredAgainstItsContext() async throws {
         let env = ProcessInfo.processInfo.environment
         try XCTSkipUnless(env["SEWN_LOCAL_SINATRA_TESTS"] == "1", "set SEWN_LOCAL_SINATRA_TESTS=1 to run with a real model")
         let model = env["SEWN_LOCAL_SINATRA_MODEL"] ?? "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit"
@@ -175,14 +217,17 @@ final class LocalSinatraLiveTests: XCTestCase {
             maxTokens: 60, temperature: 0, topP: 1, repetitionPenalty: 1.0, repetitionContextSize: 20,
             kvBits: nil, kvGroupSize: 64, quantizedKVStart: 0)
         let sampling = LocalSampling(parameters, maxTokens: 60)
-        let system = "Answer from the notes in one sentence."
+        let prompts = Sewn.systemPrompts(
+            personaSection: "Answer from the notes in one sentence.", instructions: "Quote the notes' own words.",
+            context: "--- CONTEXT ---\n" + retrieved.map(\.text).joined(separator: "\n\n"))
 
         func turn(_ text: String, history: [Requests.Chat.Get.Message]) async throws -> (String, LocalSinatraDiagnostics?) {
             let request = try JSONDecoder().decode(ChatCompletionRequest.self, from: Data(
                 #"{"messages":[{"role":"user","content":"\#(text)"}],"provider":"local","sewn":{"owner_id":"live-owner"},"sinatra":{"trace":"summary","seed":1}}"#.utf8))
-            let context = try XCTUnwrap(LocalTurnContext.make(owner: "live-owner", request: request, userMessageAt: Date()))
+            let context = try XCTUnwrap(LocalTurnContext.make(
+                owner: "live-owner", request: request, userMessageAt: Date(), bareSystem: prompts.bare))
             let result = try await local.generate(
-                system: system, messages: history + [.init(role: "user", content: text)], tools: nil,
+                system: prompts.full, messages: history + [.init(role: "user", content: text)], tools: nil,
                 modelID: model, sampling: sampling, retrieved: retrieved, turn: context)
             return (result.text, result.sinatra)
         }
@@ -191,20 +236,37 @@ final class LocalSinatraLiveTests: XCTestCase {
         XCTAssertFalse(first.isEmpty)
         let one = try XCTUnwrap(firstDiagnostics)
         XCTAssertEqual(one.partitions, 2)
-        XCTAssertNil(one.previousReward)
+        let grounding = try XCTUnwrap(one.grounding, "a turn with context is measured as it finishes")
+        print("[live] first: \(first)\n[live] attribution: \(grounding.attribution.map { "\($0.partitionId) \($0.nats) nats, uptake \($0.uptake)" })")
+        XCTAssertTrue(grounding.measured, grounding.skippedReason ?? "")
+        XCTAssertGreaterThan(grounding.contextDependence, 0, "the answer should lean on its notes")
+        let garden = try XCTUnwrap(grounding.attribution.first { $0.partitionId == "garden#0" })
+        let bread = try XCTUnwrap(grounding.attribution.first { $0.partitionId == "bread#0" })
+        // Attribution follows the note the answer actually used — which is not always the
+        // garden one: at temperature 0 Nemo has answered this question from the sourdough note.
+        let said = first.lowercased()
+        let usedGarden = ["compost", "garden", "tomato", "basil", "soil"].contains { said.contains($0) }
+        let usedBread = ["sourdough", "flour", "starter"].contains { said.contains($0) }
+        if usedGarden != usedBread {
+            XCTAssertGreaterThan(
+                usedGarden ? garden.nats : bread.nats, usedGarden ? bread.nats : garden.nats,
+                "the citation should go to the note the answer drew on")
+        }
+        XCTAssertEqual(one.labelled, 1)
 
-        try await Task.sleep(nanoseconds: 1_500_000_000)
         let (second, secondDiagnostics) = try await turn(
-            "Great, tell me more about the garden beds compost and tomatoes",
+            "Tell me more about the compost",
             history: [.init(role: "user", content: "What should I do in the garden?"), .init(role: "assistant", content: first)])
         XCTAssertFalse(second.isEmpty)
         let two = try XCTUnwrap(secondDiagnostics)
-        XCTAssertNotNil(two.previousReward, "the second message should label the first turn")
-        XCTAssertEqual(two.labelled, 1)
+        XCTAssertEqual(two.grounding?.measured, true)
+        XCTAssertEqual(two.labelled, 2)
         let status = await local.sinatraStatus(owner: "live-owner")
         XCTAssertEqual(status?.observations, 2)
+        XCTAssertEqual(status?.turnsMeasured, 2)
+        XCTAssertNotNil(status?.groundingMean)
         await local.flush()
-        print("[live] first: \(first)\n[live] second: \(second)\n[live] R(first) = \(two.previousReward ?? -1), bias tokens \(two.biasTokens), trace \(two.trace.map { "ΔH \($0.meanEntropyShift) gain \($0.totalGain)" } ?? "none")")
+        print("[live] second: \(second)\n[live] grounding \(grounding.grounding), drift \(grounding.drift), garden \(garden.nats) nats vs bread \(bread.nats), measured in \(grounding.prefillMs + grounding.scoreMs) ms")
     }
 }
 #endif

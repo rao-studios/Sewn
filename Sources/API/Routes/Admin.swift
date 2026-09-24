@@ -329,7 +329,7 @@ func registerAdminRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sew
 
         // 2. Remove all Sinatra data (parked, collector, dataset, model, harmony memory).
         let sinatraCleared = sewn.sinatra.removeOwner(id: ownerId)
-        // SinatraMLX's on-device ledger, weights and traces for this owner.
+        // SinatraHarness's on-device ledger, weights and traces for this owner.
         await modelProvider?.local.forgetOwner(ownerId)
 
         context.logger.info("[Admin] owner/delete — done. docs=\(docsRemoved), sinatra=\(sinatraCleared)")

@@ -3,7 +3,7 @@
 //  sewn-server
 //
 //  WHAT: One retrieved chunk and its rank signal — what the `local` provider hands
-//        SinatraMLX, the only text its side model ever encodes.
+//        SinatraHarness, the only text its side model ever encodes.
 //
 
 import Foundation
@@ -16,9 +16,11 @@ extension Sewn {
         /// Thread's PQ distance: lower is closer.
         let score: Float
         /// Document creation time. Thread search results do not carry it yet
-        /// (`ThreadPartitionResult` has no created_at), so SinatraMLX falls back to the
+        /// (`ThreadPartitionResult` has no created_at), so SinatraHarness falls back to the
         /// first time this owner retrieved the document.
         let createdAt: Date?
+        /// Last modification time, same caveat. The newest known date sets the relevancy band.
+        var modifiedAt: Date? = nil
 
         /// De-duplicated, in retrieval order, with each partition's search score.
         static func from(_ partitions: [Sewn.Partition], scores: [String: Float]) -> [RetrievedPartition] {

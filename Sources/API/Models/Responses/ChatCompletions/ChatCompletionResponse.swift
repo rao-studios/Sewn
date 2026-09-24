@@ -23,7 +23,7 @@ struct ChatCompletionResponse: Codable {
     let tone: SinatraTone?
     /// Personality id that served this response, when one was selected.
     let personality: String?
-    /// What SinatraMLX did on an on-device turn.
+    /// What SinatraHarness did on an on-device turn.
     let sinatra: LocalSinatraDiagnostics?
 
     init(

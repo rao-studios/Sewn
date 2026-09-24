@@ -2,17 +2,18 @@
 //  LocalInference.swift
 //  Sewn
 //
-//  WHAT: On-device generation through SinatraMLX — the harness over Frigate MLX whose
-//        injection layer adds a retrieval-feedback bias to the logits right before
-//        decoding. The `.local` provider's whole implementation.
+//  WHAT: On-device generation through SinatraHarness — the harness over Frigate MLX whose
+//        injection layer adds a bias to the logits right before decoding, learned from
+//        how well earlier answers followed their retrieved context (grounding). The
+//        `.local` provider's whole implementation.
 //  IN:   ModelProvider (never a route directly)
-//  OUT:  text + tool calls (+ SinatraMLX diagnostics on chat turns), or a stream of them
+//  OUT:  text + tool calls (+ SinatraHarness diagnostics on chat turns), or a stream of them
 //  PIN:  MLXLMCommon's UserInput/Chat/Message/JSONValue are SHADOWED by this
 //        module's own vestigial declarations (Sources/API/MLXModels), and Sewn has its
-//        own OwnerID, so every MLX and SinatraMLX type here is fully qualified.
+//        own OwnerID, so every MLX and SinatraHarness type here is fully qualified.
 //        Requires mlx.metallib beside the binary — see scripts/build-metallib.sh.
 //        One resident model and one generation at a time live in the harness; its gate
-//        also serialises SinatraMLX's context encoding, tracing and training.
+//        also serialises SinatraHarness's context encoding, tracing and training.
 //
 
 import Foundation
@@ -45,30 +46,49 @@ enum LocalState: Sendable, Equatable {
     }
 }
 
+/// Where SinatraHarness keeps its ledgers, weight models and traces under the data root.
+/// The folder was `sinatra-mlx` before the package was renamed from SinatraMLX: an existing
+/// one moves across once, so nothing it learned is stranded, and a new store is never
+/// overwritten.
+enum LocalStore {
+    static let folder = "sinatra-harness"
+    static let legacyFolder = "sinatra-mlx"
+
+    static func directory(root: URL, fileManager: FileManager = .default) -> URL {
+        let store = root.appendingPathComponent(folder, isDirectory: true)
+        let legacy = root.appendingPathComponent(legacyFolder, isDirectory: true)
+        if !fileManager.fileExists(atPath: store.path(percentEncoded: false)),
+            fileManager.fileExists(atPath: legacy.path(percentEncoded: false))
+        {
+            try? fileManager.moveItem(at: legacy, to: store)
+        }
+        return store
+    }
+}
+
 #if canImport(MLXLLM)
 
 import MLXLLM
 import MLXLMCommon
 import FrigateBridge
-import SinatraMLX
+import SinatraHarness
 
 actor LocalInference {
 
     private let logger: Logger
-    private let harness: SinatraHarness
+    private let harness: SinatraHarness.Harness
     /// The Metal library is missing: reported instead of the harness state.
     private var gpuFailure: String?
     /// Off only under `swift test`, where the running binary is Xcode's test runner, not
     /// the bundle MLX actually loads its metallib beside.
     private let gpuPreflight: Bool
 
-    /// SinatraMLX keeps its ledgers, weight models and traces under the data root.
+    /// SinatraHarness keeps its ledgers, weight models and traces under the data root.
     init(logger: Logger, storeDirectory: URL? = nil, gpuPreflight: Bool = true) {
         self.logger = logger
         self.gpuPreflight = gpuPreflight
-        let store = storeDirectory
-            ?? FilePersistence.getDefaultURL().appendingPathComponent("sinatra-mlx", isDirectory: true)
-        self.harness = SinatraHarness(
+        let store = storeDirectory ?? LocalStore.directory(root: FilePersistence.getDefaultURL())
+        self.harness = SinatraHarness.Harness(
             storeDirectory: store, configuration: Self.sinatraConfiguration(),
             log: SinatraLogBridge(logger: logger))
     }
@@ -77,12 +97,12 @@ actor LocalInference {
     /// SEWN_SINATRA_TRACE (automatic|off|summary|full), SEWN_SINATRA_ALPHA.
     static func sinatraConfiguration(
         environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> SinatraMLX.SinatraConfiguration {
-        var configuration = SinatraMLX.SinatraConfiguration()
-        if let mode = environment["SEWN_SINATRA_MODE"].flatMap(SinatraMLX.BiasMode.init(rawValue:)) {
+    ) -> SinatraHarness.SinatraConfiguration {
+        var configuration = SinatraHarness.SinatraConfiguration()
+        if let mode = environment["SEWN_SINATRA_MODE"].flatMap(SinatraHarness.BiasMode.init(rawValue:)) {
             configuration.biasMode = mode
         }
-        if let trace = environment["SEWN_SINATRA_TRACE"].flatMap(SinatraMLX.TraceLevel.init(rawValue:)) {
+        if let trace = environment["SEWN_SINATRA_TRACE"].flatMap(SinatraHarness.TraceLevel.init(rawValue:)) {
             configuration.traceLevel = trace
         }
         if let alpha = environment["SEWN_SINATRA_ALPHA"].flatMap(Float.init) {
@@ -184,7 +204,7 @@ actor LocalInference {
             sampling: .utility(maxTokens: maxTokens), retrieved: [], turn: nil)
     }
 
-    /// A chat turn: with `turn`, SinatraMLX plans the injection from `retrieved`, decodes
+    /// A chat turn: with `turn`, SinatraHarness plans the injection from `retrieved`, decodes
     /// with it, records the turn for its reply to label, and ends with `.sinatra`.
     nonisolated func stream(
         system: String?,
@@ -224,22 +244,22 @@ actor LocalInference {
         try await ensureLoaded(modelID: modelID)
 
         // Strict alternation starting with the user, or the template rejects the turn.
-        let conversation = LocalMessageMapper.conversation(system: system, messages: messages, tools: tools)
-        var chat: [MLXLMCommon.Chat.Message] = [.system(conversation.system)]
-        for message in conversation.turns {
-            chat.append(message.isUser ? .user(message.text) : .assistant(message.text))
+        let toolSpecs = (tools?.isEmpty ?? true) ? nil : tools?.map(LocalMessageMapper.toolSpec(from:))
+        let input = Self.userInput(system: system, messages: messages, tools: tools, toolSpecs: toolSpecs)
+        // The same chat without its retrieved context: SinatraHarness scores the answer against
+        // it after the decode to measure what the context did.
+        let bareInput = turn?.bareSystem.map {
+            Self.userInput(system: $0, messages: messages, tools: tools, toolSpecs: toolSpecs)
         }
-        let input = MLXLMCommon.UserInput(
-            chat: chat,
-            tools: (tools?.isEmpty ?? true) ? nil : tools?.map(LocalMessageMapper.toolSpec(from:)))
 
         let options = turn?.options
-        let request = SinatraMLX.GenerateRequest(
+        let request = SinatraHarness.GenerateRequest(
             input: input,
             parameters: Self.generateParameters(sampling, seed: options?.seed),
             turn: turn.map { Self.turnInput($0, retrieved: retrieved) },
-            mode: options?.mode.flatMap(SinatraMLX.BiasMode.init(rawValue:)),
-            trace: options?.trace.flatMap(SinatraMLX.TraceLevel.init(rawValue:)) ?? .automatic,
+            bareInput: bareInput,
+            mode: options?.mode.flatMap(SinatraHarness.BiasMode.init(rawValue:)),
+            trace: options?.trace.flatMap(SinatraHarness.TraceLevel.init(rawValue:)) ?? .automatic,
             record: options?.record ?? true)
         let handle = try await harness.generate(request)
 
@@ -279,6 +299,18 @@ actor LocalInference {
 
     // MARK: - Mapping
 
+    static func userInput(
+        system: String?, messages: [Requests.Chat.Get.Message], tools: [Requests.Chat.Get.Tool]?,
+        toolSpecs: [[String: any Sendable]]?
+    ) -> MLXLMCommon.UserInput {
+        let conversation = LocalMessageMapper.conversation(system: system, messages: messages, tools: tools)
+        var chat: [MLXLMCommon.Chat.Message] = [.system(conversation.system)]
+        for message in conversation.turns {
+            chat.append(message.isUser ? .user(message.text) : .assistant(message.text))
+        }
+        return MLXLMCommon.UserInput(chat: chat, tools: toolSpecs)
+    }
+
     /// The handler's sampling, now honoured on-device (it used to pass only maxTokens).
     static func generateParameters(_ sampling: LocalSampling, seed: UInt64? = nil) -> MLXLMCommon.GenerateParameters {
         MLXLMCommon.GenerateParameters(
@@ -293,19 +325,19 @@ actor LocalInference {
             seed: seed ?? sampling.seed)
     }
 
-    static func turnInput(_ turn: LocalTurnContext, retrieved: [Sewn.RetrievedPartition]) -> SinatraMLX.TurnInput {
-        SinatraMLX.TurnInput(
-            owner: SinatraMLX.OwnerID(turn.owner),
+    static func turnInput(_ turn: LocalTurnContext, retrieved: [Sewn.RetrievedPartition]) -> SinatraHarness.TurnInput {
+        SinatraHarness.TurnInput(
+            owner: SinatraHarness.OwnerID(turn.owner),
             retrieved: retrieved.map {
-                SinatraMLX.Partition(
-                    id: $0.id, documentId: $0.documentId, text: $0.text, score: $0.score, createdAt: $0.createdAt)
+                SinatraHarness.Partition(
+                    id: $0.id, documentId: $0.documentId, text: $0.text, score: $0.score,
+                    createdAt: $0.createdAt, modifiedAt: $0.modifiedAt)
             },
-            userMessage: SinatraMLX.UserMessage(text: turn.userMessageText, at: turn.userMessageAt),
             conversationId: turn.conversationId,
             now: Date())
     }
 
-    static func diagnostics(plan: SinatraMLX.InjectionPlan?, completion: SinatraMLX.TurnCompletion) -> LocalSinatraDiagnostics? {
+    static func diagnostics(plan: SinatraHarness.InjectionPlan?, completion: SinatraHarness.TurnCompletion) -> LocalSinatraDiagnostics? {
         guard let plan else { return nil }
         let d = plan.diagnostics
         let summary = completion.summary
@@ -324,39 +356,54 @@ actor LocalInference {
             turnId: plan.turnId.uuidString.lowercased(), mode: plan.mode.rawValue, coldStart: d.coldStart,
             partitions: d.partitions.count, weightedPartitions: d.weightedPartitions,
             biasTokens: d.biasNonZero, biasMaxAbs: d.biasMaxAbs, gate: d.gate,
-            previousReward: d.labelledPrevious?.signals.reward,
-            previousReplyKind: d.labelledPrevious?.signals.kind.rawValue,
             observations: summary?.observations ?? d.observedTurns,
-            labelled: summary?.labelled ?? d.labelledTurns,
+            labelled: summary?.measuredTurns ?? d.measuredTurns,
             reliability: summary?.reliability ?? d.gate,
             trainedAt: SinatraDates.iso(summary?.trainedAt),
             trainingScheduled: completion.trainingScheduled,
-            encodeMs: d.encodeMillis, trace: trace)
+            encodeMs: d.encodeMillis, trace: trace,
+            grounding: completion.grounding.map(Self.groundingBrief))
     }
 
-    // MARK: - SinatraMLX status and reads
+    static func groundingBrief(_ m: SinatraHarness.GroundingMeasurement) -> LocalSinatraDiagnostics.GroundingBrief {
+        let s = m.summary
+        return LocalSinatraDiagnostics.GroundingBrief(
+            measured: m.measured, skippedReason: m.skippedReason, grounding: s.grounding, drift: s.drift,
+            driftShare: s.driftShare, contextDependence: s.contextDependence, meanContextKl: s.meanContextKL,
+            hallucinationRisk: s.hallucinationRisk, parrotShare: s.parrotShare, contentTokens: s.contentTokens,
+            prefillMs: m.prefillMillis, scoreMs: m.scoreMillis,
+            attribution: m.attribution.map {
+                .init(partitionId: $0.partitionId, documentId: $0.documentId, nats: $0.nats,
+                      uptake: $0.uptake, coverage: $0.coverage, parrot: $0.parrot)
+            })
+    }
+
+    // MARK: - SinatraHarness status and reads
 
     func sinatraStatus(owner: String) async -> SinatraStatusInfo? {
-        guard let summary = await harness.summary(owner: SinatraMLX.OwnerID(owner.lowercased())) else { return nil }
+        guard let summary = await harness.summary(owner: SinatraHarness.OwnerID(owner.lowercased())) else { return nil }
         return SinatraStatusInfo(
-            observations: summary.observations, labelled: summary.labelled,
+            observations: summary.observations, labelled: summary.measuredTurns,
             trainedAt: SinatraDates.iso(summary.trainedAt), reliability: summary.reliability,
-            lastBiasMagnitude: summary.lastBiasMagnitude ?? 0, store: summary.store)
+            lastBiasMagnitude: summary.lastBiasMagnitude ?? 0, store: summary.store,
+            turnsMeasured: summary.measuredTurns, groundingMean: summary.meanGrounding,
+            driftMean: summary.meanDrift, hallucinationRiskMean: summary.meanHallucinationRisk)
     }
 
     /// The stored trace JSON for one of `owner`'s turns, or nil.
     func traceJSON(owner: String, turnId: UUID) async -> Data? {
-        guard let trace = await harness.trace(owner: SinatraMLX.OwnerID(owner.lowercased()), turnId: turnId) else { return nil }
+        guard let trace = await harness.trace(owner: SinatraHarness.OwnerID(owner.lowercased()), turnId: turnId) else { return nil }
         return try? Self.encoder.encode(trace)
     }
 
+    /// Grounding over the owner's band: does steering reduce drift, which documents are cited.
     func analysisJSON(owner: String) async -> Data? {
-        guard let report = await harness.entropyReport(owner: SinatraMLX.OwnerID(owner.lowercased())) else { return nil }
+        guard let report = await harness.groundingReport(owner: SinatraHarness.OwnerID(owner.lowercased())) else { return nil }
         return try? Self.encoder.encode(report)
     }
 
     func forgetOwner(_ owner: String) async {
-        try? await harness.forget(owner: SinatraMLX.OwnerID(owner.lowercased()))
+        try? await harness.forget(owner: SinatraHarness.OwnerID(owner.lowercased()))
     }
 
     func flush() async {
@@ -372,12 +419,12 @@ actor LocalInference {
     }()
 }
 
-/// SinatraMLX's log sink over swift-log.
-struct SinatraLogBridge: SinatraMLX.SinatraLog {
+/// SinatraHarness's log sink over swift-log.
+struct SinatraLogBridge: SinatraHarness.SinatraLog {
     let logger: Logger
 
-    func log(_ level: SinatraMLX.SinatraLogLevel, _ message: @autoclosure () -> String) {
-        let text = "[sinatra-mlx] \(message())"
+    func log(_ level: SinatraHarness.SinatraLogLevel, _ message: @autoclosure () -> String) {
+        let text = "[sinatra-harness] \(message())"
         switch level {
         case .trace: logger.trace("\(text)")
         case .debug: logger.debug("\(text)")

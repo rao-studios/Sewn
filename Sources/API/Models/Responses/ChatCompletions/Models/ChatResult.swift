@@ -30,10 +30,13 @@ struct ChatResult {
     ///      `sewn.accumulatePerformance(_:)`.
     /// Returns `nil` when Sinatra was not invoked (e.g. VLM path).
     let sinatraTask: Task<Sinatra.PrepareResult?, any Error>?
-    /// The retrieved partitions with scores, for the on-device provider's SinatraMLX.
+    /// The retrieved partitions with scores, for the on-device provider's SinatraHarness.
     let retrieved: [Sewn.RetrievedPartition]
     /// When the user's message arrived: the client's timestamp, else receipt time.
     let userMessageAt: Date
+    /// The system prompt without its retrieved context (nil when there was none): what the
+    /// on-device provider's grounding measurement scores the answer against.
+    let bareSystem: String?
 
     init(
         input: UserInput,
@@ -47,10 +50,12 @@ struct ChatResult {
         autoMemory: Bool = false,
         sinatraTask: Task<Sinatra.PrepareResult?, any Error>? = nil,
         retrieved: [Sewn.RetrievedPartition] = [],
-        userMessageAt: Date = Date()
+        userMessageAt: Date = Date(),
+        bareSystem: String? = nil
     ) {
         self.retrieved = retrieved
         self.userMessageAt = userMessageAt
+        self.bareSystem = bareSystem
         self.input = input
         self.references = references
         self.partitions = partitions

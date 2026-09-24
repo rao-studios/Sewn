@@ -111,11 +111,11 @@ func handleChatStreamCompletions(
             let prestreamNs = DispatchTime.now().uptimeNanoseconds - handlerStartNs
             logger.info("[timing] prestream \(prestreamNs / 1_000_000)ms")
 
-            // On-device turns hand SinatraMLX the retrieved context and the turn.
+            // On-device turns hand SinatraHarness the retrieved context and the turn.
             let localTurn = provider.isLocal
                 ? LocalTurnContext.make(
                     owner: sewnRequest.ownerId, request: chatRequest,
-                    userMessageAt: chatResult.userMessageAt)
+                    userMessageAt: chatResult.userMessageAt, bareSystem: chatResult.bareSystem)
                 : nil
             let modelStream = try await modelProvider.runStream(
                 userInput.prompt,
@@ -225,7 +225,7 @@ func handleChatStreamCompletions(
                 }
             }
 
-            // SinatraMLX's report for an on-device turn: its own trailing chunk.
+            // SinatraHarness's report for an on-device turn: its own trailing chunk.
             if let sinatraDiagnostics {
                 let sinatraChunk = ChatCompletionChunkResponse(
                     id: responseId,

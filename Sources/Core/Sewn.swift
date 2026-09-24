@@ -98,17 +98,7 @@ actor Sewn {
             )
         }
 
-        for message in request.messages {
-            guard message.content.asString != recentMessage.content.asString else { continue }
-            var entry: [String: Any] = [
-                MessageProcessingKeys.role: message.role.rawValue,
-                MessageProcessingKeys.content: message.content.asString ?? "",
-            ]
-            if let ts = message.timestamp {
-                entry[MessageProcessingKeys.timestamp] = ts
-            }
-            messages.append(entry)
-        }
+        messages = Self.historyEntries(request.messages)
 
         /* Sinatra */
         let capturedMessages = request.messages
@@ -222,13 +212,11 @@ actor Sewn {
         let memoryInstruction = Self.memoryInstruction(
             contextEmpty: context.isEmpty, bonnieClient: isBonnieClient)
 
-        let personalizedContext: String = """
-        \(chatPersonaSection(persona, memoryInstruction: memoryInstruction))
-
-        \(instructions)
-
-        \(context)
-        """
+        let prompts = Self.systemPrompts(
+            personaSection: chatPersonaSection(persona, memoryInstruction: memoryInstruction),
+            instructions: instructions, context: context)
+        let personalizedContext = prompts.full
+        let bareSystem = prompts.bare
 
         logger.info(
             "Sinatra Adjustments",
@@ -347,8 +335,52 @@ actor Sewn {
             autoMemory: didTriggerAutoMemory,
             sinatraTask: sinatraTask,
             retrieved: result.retrieved,
-            userMessageAt: recentMessage.timestamp ?? Date()
+            userMessageAt: recentMessage.timestamp ?? Date(),
+            bareSystem: bareSystem
         )
+    }
+
+    /// The chat system prompt, and the same prompt with its retrieved context left out and
+    /// nothing else changed (nil when there is no context). The on-device provider scores
+    /// its answer against the bare one to measure what the context did (SinatraHarness's
+    /// grounding); everything before the context is identical, so that side reuses the
+    /// prompt's KV cache.
+    static func systemPrompts(personaSection: String, instructions: String, context: String) -> (full: String, bare: String?) {
+        let full = """
+        \(personaSection)
+
+        \(instructions)
+
+        \(context)
+        """
+        guard !context.isEmpty else { return (full, nil) }
+        let bare = """
+        \(personaSection)
+
+        \(instructions)
+        """
+        return (full, bare)
+    }
+
+    /// The conversation before the current turn: every message except the last user
+    /// message (the one being answered), in order. An earlier message with the same words
+    /// stays — dropping it made a repeated question open the history on the assistant —
+    /// except a copy sent right before it, which is a duplicated submission.
+    static func historyEntries(_ messages: [ChatMessageRequestData]) -> [[String: Any]] {
+        guard let current = messages.lastIndex(where: { $0.role == .user }) else { return [] }
+        let currentText = messages[current].content.asString
+        return messages.enumerated().compactMap { index, message in
+            if index == current { return nil }
+            if index == current - 1, message.role == .user, message.content.asString == currentText { return nil }
+            var entry: [String: Any] = [
+                MessageProcessingKeys.role: message.role.rawValue,
+                MessageProcessingKeys.content: message.content.asString ?? "",
+            ]
+            if let ts = message.timestamp {
+                entry[MessageProcessingKeys.timestamp] = ts
+            }
+            return entry
+        }
     }
 }
 

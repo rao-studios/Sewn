@@ -20,7 +20,7 @@ struct ChatCompletionChunkResponse: Codable {
     let autoMemory: Bool
     /// Personality id serving this stream — set on the first chunk only.
     let personality: String?
-    /// What SinatraMLX did on an on-device turn — the trailing metadata chunk only.
+    /// What SinatraHarness did on an on-device turn — the trailing metadata chunk only.
     let sinatra: LocalSinatraDiagnostics?
 
     init(

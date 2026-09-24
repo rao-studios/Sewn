@@ -42,7 +42,7 @@ struct ChatCompletionRequest: Codable {
     /// unaffected. Rides the realtime `turn.start` frame too — it wraps this
     /// same request.
     var provider: LLMProvider?
-    /// SinatraMLX options for an on-device turn: `{mode, trace, seed, record}`.
+    /// SinatraHarness options for an on-device turn: `{mode, trace, seed, record}`.
     /// Ignored by hosted providers.
     var sinatra: SinatraRequestOptions?
 

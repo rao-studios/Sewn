@@ -3,32 +3,30 @@
 //  sewn-server
 //
 //  WHAT: What a chat turn tells the on-device provider beyond its messages: who it
-//        belongs to, the user's message that labels the previous turn, the sampling
-//        settings, and the per-request SinatraMLX options — plus the diagnostics that
-//        come back. Plain types, built on every platform; only the macOS
-//        `LocalInference` turns them into SinatraMLX calls.
+//        belongs to, the system prompt without its retrieved context (what SinatraHarness
+//        measures the answer against), the sampling settings, and the per-request
+//        SinatraHarness options — plus the diagnostics that come back. Plain types, built on
+//        every platform; only the macOS `LocalInference` turns them into SinatraHarness calls.
 //
 
 import Foundation
 
-/// The turn context for SinatraMLX. Hosted providers never see it.
+/// The turn context for SinatraHarness. Hosted providers never see it.
 struct LocalTurnContext: Sendable {
     let owner: String
-    /// This turn's user message — the reply that labels the previous assistant turn.
-    let userMessageText: String
     let userMessageAt: Date
     let conversationId: String?
+    /// The system prompt without its retrieved context; nil when the turn had none.
+    let bareSystem: String?
     let options: SinatraRequestOptions?
 
     static func make(
-        owner: String?, request: ChatCompletionRequest, userMessageAt: Date
+        owner: String?, request: ChatCompletionRequest, userMessageAt: Date, bareSystem: String?
     ) -> LocalTurnContext? {
-        guard let owner, !owner.isEmpty,
-            let text = request.messages.last(where: { $0.role == .user })?.content.asString
-        else { return nil }
+        guard let owner, !owner.isEmpty, request.messages.contains(where: { $0.role == .user }) else { return nil }
         return LocalTurnContext(
-            owner: owner.lowercased(), userMessageText: text, userMessageAt: userMessageAt,
-            conversationId: nil, options: request.sinatra)
+            owner: owner.lowercased(), userMessageAt: userMessageAt, conversationId: nil,
+            bareSystem: bareSystem, options: request.sinatra)
     }
 }
 
@@ -46,7 +44,7 @@ struct SinatraRequestOptions: Codable, Sendable, Equatable {
     static let modes: Set<String> = ["off", "lexical", "dense"]
     static let traces: Set<String> = ["automatic", "off", "summary", "full"]
 
-    /// A readable reason when a value is not one SinatraMLX knows.
+    /// A readable reason when a value is not one SinatraHarness knows.
     var validationError: String? {
         if let mode, !Self.modes.contains(mode) { return "sinatra.mode must be one of off, lexical, dense" }
         if let trace, !Self.traces.contains(trace) { return "sinatra.trace must be one of automatic, off, summary, full" }
@@ -93,7 +91,7 @@ struct LocalSampling: Sendable, Equatable {
     }
 }
 
-/// What SinatraMLX did on a local turn: the trailing `sinatra` object on the stream,
+/// What SinatraHarness did on a local turn: the trailing `sinatra` object on the stream,
 /// on the non-streaming response, and (as `SinatraStatusInfo`) on `/v1/providers`.
 struct LocalSinatraDiagnostics: Codable, Sendable, Equatable {
     var turnId: String
@@ -104,16 +102,63 @@ struct LocalSinatraDiagnostics: Codable, Sendable, Equatable {
     var biasTokens: Int
     var biasMaxAbs: Float
     var gate: Float
-    /// This message labelled the previous turn with this implicit reward.
-    var previousReward: Float?
-    var previousReplyKind: String?
     var observations: Int
+    /// Turns measured (and so labelled) in the band.
     var labelled: Int
     var reliability: Float
     var trainedAt: String?
     var trainingScheduled: Bool
     var encodeMs: Double
     var trace: TraceBrief?
+    /// What the retrieved context did to this answer.
+    var grounding: GroundingBrief?
+
+    /// SinatraHarness's grounding measurement: the answer re-scored with and without its context.
+    struct GroundingBrief: Codable, Sendable, Equatable {
+        var measured: Bool
+        var skippedReason: String?
+        var grounding: Float
+        var drift: Float
+        var driftShare: Float
+        var contextDependence: Float
+        var meanContextKl: Float
+        var hallucinationRisk: Float
+        var parrotShare: Float
+        var contentTokens: Int
+        var prefillMs: Double
+        var scoreMs: Double
+        var attribution: [Citation]
+
+        struct Citation: Codable, Sendable, Equatable {
+            var partitionId: String
+            var documentId: String
+            var nats: Float
+            var uptake: Float
+            var coverage: Float
+            var parrot: Float
+
+            enum CodingKeys: String, CodingKey {
+                case partitionId = "partition_id"
+                case documentId = "document_id"
+                case nats, uptake, coverage, parrot
+            }
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case measured
+            case skippedReason = "skipped_reason"
+            case grounding, drift
+            case driftShare = "drift_share"
+            case contextDependence = "context_dependence"
+            case meanContextKl = "mean_context_kl"
+            case hallucinationRisk = "hallucination_risk"
+            case parrotShare = "parrot_share"
+            case contentTokens = "content_tokens"
+            case prefillMs = "prefill_ms"
+            case scoreMs = "score_ms"
+            case attribution
+        }
+    }
 
     struct TraceBrief: Codable, Sendable, Equatable {
         var traceId: String
@@ -156,29 +201,37 @@ struct LocalSinatraDiagnostics: Codable, Sendable, Equatable {
         case biasTokens = "bias_tokens"
         case biasMaxAbs = "bias_max_abs"
         case gate
-        case previousReward = "previous_reward"
-        case previousReplyKind = "previous_reply_kind"
         case observations, labelled, reliability
         case trainedAt = "trained_at"
         case trainingScheduled = "training_scheduled"
         case encodeMs = "encode_ms"
-        case trace
+        case trace, grounding
     }
 }
 
 /// The local row's `sinatra` object on `GET /v1/providers`.
 struct SinatraStatusInfo: Codable, Sendable, Equatable {
     var observations: Int
+    /// Turns measured, and so labelled (kept under this name for older clients).
     var labelled: Int
     var trainedAt: String?
     var reliability: Float
     var lastBiasMagnitude: Float
     var store: String?
+    var turnsMeasured: Int = 0
+    /// Means over the measured turns in the band; nil before the first.
+    var groundingMean: Float? = nil
+    var driftMean: Float? = nil
+    var hallucinationRiskMean: Float? = nil
 
     enum CodingKeys: String, CodingKey {
         case observations, labelled, reliability, store
         case trainedAt = "trained_at"
         case lastBiasMagnitude = "last_bias_magnitude"
+        case turnsMeasured = "turns_measured"
+        case groundingMean = "grounding_mean"
+        case driftMean = "drift_mean"
+        case hallucinationRiskMean = "hallucination_risk_mean"
     }
 }
 

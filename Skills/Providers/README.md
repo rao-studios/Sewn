@@ -157,7 +157,7 @@ conditioned on `.macOS`.
 
 ```
 Sources/Providers/Local/
-  ├── LocalInference.swift    — the actor over SinatraMLX's harness: warm, generate, stream, snapshot
+  ├── LocalInference.swift    — the actor over SinatraHarness's harness: warm, generate, stream, snapshot
   ├── LocalTurn.swift         — LocalTurnContext, LocalSampling, the `sinatra` request/response types
   ├── LocalGPU.swift          — requirement report + remedy text
   └── LocalMessageMapper.swift — role/content → MLX chat format
@@ -170,38 +170,44 @@ swift build -c release
 ./scripts/build-metallib.sh release
 ```
 
-### SinatraMLX — the injection layer before decoding
+### SinatraHarness — the injection layer before decoding
 
 `LocalInference` no longer calls `MLXLMCommon.generate` itself. It hands every
-generation to a `SinatraHarness` (SinatraMLX, `../../../repositories/SinatraMLX`),
+generation to a `Harness` (SinatraHarness, `../../../repositories/SinatraHarness`),
 which owns model residency and the one-generation-at-a-time gate. A **chat turn**
 (`runStream`/`run` with `retrieved` + `turn`) goes through these steps:
 
-1. The user's message labels the previous turn from behaviour: reply latency, length,
-   and echo of each partition.
-2. Only the retrieved partitions are encoded with the model's embedding table.
-3. A per-owner time-series model weighs them. The weights are advantages over this
-   owner's mean reward, gated by the model's measured skill.
-4. A sparse bias over their content tokens is added to the logits before sampling.
-5. The turn is recorded, and training runs afterwards when due.
+1. Only the retrieved partitions are encoded with the model's embedding table.
+2. A per-owner time-series model weighs them from what earlier measurements taught,
+   gated by the model's measured skill.
+3. A sparse bias over their content tokens is added to the logits before sampling.
+4. After the answer streams, it is re-scored with and without its context. The turn's
+   `bareSystem` is the system prompt with the context left out (`Sewn.systemPrompts`),
+   and the decode's KV cache is reused for the shared prefix. This is the grounding
+   measurement.
+5. The measurement labels the turn at once, and training runs afterwards when due.
 
 **Utility passes** (the `maxTokens:` overloads, used by compaction, tools and one-shots)
-pass no turn, so they get no injection and learn nothing.
+pass no turn, so they get no injection, no measurement, and learn nothing. A turn with
+retrieval but no `bareSystem` is recorded and never measured.
 
 | Surface | What changed |
 |---|---|
 | Request | optional `sinatra: {mode, trace, seed, record}` (validated → 400) |
-| SSE / response | trailing `sinatra` object (`LocalSinatraDiagnostics`) |
-| `GET /v1/providers` | local row `sinatra` status for the signed-in owner |
+| SSE / response | trailing `sinatra` object (`LocalSinatraDiagnostics`), with `grounding` |
+| `GET /v1/providers` | local row `sinatra` status for the signed-in owner, with grounding and drift means |
 | `POST /v1/providers/local/warm` | optional `{"model": …}` body |
-| new | `GET /v1/providers/local/sinatra/traces/{id}`, `GET /v1/providers/local/sinatra/analysis` |
+| new | `GET /v1/providers/local/sinatra/traces/{id}` (injection + grounding layers), `GET /v1/providers/local/sinatra/analysis` (grounding report) |
 | sampling | temperature / top_p / repetition now reach the on-device decode |
-| store | `<dataRoot>/sinatra-mlx/`; purged with the owner by the admin owner-delete |
+| history | `Sewn.historyEntries` drops only the message being answered; an earlier identical question stays |
+| store | `<dataRoot>/sinatra-harness/` (an old `sinatra-mlx/` moves there once); purged with the owner by the admin owner-delete |
 
 Environment: `SEWN_SINATRA_MODE` (off | lexical | dense), `SEWN_SINATRA_TRACE`
 (automatic | off | summary | full), `SEWN_SINATRA_ALPHA`. Tests:
-`LocalSinatraTests.swift`; the live two-turn test runs via `./scripts/test-local-sinatra.sh`.
-Try it with `swift run sewn-probe chat|compare|providers|trace|analysis`.
+`LocalSinatraTests.swift` and `HandleChatHistoryTests.swift`; the live two-turn test runs via
+`./scripts/test-local-sinatra.sh`. Try it with
+`swift run sewn-probe chat|compare|providers|trace|analysis`; `chat` takes repeated
+`--then` follow-ups.
 
 ### Warming
 
