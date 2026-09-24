@@ -150,6 +150,10 @@ func runTurn(_ session: Connection.Session, body: Data, echo: Bool) async throws
     var sinatra: SinatraDiagnostics?
     let decoder = JSONDecoder()
     for try await payload in try await session.http.events("v1/chat/completions", body: body) {
+        if let failure = try? decoder.decode(StreamFailure.self, from: Data(payload.utf8)) {
+            print("\n[stream error] \(failure.error.message ?? "generation failed")")
+            continue
+        }
         guard let chunk = try? decoder.decode(Chunk.self, from: Data(payload.utf8)) else { continue }
         if let s = chunk.sinatra { sinatra = s }
         for choice in chunk.choices ?? [] {

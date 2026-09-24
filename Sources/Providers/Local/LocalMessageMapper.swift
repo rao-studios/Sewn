@@ -35,6 +35,31 @@ enum LocalMessageMapper {
         return mapped
     }
 
+    /// The system prompt and the turns a chat template will accept.
+    ///
+    /// Mistral's template (and most instruct templates) require the first message
+    /// after the system prompt to be the user's, and reject the whole request
+    /// otherwise. A history can open on the assistant: an unprompted remark made
+    /// before the user spoke, or a cut that starts on a reply. Those opening
+    /// remarks move into the system prompt as what was said before the user's first
+    /// message, so the model still knows it said them.
+    static func conversation(
+        system: String?, messages: [Requests.Chat.Get.Message], tools: [Requests.Chat.Get.Tool]?
+    ) -> (system: String, turns: [Turn]) {
+        var turns = alternating(messages)
+        var opening: [String] = []
+        while let first = turns.first, !first.isUser {
+            opening.append(first.text)
+            turns.removeFirst()
+        }
+        var text = systemText(system, tools: tools)
+        if !opening.isEmpty {
+            if !text.isEmpty { text += "\n\n" }
+            text += "Before the user's first message here, you said:\n" + opening.joined(separator: "\n\n")
+        }
+        return (text, turns)
+    }
+
     /// A tool roster spelled into the system prompt. Frigate's processor
     /// parses the native wrapper, but a small Mistral narrates the call in
     /// markdown unless the contract is stated.

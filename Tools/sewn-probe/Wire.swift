@@ -22,6 +22,12 @@ struct Chunk: Decodable {
     }
 }
 
+/// A generation that failed after the stream began.
+struct StreamFailure: Decodable {
+    struct Detail: Decodable { let message: String? }
+    let error: Detail
+}
+
 struct SinatraDiagnostics: Codable {
     struct TraceBrief: Codable {
         let traceId: String

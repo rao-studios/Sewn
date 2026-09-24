@@ -300,10 +300,33 @@ func handleChatStreamCompletions(
             continuation.finish()
             logger.info("API Streaming CHAT response completed (ID: \(responseId)).")
         } catch {
-            continuation.finish(throwing: error)
             logger.error("API Streaming CHAT error (ID: \(responseId)): \(error)")
+            // The 200 and possibly a first chunk are already out, so a status can't
+            // say this any more. An error event does, and the missing [DONE] confirms
+            // it — closing the body by throwing looked like a normal end to clients.
+            let event = StreamErrorEvent(error)
+            if let jsonData = try? encoder.encode(event),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
+            }
+            continuation.finish()
         }
     }
 
     return Response(status: .ok, headers: headers, body: .init(asyncSequence: stream))
+}
+
+/// A generation that failed after the stream began: `{"error": {"message", "type"}}`,
+/// the same shape as an HTTP error body. No `[DONE]` follows it.
+struct StreamErrorEvent: Encodable {
+    struct Detail: Encodable {
+        let message: String
+        let type: String
+    }
+    let error: Detail
+
+    init(_ failure: Error) {
+        let message = (failure as? ProviderUnavailable)?.description ?? String(describing: failure)
+        error = Detail(message: String(message.prefix(500)), type: "generation_failed")
+    }
 }

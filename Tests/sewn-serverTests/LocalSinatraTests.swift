@@ -85,6 +85,45 @@ final class LocalSinatraWireTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(String(data: JSONEncoder().encode(plain), encoding: .utf8)).contains("sinatra\":{"))
     }
 
+    /// Mistral's template rejects a history that opens on the assistant. An
+    /// unprompted remark made before the user spoke moves into the system prompt.
+    func testAnOpeningRemarkMovesIntoTheSystemPrompt() {
+        let conversation = LocalMessageMapper.conversation(
+            system: "You are Mary.",
+            messages: [
+                .init(role: "assistant", content: "That chart looks off by a week."),
+                .init(role: "assistant", content: "The axis starts in March."),
+                .init(role: "user", content: "Why is that?"),
+            ],
+            tools: nil)
+        XCTAssertEqual(conversation.turns, [.init(isUser: true, text: "Why is that?")])
+        XCTAssertTrue(conversation.system.hasPrefix("You are Mary.\n\nBefore the user's first message here, you said:\n"))
+        XCTAssertTrue(conversation.system.contains("That chart looks off by a week.\n\nThe axis starts in March."))
+    }
+
+    func testAnOrdinaryHistoryIsUntouched() {
+        let conversation = LocalMessageMapper.conversation(
+            system: "You are Mary.",
+            messages: [
+                .init(role: "user", content: "Hi"),
+                .init(role: "assistant", content: "Hello."),
+                .init(role: "user", content: "What's new?"),
+            ],
+            tools: nil)
+        XCTAssertEqual(conversation.system, "You are Mary.")
+        XCTAssertEqual(conversation.turns.map(\.isUser), [true, false, true])
+    }
+
+    /// After the 200 is out, a failure has to say so in the stream itself.
+    func testAFailedStreamSaysSoInItsOwnEvent() throws {
+        let json = try XCTUnwrap(String(
+            data: JSONEncoder().encode(StreamErrorEvent(ProviderUnavailable.localFailed("no metallib"))),
+            encoding: .utf8))
+        XCTAssertTrue(json.contains(#""error":{"#))
+        XCTAssertTrue(json.contains(#""type":"generation_failed""#))
+        XCTAssertTrue(json.contains("On-device model unavailable: no metallib"))
+    }
+
     #if canImport(MLXLLM)
     func testSamplingIsHonouredOnDevice() {
         let parameters = ChatGenerationParameters(

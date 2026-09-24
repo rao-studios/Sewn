@@ -223,10 +223,10 @@ actor LocalInference {
     ) async throws {
         try await ensureLoaded(modelID: modelID)
 
-        var chat: [MLXLMCommon.Chat.Message] = [
-            .system(LocalMessageMapper.systemText(system, tools: tools))
-        ]
-        for message in LocalMessageMapper.alternating(messages) {
+        // Strict alternation starting with the user, or the template rejects the turn.
+        let conversation = LocalMessageMapper.conversation(system: system, messages: messages, tools: tools)
+        var chat: [MLXLMCommon.Chat.Message] = [.system(conversation.system)]
+        for message in conversation.turns {
             chat.append(message.isUser ? .user(message.text) : .assistant(message.text))
         }
         let input = MLXLMCommon.UserInput(
