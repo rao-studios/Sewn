@@ -47,10 +47,13 @@ final class ModelProvider {
         maxTokens: Int? = nil,
         model: String? = nil,
         provider: LLMProvider,
+        retrieved: [Sewn.RetrievedPartition] = [],
+        turn: LocalTurnContext? = nil,
         logger: Logger
     ) async throws -> (
         choices: [ChatCompletionChoice],
-        usage: Requests.Chat.Get.Usage) {
+        usage: Requests.Chat.Get.Usage,
+        sinatra: LocalSinatraDiagnostics?) {
         var system: String?
         var messages: [Requests.Messages.Create.Message] = []
         switch prompt {
@@ -88,15 +91,16 @@ final class ModelProvider {
                 .init(role: $0.role, content: $0.content)
             })
             let answer = try await local.generate(
-                system: system, messages: localMessages, tools: nil,
-                modelID: resolvedModel, maxTokens: resolvedMaxTokens)
+                system: system, messages: localMessages, tools: nil, modelID: resolvedModel,
+                sampling: LocalSampling(generationParameters, maxTokens: resolvedMaxTokens),
+                retrieved: retrieved, turn: turn)
             let choices: [ChatCompletionChoice] = [
                 .init(
                     index: 0,
                     message: .init(role: "assistant", content: answer.text),
                     finishReason: "stop")
             ]
-            return (choices, Self.localUsage())
+            return (choices, Self.localUsage(), answer.sinatra)
         }
 
         if provider == .mistral {
@@ -128,7 +132,7 @@ final class ModelProvider {
                     finishReason: choice?.finishReason ?? "stop"
                 )
             ]
-            return (choices, response.usage)
+            return (choices, response.usage, nil)
         }
 
         let response = try await client(for: provider).request(
@@ -152,7 +156,7 @@ final class ModelProvider {
             )
         ]
 
-        return (choices, response.usage.asChatUsage)
+        return (choices, response.usage.asChatUsage, nil)
     }
 
     /// Runs a standalone one-shot generation against the global LLM.

@@ -27,6 +27,9 @@ func handleChatStreamCompletions(
     logger.info("Received API CHAT streaming completion request.")
 
     let sewnRequest = try chatRequest.sewn.from(context)
+    if let problem = chatRequest.sinatra?.validationError {
+        throw HTTPError(.badRequest, message: problem)
+    }
     let chatResult = try await _processUserMessages(
         chatRequest,
         sewn,
@@ -108,13 +111,22 @@ func handleChatStreamCompletions(
             let prestreamNs = DispatchTime.now().uptimeNanoseconds - handlerStartNs
             logger.info("[timing] prestream \(prestreamNs / 1_000_000)ms")
 
+            // On-device turns hand SinatraMLX the retrieved context and the turn.
+            let localTurn = provider.isLocal
+                ? LocalTurnContext.make(
+                    owner: sewnRequest.ownerId, request: chatRequest,
+                    userMessageAt: chatResult.userMessageAt)
+                : nil
             let modelStream = try await modelProvider.runStream(
                 userInput.prompt,
                 generationParameters: generationParameters,
                 model: requestedModel,
                 provider: provider,
+                retrieved: provider.isLocal ? chatResult.retrieved : [],
+                turn: localTurn,
                 logger: logger
             )
+            var sinatraDiagnostics: LocalSinatraDiagnostics?
 
             var isFirst = true
             var firstTokenNs: UInt64?
@@ -147,6 +159,10 @@ func handleChatStreamCompletions(
             }
 
             for try await delta in modelStream {
+                if let sinatra = delta.sinatra {
+                    sinatraDiagnostics = sinatra
+                    continue
+                }
                 // Strip [[n]] citation markers before anything reaches the
                 // client; the filter holds back partial markers split across
                 // deltas so the streamed text always equals the final visible text.
@@ -204,6 +220,23 @@ func handleChatStreamCompletions(
                     autoMemory: autoMemory
                 )
                 if let jsonData = try? encoder.encode(contributionChunk),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
+                }
+            }
+
+            // SinatraMLX's report for an on-device turn: its own trailing chunk.
+            if let sinatraDiagnostics {
+                let sinatraChunk = ChatCompletionChunkResponse(
+                    id: responseId,
+                    created: created,
+                    model: responseModelName,
+                    choices: [],
+                    references: [],
+                    autoMemory: autoMemory,
+                    sinatra: sinatraDiagnostics
+                )
+                if let jsonData = try? encoder.encode(sinatraChunk),
                    let jsonString = String(data: jsonData, encoding: .utf8) {
                     continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
                 }

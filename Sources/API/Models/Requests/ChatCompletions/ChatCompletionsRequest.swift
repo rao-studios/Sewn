@@ -42,11 +42,15 @@ struct ChatCompletionRequest: Codable {
     /// unaffected. Rides the realtime `turn.start` frame too — it wraps this
     /// same request.
     var provider: LLMProvider?
+    /// SinatraMLX options for an on-device turn: `{mode, trace, seed, record}`.
+    /// Ignored by hosted providers.
+    var sinatra: SinatraRequestOptions?
 
     let sewn: SewnRequest
 
     enum CodingKeys: String, CodingKey {
         case messages, model, temperature, stream, stop, resize, sewn, resonate, instructions, debug, client, provider
+        case sinatra
         case personality, persona
         case maxTokens = "max_tokens"
         case topP = "top_p"

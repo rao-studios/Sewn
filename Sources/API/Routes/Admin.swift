@@ -155,7 +155,7 @@ struct AuditReconcileResponse: Codable {
 /// - `POST /v1/admin/hnsw/personal/rebuild` — rebuild empty personal graphs from global shard (Phase 3 migration)
 /// - `POST /v1/admin/sinatra/gbt`      — Sinatra GBT model state for any owner
 /// - `POST /v1/admin/table/document`   — PartitionIndex + PQ stats + HNSW cross-reference for one document
-func registerAdminRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn) {
+func registerAdminRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sewn: Sewn, modelProvider: ModelProvider? = nil) {
 
     // MARK: POST /v1/admin/list/owners
 
@@ -329,6 +329,8 @@ func registerAdminRoutes(_ router: some RouterMethods<SewnRequestContext>, _ sew
 
         // 2. Remove all Sinatra data (parked, collector, dataset, model, harmony memory).
         let sinatraCleared = sewn.sinatra.removeOwner(id: ownerId)
+        // SinatraMLX's on-device ledger, weights and traces for this owner.
+        await modelProvider?.local.forgetOwner(ownerId)
 
         context.logger.info("[Admin] owner/delete — done. docs=\(docsRemoved), sinatra=\(sinatraCleared)")
 

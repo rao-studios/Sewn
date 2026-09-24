@@ -27,6 +27,8 @@ extension Sewn {
         /// Raw partitions retained so span attribution can run after LLM generation.
         var partitions: [Sewn.Partition]
         var trace: Sewn.GraphTrace?
+        /// The partitions with their search scores, for the on-device provider's SinatraMLX.
+        var retrieved: [Sewn.RetrievedPartition] = []
 
         init(
             context: [String],
@@ -34,8 +36,10 @@ extension Sewn {
             references: [Sewn.DocumentReference],
             contribution: Gita.Contribution? = nil,
             partitions: [Sewn.Partition] = [],
-            trace: Sewn.GraphTrace? = nil
+            trace: Sewn.GraphTrace? = nil,
+            retrieved: [Sewn.RetrievedPartition] = []
         ) {
+            self.retrieved = retrieved
             self.context = context
             self.adjustments = adjustments
             self.references = references

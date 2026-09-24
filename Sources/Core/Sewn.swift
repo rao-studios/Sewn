@@ -345,7 +345,9 @@ actor Sewn {
             contribution: result.contribution,
             tone: tone,
             autoMemory: didTriggerAutoMemory,
-            sinatraTask: sinatraTask
+            sinatraTask: sinatraTask,
+            retrieved: result.retrieved,
+            userMessageAt: recentMessage.timestamp ?? Date()
         )
     }
 }

@@ -20,6 +20,8 @@ struct ChatCompletionChunkResponse: Codable {
     let autoMemory: Bool
     /// Personality id serving this stream — set on the first chunk only.
     let personality: String?
+    /// What SinatraMLX did on an on-device turn — the trailing metadata chunk only.
+    let sinatra: LocalSinatraDiagnostics?
 
     init(
         id: String,
@@ -32,8 +34,10 @@ struct ChatCompletionChunkResponse: Codable {
         references: [Sewn.DocumentReference],
         contribution: Gita.Contribution? = nil,
         autoMemory: Bool = false,
-        personality: String? = nil
+        personality: String? = nil,
+        sinatra: LocalSinatraDiagnostics? = nil
     ) {
+        self.sinatra = sinatra
         self.id = id
         self.created = created
         self.model = model
@@ -52,5 +56,6 @@ struct ChatCompletionChunkResponse: Codable {
         case contribution
         case autoMemory = "auto_memory"
         case personality
+        case sinatra
     }
 }

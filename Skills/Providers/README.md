@@ -157,7 +157,8 @@ conditioned on `.macOS`.
 
 ```
 Sources/Providers/Local/
-  ├── LocalInference.swift    — the actor: warm, generate, snapshot, isBuilt
+  ├── LocalInference.swift    — the actor over SinatraMLX's harness: warm, generate, stream, snapshot
+  ├── LocalTurn.swift         — LocalTurnContext, LocalSampling, the `sinatra` request/response types
   ├── LocalGPU.swift          — requirement report + remedy text
   └── LocalMessageMapper.swift — role/content → MLX chat format
 ```
@@ -168,6 +169,39 @@ It needs `mlx.metallib` beside the binary, because SwiftPM has no Metal step:
 swift build -c release
 ./scripts/build-metallib.sh release
 ```
+
+### SinatraMLX — the injection layer before decoding
+
+`LocalInference` no longer calls `MLXLMCommon.generate` itself. It hands every
+generation to a `SinatraHarness` (SinatraMLX, `../../../repositories/SinatraMLX`),
+which owns model residency and the one-generation-at-a-time gate. A **chat turn**
+(`runStream`/`run` with `retrieved` + `turn`) goes through these steps:
+
+1. The user's message labels the previous turn from behaviour: reply latency, length,
+   and echo of each partition.
+2. Only the retrieved partitions are encoded with the model's embedding table.
+3. A per-owner time-series model weighs them. The weights are advantages over this
+   owner's mean reward, gated by the model's measured skill.
+4. A sparse bias over their content tokens is added to the logits before sampling.
+5. The turn is recorded, and training runs afterwards when due.
+
+**Utility passes** (the `maxTokens:` overloads, used by compaction, tools and one-shots)
+pass no turn, so they get no injection and learn nothing.
+
+| Surface | What changed |
+|---|---|
+| Request | optional `sinatra: {mode, trace, seed, record}` (validated → 400) |
+| SSE / response | trailing `sinatra` object (`LocalSinatraDiagnostics`) |
+| `GET /v1/providers` | local row `sinatra` status for the signed-in owner |
+| `POST /v1/providers/local/warm` | optional `{"model": …}` body |
+| new | `GET /v1/providers/local/sinatra/traces/{id}`, `GET /v1/providers/local/sinatra/analysis` |
+| sampling | temperature / top_p / repetition now reach the on-device decode |
+| store | `<dataRoot>/sinatra-mlx/`; purged with the owner by the admin owner-delete |
+
+Environment: `SEWN_SINATRA_MODE` (off | lexical | dense), `SEWN_SINATRA_TRACE`
+(automatic | off | summary | full), `SEWN_SINATRA_ALPHA`. Tests:
+`LocalSinatraTests.swift`; the live two-turn test runs via `./scripts/test-local-sinatra.sh`.
+Try it with `swift run sewn-probe chat|compare|providers|trace|analysis`.
 
 ### Warming
 

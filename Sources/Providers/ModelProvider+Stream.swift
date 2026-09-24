@@ -17,6 +17,8 @@ import FoundationNetworking
 struct StreamDelta: Codable {
     let role: String?
     let content: String?
+    /// SinatraMLX's report for an on-device turn: arrives once, after the text, with no content.
+    var sinatra: LocalSinatraDiagnostics? = nil
 }
 
 // MARK: - ModelProvider Streaming
@@ -30,11 +32,16 @@ extension ModelProvider {
     /// Anthropic events (`content_block_delta` → text, `message_stop` → end) are mapped
     /// into the internal `StreamDelta` contract so downstream handlers stay provider-agnostic.
     /// - Returns: An `AsyncThrowingStream` of `StreamDelta` tokens and the resolved model name.
+    /// `retrieved` and `turn` reach only the on-device provider, where SinatraMLX turns
+    /// the retrieved context into an injection before decoding and learns from the
+    /// user's next message. Hosted providers ignore both.
     func runStream(
         _ prompt: UserInput.Prompt,
         generationParameters: ChatGenerationParameters,
         model: String? = nil,
         provider: LLMProvider,
+        retrieved: [Sewn.RetrievedPartition] = [],
+        turn: LocalTurnContext? = nil,
         logger: Logger
     ) async throws -> AsyncThrowingStream<StreamDelta, Error> {
         var system: String?
@@ -64,18 +71,25 @@ extension ModelProvider {
             let localMessages = messages.map {
                 Requests.Chat.Get.Message(role: $0["role"] ?? "user", content: $0["content"] ?? "")
             }
-            let events = local.stream(
-                system: system, messages: localMessages, tools: nil,
-                modelID: resolvedModel,
+            let sampling = LocalSampling(
+                generationParameters,
                 maxTokens: ModelConfig.chatMaxTokens(
                     requested: generationParameters.maxTokens, model: resolvedModel))
+            let events = local.stream(
+                system: system, messages: localMessages, tools: nil,
+                modelID: resolvedModel, sampling: sampling, retrieved: retrieved, turn: turn)
             return AsyncThrowingStream { continuation in
                 let task = Task {
                     do {
                         continuation.yield(StreamDelta(role: "assistant", content: nil))
                         for try await event in events {
-                            if case .text(let chunk) = event {
+                            switch event {
+                            case .text(let chunk):
                                 continuation.yield(StreamDelta(role: nil, content: chunk))
+                            case .sinatra(let diagnostics):
+                                continuation.yield(StreamDelta(role: nil, content: nil, sinatra: diagnostics))
+                            case .toolCall:
+                                break
                             }
                         }
                         continuation.finish()

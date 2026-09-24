@@ -702,6 +702,35 @@ A turn on `local` therefore makes **no outbound request at all**: sentiment,
 compaction and auto-memory follow the turn's backend rather than quietly
 reaching a vendor the user did not choose.
 
+#### SinatraMLX on `local`
+
+On-device chat turns run through [SinatraMLX](../../../repositories/SinatraMLX), a harness over Frigate's MLX with an **injection layer before decoding**. The partitions a turn retrieved are encoded with the LLM's own embedding table, never together with the prompt. A small time-series model weighs each partition from this user's implicit history with similar context, and the weights become a sparse bias added to the logits right before sampling. The feedback is implicit: the next user message labels the previous turn from how soon it came, how long it is, and how much it echoes each partition. Rewards, the stock-style indicators, IMBHS and the 30-day relevancy bands are described in SinatraMLX's README. Hosted providers never see any of this.
+
+* **Request.** An optional `sinatra` object on `/v1/chat/completions` (and the realtime `turn.start`): `{"mode": "off|lexical|dense", "trace": "automatic|off|summary|full", "seed": 1, "record": true}`. `record: false` plans and traces without recording the turn.
+* **Response.** On-device turns end the SSE stream with a metadata chunk carrying `sinatra`. The non-stream response carries the same object. It holds the turn id, mode, cold start, the partitions weighed, the bias size, the gate, the reward this message gave the previous turn, the owner's counts, and a trace summary: entropy before and after, KL, gain, divergence rate, and mass moved into the impact mask.
+* **`GET /v1/providers`.** The local row gains `sinatra`: observations, labelled, `trained_at`, reliability, `last_bias_magnitude` and store, for the signed-in owner.
+* **`POST /v1/providers/local/warm`.** Accepts an optional `{"model": "<hub id>"}` so a client can warm the model it will actually use.
+* **`GET /v1/providers/local/sinatra/traces/{id}`.** One of your traces, step by step: sampled and counterfactual token, entropy, KL, gain, ranks, and Δp over the impact mask.
+* **`GET /v1/providers/local/sinatra/analysis`.** Entropy against personalization for your account.
+* **Environment.** `SEWN_SINATRA_MODE`, `SEWN_SINATRA_TRACE` and `SEWN_SINATRA_ALPHA` set the defaults. The store lives under the data root in `sinatra-mlx/`. Sampling from the request (temperature, top_p, repetition) is now honoured on-device.
+* **Server-side Sinatra.** It still runs unchanged in this pass, including its resonance call to the server default. Removing it from Sewn is a later step.
+
+Try it from the terminal with `sewn-probe`, which signs in with `SEWN_DEV_EMAIL`/`SEWN_DEV_PASSWORD` or takes `--token`:
+
+```sh
+./scripts/build-metallib.sh debug && swift build
+env -u HF_HOME SEWN_GLOBAL_LLM=local \
+  SEWN_LOCAL_MODEL=mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit \
+  .build/debug/sewn-server --port 8080 --grpc-port 9091
+swift run sewn-probe providers
+swift run sewn-probe chat "What do my notes say about the garden?" --then "Tell me more about the compost"
+swift run sewn-probe chat --trace full --seed 1 "…"        # per-step impact and heatmap
+swift run sewn-probe compare --seed 1 "…"                  # same seed, SinatraMLX off vs on
+swift run sewn-probe chat --app ambient "…"                # a RAO_HOME stack: secret from ~/.rao/secrets
+```
+
+`./scripts/test-local-sinatra.sh` runs the wire tests and a live two-turn test through `LocalInference`. That test needs the model on disk and uses `SEWN_LOCAL_SINATRA_MODEL` to pick it.
+
 **Models per provider** — `SEWN_CHAT_MODEL` / `TINKER_MODEL` / `SEWN_LOCAL_MODEL`
 for chat, `SEWN_CODING_MODEL` / `SEWN_LOCAL_CODING_MODEL` for `/v1/code/complete`,
 `UTILITY_MODEL` for one-shots. A client-supplied `model` is honored only when it

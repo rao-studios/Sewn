@@ -229,6 +229,9 @@ private func handleRealtimeTurn(
         quantizedKVStart: GenerationDefaults.quantizedKVStart
     )
 
+    // The grounded pass runs after retrieval; it hands SinatraMLX what retrieval found.
+    let retrievalBox = LockedValue<ChatResult?>(nil)
+
     let ttsVoice = turnStart.tts?.voiceId ?? "fr_marie_neutral"
     let ttsModel = turnStart.tts?.model ?? MistralTTS.defaultModel
 
@@ -252,19 +255,29 @@ private func handleRealtimeTurn(
                 )
             },
             retrieval: {
-                try await sewn.handleChat(
+                let result = try await sewn.handleChat(
                     request: chatRequest,
                     modelProvider: modelProvider,
                     sewnRequest: sewnRequest,
                     queryExpansion: chatRequest.resonate ?? false
                 )
+                retrievalBox.withLock { $0 = result }
+                return result
             },
             grounded: { prompt in
-                try await modelProvider.runStream(
+                let retrieved = retrievalBox.withLock { $0 }
+                let localTurn = provider.isLocal
+                    ? LocalTurnContext.make(
+                        owner: sewnRequest.ownerId, request: chatRequest,
+                        userMessageAt: retrieved?.userMessageAt ?? Date())
+                    : nil
+                return try await modelProvider.runStream(
                     prompt,
                     generationParameters: groundedParameters,
                     model: requestedModel,
                     provider: provider,
+                    retrieved: provider.isLocal ? (retrieved?.retrieved ?? []) : [],
+                    turn: localTurn,
                     logger: logger
                 )
             },

@@ -28,6 +28,9 @@ func handleChatCompletions(
 
     // Extract SewnRequest once — used for log correlation and Gita pricing.
     let sewnRequest = try chatRequest.sewn.from(context)
+    if let problem = chatRequest.sinatra?.validationError {
+        throw HTTPError(.badRequest, message: problem)
+    }
 
     // Process user messages, chat history.
     let chatResult = try await _processUserMessages(
@@ -100,13 +103,20 @@ func handleChatCompletions(
 
     // Run primary LLM generation. Personality model override applies when the
     // request didn't pin a model.
-    let result: (choices: [ChatCompletionChoice], usage: Requests.Chat.Get.Usage)
+    let result: (choices: [ChatCompletionChoice], usage: Requests.Chat.Get.Usage, sinatra: LocalSinatraDiagnostics?)
     do {
+        // On-device turns hand SinatraMLX the retrieved context and the turn.
+        let localTurn = provider.isLocal
+            ? LocalTurnContext.make(
+                owner: sewnRequest.ownerId, request: chatRequest, userMessageAt: chatResult.userMessageAt)
+            : nil
         result = try await modelProvider.run(
             userInput.prompt,
             generationParameters: generationParameters,
             model: requestedModel,
             provider: provider,
+            retrieved: provider.isLocal ? chatResult.retrieved : [],
+            turn: localTurn,
             logger: context.logger
         )
     } catch let error as ProviderUnavailable {
@@ -231,7 +241,8 @@ func handleChatCompletions(
         contribution: pricedContribution,
         autoMemory: chatResult.autoMemory,
         tone: sinatraTone,
-        personality: personality?.id
+        personality: personality?.id,
+        sinatra: result.sinatra
     )
 
     sewn.logger.info(

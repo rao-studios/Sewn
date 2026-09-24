@@ -39,6 +39,12 @@ let package = Package(
     // own). Once that lands, this becomes:
     //   .package(url: "https://github.com/rao-studios/Frigate.git", branch: "main"),
     .package(path: "../Frigate"),
+    // SinatraMLX: the on-device LLM harness the `local` provider runs through — Frigate
+    // MLX plus the retrieval-feedback injection layer before decoding. It depends on
+    // Frigate itself; as a path dependency it resolves to the same ../Frigate checkout,
+    // so the graph holds one Frigate. Once pushed:
+    //   .package(url: "https://github.com/riteshpakala/SinatraMLX.git", branch: "main"),
+    .package(path: "../../../repositories/SinatraMLX"),
   ],
   targets: [
     .executableTarget(
@@ -65,11 +71,24 @@ let package = Package(
         .product(name: "MLXLMCommon", package: "Frigate", condition: .when(platforms: [.macOS])),
         .product(name: "MLXLLM", package: "Frigate", condition: .when(platforms: [.macOS])),
         .product(name: "FrigateBridge", package: "Frigate", condition: .when(platforms: [.macOS])),
+        .product(name: "SinatraMLX", package: "SinatraMLX", condition: .when(platforms: [.macOS])),
       ],
+      // Explicit now that the package has a second regular target (Tools/sewn-probe).
+      path: "Sources",
       swiftSettings: [.swiftLanguageMode(.v5)]/*,
       plugins: [
           .plugin(name: "ContainerImageBuilder", package: "swift-container-plugin"),
       ]*/
+    ),
+    // A command-line client for Sewn's chat wire: signs in, streams a turn, and renders
+    // SinatraMLX's diagnostics and traces. Speaks HTTP only — no server code linked.
+    .executableTarget(
+      name: "sewn-probe",
+      dependencies: [
+        .product(name: "ArgumentParser", package: "swift-argument-parser"),
+      ],
+      path: "Tools/sewn-probe",
+      swiftSettings: [.swiftLanguageMode(.v5)]
     ),
     .testTarget(
       name: "sewn-serverTests",

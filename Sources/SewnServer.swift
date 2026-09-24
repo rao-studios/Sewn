@@ -102,7 +102,7 @@ func configureRoutes(
     registerWalletRoute(protected, sewn)
     /* Admin — privileged cross-account operations, gated by AdminMiddleware */
     let admin = router.add(middleware: AdminMiddleware())
-    registerAdminRoutes(admin, sewn)
+    registerAdminRoutes(admin, sewn, modelProvider: modelProvider)
     registerAdminPersonalitiesRoute(admin, sewn)
 }
 

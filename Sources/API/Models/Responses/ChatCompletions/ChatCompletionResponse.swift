@@ -23,6 +23,8 @@ struct ChatCompletionResponse: Codable {
     let tone: SinatraTone?
     /// Personality id that served this response, when one was selected.
     let personality: String?
+    /// What SinatraMLX did on an on-device turn.
+    let sinatra: LocalSinatraDiagnostics?
 
     init(
         id: String = "chatcmpl-\(UUID().uuidString)",
@@ -37,8 +39,10 @@ struct ChatCompletionResponse: Codable {
         contribution: Gita.Contribution? = nil,
         autoMemory: Bool = false,
         tone: SinatraTone? = nil,
-        personality: String? = nil
+        personality: String? = nil,
+        sinatra: LocalSinatraDiagnostics? = nil
     ) {
+        self.sinatra = sinatra
         self.id = id
         self.created = created
         self.model = model
@@ -61,6 +65,7 @@ struct ChatCompletionResponse: Codable {
         case autoMemory = "auto_memory"
         case tone
         case personality
+        case sinatra
     }
 }
 

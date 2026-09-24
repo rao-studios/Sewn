@@ -115,7 +115,8 @@ extension Sewn {
             references: references,
             contribution: gitaResult.contribution,
             partitions: partitions,
-            trace: trace
+            trace: trace,
+            retrieved: Sewn.RetrievedPartition.from(partitions, scores: scoreMap)
         )
     }
 }
