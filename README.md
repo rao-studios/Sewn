@@ -545,13 +545,28 @@ Powered by [Supabase](https://supabase.com) via [supabase-swift](https://github.
 { "accessToken": "...", "refreshToken": "...", "expiresIn": 3600, "userId": "uuid" }
 ```
 
+### Without an account (local stack)
+
+A Sewn launched on a shared `~/.rao` stack knows which app is calling from the stack secret the request carries (`StackSecretMiddleware`). On six routes, a request from such an app with **no** `Authorization` header at all is let through without an account, so an app can run the on-device lane before anyone signs in:
+
+| Method | Path |
+|--------|------|
+| `POST` | `/v1/chat/completions` |
+| `POST` | `/v1/complete` |
+| `GET` | `/v1/providers` |
+| `POST` | `/v1/providers/local/warm` |
+| `GET` | `/v1/providers/local/sinatra/traces/{traceId}` |
+| `GET` | `/v1/providers/local/sinatra/analysis` |
+
+The caller becomes the owner `local-<app>` (Ambient is `local-ambient`), which can never collide with a Supabase id. Chat and complete then run `provider: local` only: a hosted provider, or none when the server default is hosted, is a 401 `Sign in to <App> to use hosted models.` before anything is dialled. A presented bearer is always validated, so a bad token is still a 401. An open server grants nothing. The allowlist is `Sources/API/Middleware/LocalOnlyGrant.swift`.
+
 Route-level detail for every endpoint lives in [`Skills/SystemReference/RouteReference.md`](Skills/SystemReference/RouteReference.md).
 
 ---
 
 ## API Reference
 
-All endpoints below require `Authorization: Bearer <access_token>` unless noted.
+All endpoints below require `Authorization: Bearer <access_token>` unless noted. On a local stack, the six routes above also answer an app with no account.
 
 ### System
 
@@ -667,7 +682,9 @@ flowchart TB
     known -->|no| e400["400 — unknown provider"]
     known -->|yes| pick
     def --> pick["Selected provider"]
-    pick --> ready{"Can it serve?"}
+    pick --> lo{"Caller has no account<br/>(local-only grant)?"}
+    lo -->|"yes, and provider is hosted"| e401["401 — sign in to use hosted models"]
+    lo -->|"no, or provider is local"| ready{"Can it serve?"}
     ready -->|"key missing"| e503a["503 naming the variable"]
     ready -->|"no Metal library<br/>or non-macOS build"| e503b["503 naming the reason"]
     ready -->|yes| model{"Client named<br/>a model?"}
@@ -686,6 +703,8 @@ flowchart TB
 |--------|------|-------------|
 | `GET` | `/v1/providers` | Every backend: `available`, `state`, `model`, `capabilities`, and `reason` when it cannot serve |
 | `POST` | `/v1/providers/local/warm` | Load the on-device model now, so the first turn does not pay for it. Idempotent |
+
+Both answer a local stack's app with no account (see Authentication), as does the SinatraHarness trace and analysis pair.
 
 **Which routes honor it**
 

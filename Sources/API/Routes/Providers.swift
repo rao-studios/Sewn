@@ -9,6 +9,8 @@
 //  PIN:  Honest about absence. A provider with no key, or an on-device build
 //        with no Metal library, reports `available: false` WITH THE REASON —
 //        the client shows it rather than discovering it as a failed turn.
+//        Reachable without an account on a local stack (LocalOnlyGrant):
+//        the caller is then owner "local-<app>".
 //
 
 import Foundation

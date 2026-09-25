@@ -11,7 +11,8 @@ Route trees:
 
 ```
 router                              — open, no auth
-  └── router.add(AuthMiddleware())  — "protected"
+  └── router.add(AuthMiddleware())  — "protected" (six on-device routes also
+                                      admit a local stack's app with no bearer)
   └── router.add(AdminMiddleware()) — "admin"
 
 wsRouter (BasicWebSocketRequestContext) — bearer checked in shouldUpgrade
@@ -55,6 +56,18 @@ password 401, unconfirmed email 403, expired or wrong code 401, weak password
 `AuthMiddleware` validates the Supabase bearer token, populates
 `context.authUserId`, and **overwrites `sewn.owner_id`** with the JWT-derived id
 (lowercased). A client cannot address another owner's data by editing the body.
+
+**Without an account.** On a local stack, a request with no `Authorization`
+header whose stack secret named an app (`context.callerApp`) is admitted on
+exactly six endpoint patterns (`LocalOnlyGrant.routes`): `POST
+/v1/chat/completions`, `POST /v1/complete`, `GET /v1/providers`, `POST
+/v1/providers/local/warm`, `GET /v1/providers/local/sinatra/traces/{traceId}`
+and `GET /v1/providers/local/sinatra/analysis`. The caller becomes owner
+`local-<app>` with `context.isLocalOnly = true` and no token. Chat and complete
+call `context.admittedProvider(_:)` before anything else reads the turn: any
+provider but `local` (including an omitted one when the server default is
+hosted) is a 401. A presented bearer is always validated; an open server
+grants nothing.
 
 ### Generation
 
@@ -319,7 +332,7 @@ Accepted by every protected route (except `/v1/complete`, `/v1/embed`,
 
 | Field | Meaning |
 |-------|---------|
-| `owner_id` | Overwritten by `AuthMiddleware` on non-admin routes; **lowercased** |
+| `owner_id` | Overwritten by `AuthMiddleware` on non-admin routes; **lowercased**. `local-<app>` for a local caller with no account |
 | `scope` | `global` \| `personal`, forwarded to Thread |
 | `aggregate` | Merge across groups |
 | `thread_ids` | Pin the request to specific nodes; chooses the index target |

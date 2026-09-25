@@ -306,7 +306,7 @@ body. Admin routes keep the supplied `owner_id` — that is the point of them.
 | Middleware | Applied To | What It Does |
 |------------|------------|-------------|
 | `IPMetricsMiddleware` | All routes | Per-IP Prometheus counters |
-| `AuthMiddleware` | The `protected` route tree | Validates the Supabase bearer token, populates `context.authUserId`, overwrites `sewn.owner_id` |
+| `AuthMiddleware` | The `protected` route tree | Validates the Supabase bearer token, populates `context.authUserId`, overwrites `sewn.owner_id`. With no header at all on a local stack, admits the calling app as `local-<app>` on `LocalOnlyGrant`'s six on-device routes |
 | `AdminMiddleware` | The `admin` route tree | Gates `/v1/admin/*` on an admin-scoped token |
 | `TokenValidator` | `/metrics`, WS upgrade | Shared token validation; results cached by token |
 

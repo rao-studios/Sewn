@@ -5,7 +5,8 @@ import RaoStack
 /// Custom request context for Sewn.
 ///
 /// - Stores auth fields populated by `AuthMiddleware` / `AdminMiddleware`
-///   (replaces the Vapor `Request.storage` extension pattern).
+///   (replaces the Vapor `Request.storage` extension pattern), including
+///   `isLocalOnly` for the on-device lane a local app reaches with no account.
 /// - Stores the calling app populated by `StackSecretMiddleware`, which every
 ///   Thread fan-out is scoped by on a shared stack.
 /// - Overrides the 2 MB default `maxUploadSize` to 100 MB for large
@@ -24,6 +25,12 @@ struct SewnRequestContext: RequestContext, RemoteAddressRequestContext, StackCal
     var authUserId: String?
     var authToken: String?
     var authDisplayName: String?
+    /// True when AuthMiddleware admitted this request without a bearer: a
+    /// caller the stack secret named (loopback, secret verified) running the
+    /// on-device lane with no account. `authUserId` is then
+    /// `LocalOnlyGrant.ownerId(for: callerApp)` and `authToken` is nil. Every
+    /// generation route refuses a hosted provider for such a caller.
+    var isLocalOnly: Bool = false
 
     // MARK: - Stack (populated by StackSecretMiddleware)
 

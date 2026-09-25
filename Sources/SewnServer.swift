@@ -36,7 +36,9 @@ func configureRoutes(
     registerAuthResendRoute(router)
 
     // Protected routes — AuthMiddleware validates the Supabase Bearer token
-    // and populates context.authUserId before each handler runs.
+    // and populates context.authUserId before each handler runs. With no
+    // bearer at all, a local stack's proven caller may take the on-device
+    // lane on LocalOnlyGrant's routes only, as owner "local-<app>".
     let protected = router.add(middleware: AuthMiddleware())
     try? registerChatCompletionsRoute(
         protected,

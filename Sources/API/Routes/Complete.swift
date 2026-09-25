@@ -13,6 +13,10 @@
 //  The chat model is called the way vision calls Pixtral — system + user,
 //  one completion. There is no `sewn` scope object on the wire.
 //
+//  PIN: Reachable without an account on a local stack (LocalOnlyGrant), and
+//  then only with `provider: local`. Anything hosted is a 401 before any
+//  model is dialled.
+//
 
 import Foundation
 import Hummingbird
@@ -142,7 +146,8 @@ func registerCompleteRoute(
             "[Complete] messages: \(body.messages.count), tools: \(body.tools?.count ?? 0), max_tokens: \(completeMaxTokens(body.maxTokens))"
         )
 
-        let provider = body.provider ?? .serverDefault
+        // A local-only caller (no account) runs on-device or not at all.
+        let provider = try context.admittedProvider(body.provider)
         let output: String
         do {
             let utility = ModelConfig.utilityModel(for: provider)

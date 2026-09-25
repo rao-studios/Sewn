@@ -12,7 +12,9 @@
 //        set nothing; the middleware isn't installed and nothing changes.
 //  OUT:  401 without a secret this Sewn knows; 421 for a Host that isn't
 //        loopback; otherwise `context.callerApp`, which every Thread fan-out
-//        is scoped by (see `Sewn.nodeScope(for:)`).
+//        is scoped by (see `Sewn.nodeScope(for:)`), and which is what lets
+//        AuthMiddleware grant the on-device lane with no account
+//        (LocalOnlyGrant).
 //  PIN:  Keeps web pages out. A page can't send a custom header cross-site
 //        without a CORS preflight, and local mode answers none; a
 //        DNS-rebinding page arrives under its own Host and never learns a

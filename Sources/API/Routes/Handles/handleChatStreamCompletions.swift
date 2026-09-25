@@ -27,6 +27,9 @@ func handleChatStreamCompletions(
     logger.info("Received API CHAT streaming completion request.")
 
     let sewnRequest = try chatRequest.sewn.from(context)
+    // Before retrieval, Sinatra or anything else reads the turn, and before
+    // the stream's 200: a local-only caller runs on-device or is refused.
+    let provider = try context.admittedProvider(chatRequest.provider)
     if let problem = chatRequest.sinatra?.validationError {
         throw HTTPError(.badRequest, message: problem)
     }
@@ -50,7 +53,6 @@ func handleChatStreamCompletions(
     let personality = chatResult.personality
     // Resolve the model before the token budget: thinking models get a floor
     // so truncation never swallows the answer (see ModelConfig.chatMaxTokens).
-    let provider = chatRequest.provider ?? .serverDefault
     let requestedModel = chatRequest.model ?? personality?.modelOverride
     let resolvedModel = ModelConfig.resolveChatModel(
         requested: requestedModel, provider: provider)
