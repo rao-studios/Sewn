@@ -52,10 +52,11 @@ final class LocalOnlyGrantTests: XCTestCase {
         protected.post("/v1/providers/local/warm") { _, c in Self.whoami(c) }
         protected.get("/v1/providers/local/sinatra/traces/:traceId") { _, c in Self.whoami(c) }
         protected.get("/v1/providers/local/sinatra/analysis") { _, c in Self.whoami(c) }
-        // Not granted: the same path under another method, and two account routes.
+        // Not granted: the same path under another method, and three account routes.
         protected.delete("/v1/providers/local/sinatra/traces/:traceId") { _, c in Self.whoami(c) }
         protected.post("/v1/search") { _, c in Self.whoami(c) }
         protected.get("/v1/account/keys") { _, c in Self.whoami(c) }
+        protected.get("/v1/account/plan") { _, c in Self.whoami(c) }
         return Application(router: router)
     }
 
@@ -90,6 +91,7 @@ final class LocalOnlyGrantTests: XCTestCase {
             let refused: [(HTTPRequest.Method, String)] = [
                 (.post, "/v1/search"),
                 (.get, "/v1/account/keys"),
+                (.get, "/v1/account/plan"),
                 (.delete, "/v1/providers/local/sinatra/traces/\(UUID().uuidString)"),
             ]
             for (method, uri) in refused {

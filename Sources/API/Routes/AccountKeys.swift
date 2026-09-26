@@ -5,10 +5,13 @@
 //  GET /v1/account/keys — the provider keys an account is handed.
 //
 //  Read from the Supabase `ambient_keys` table with the caller's own JWT, so
-//  row-level security decides who may read them (every verified account, per
-//  supabase/migrations). Sewn holds no service-role key and adds no rule of
-//  its own. A missing table is an empty answer, not an error: the app then
-//  falls back to the key its user typed in Settings.
+//  row-level security decides who may read them: accounts with Ambient Plus,
+//  the `ambient_keys_select_plus` policy over `ambient_is_plus`, from the
+//  Ambient Plus migration kept locally (gitignored) in supabase/migrations.
+//  Sewn holds no service-role key and adds no rule of
+//  its own. A missing table is an empty answer, not an error, and so is a
+//  free account's zero rows: the app then falls back to the key its user
+//  typed in Settings, or runs on-device.
 //
 
 import Foundation

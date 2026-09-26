@@ -534,7 +534,8 @@ Powered by [Supabase](https://supabase.com) via [supabase-swift](https://github.
 | `POST` | `/v1/auth/resend` | Send the signup or recovery code again |
 | `POST` | `/v1/auth/sign-out` | Invalidate the current session (requires Bearer) |
 | `POST` | `/v1/auth/update-password` | Set a new password (requires Bearer) |
-| `GET` | `/v1/account/keys` | Provider keys for a verified account, from `ambient_keys` (requires Bearer) |
+| `GET` | `/v1/account/keys` | Provider keys for an account with Ambient Plus, from `ambient_keys` (requires Bearer) |
+| `GET` | `/v1/account/plan` | Ambient Plus standing for the account, from the `ambient_my_plan` RPC (requires Bearer) |
 
 **`POST /v1/auth/sign-in`**
 ```json

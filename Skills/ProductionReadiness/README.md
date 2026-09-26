@@ -52,8 +52,16 @@ Every variable Sewn actually reads:
 - [ ] No secrets in source, `docker-compose.yml`, or the image
 - [ ] No service-role key anywhere: Sewn reaches Supabase as the anon role and
       the caller's JWT, so row-level security is the whole rule
-- [ ] `supabase/migrations` applied, and Auth → "Confirm email" is on — the
-      `ambient_keys` policy counts on unconfirmed sign-ups having no session
+- [ ] `supabase/migrations` applied. `20260926000000_ambient_plus.sql`, kept
+      locally and ignored by git, adds the
+      billing tables, `ambient_is_plus` and `ambient_my_plan`; its section 6
+      runs last, after the app release, and replaces every `ambient_keys`
+      SELECT policy with `ambient_keys_select_plus`: only an account
+      `ambient_is_plus` says has Ambient Plus (trialing, active, or past_due
+      within 7 days of the period start) reads the shared keys. A free
+      account reads zero rows
+- [ ] Auth → "Confirm email" is on — an unconfirmed sign-up must have no
+      session to read anything with
 - [ ] The server runs with `--server-mode` (the Dockerfile's `CMD` passes it);
       without it there is no `/metrics` for Alloy to scrape
 

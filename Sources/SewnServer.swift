@@ -85,6 +85,8 @@ func configureRoutes(
     registerAuthUpdatePasswordRoute(protected)
     /* Account — the provider keys this account is handed */
     registerAccountKeysRoute(protected)
+    /* Account — Ambient Plus standing */
+    registerAccountPlanRoute(protected)
     /* Graph — knowledge-graph query proxy (entity match + neighborhood) */
     registerGraphRoute(protected, sewn)
     /* Personalities — chat personas */

@@ -110,3 +110,6 @@ CLAUDE.md
 temp/*
 
 dist
+
+# The Ambient Plus Supabase migration is kept on this machine, not in git.
+supabase/migrations/20260926000000_ambient_plus.sql
