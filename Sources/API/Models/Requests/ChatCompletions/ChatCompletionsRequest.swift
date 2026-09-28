@@ -45,12 +45,24 @@ struct ChatCompletionRequest: Codable {
     /// SinatraHarness options for an on-device turn: `{mode, trace, seed, record}`.
     /// Ignored by hosted providers.
     var sinatra: SinatraRequestOptions?
+    /// THE RUNNING RECAP. True asks Sewn to keep a recap of each compacted
+    /// stretch of this chat and carry it in the system prompt (Sewn+Recap).
+    /// For a client that drops its history when `auto_memory` comes back.
+    var recap: Bool?
+    /// True forgets the running recap before this turn is built — the
+    /// client's "forget the conversation", carried on its next request.
+    var recapReset: Bool?
 
     let sewn: SewnRequest
 
+    /// The realtime opener reads the recap cache before `handleChat` runs,
+    /// so a turn that forgets it must not show it there either.
+    var opensWithRecap: Bool { recap == true && recapReset != true }
+
     enum CodingKeys: String, CodingKey {
         case messages, model, temperature, stream, stop, resize, sewn, resonate, instructions, debug, client, provider
-        case sinatra
+        case sinatra, recap
+        case recapReset = "recap_reset"
         case personality, persona
         case maxTokens = "max_tokens"
         case topP = "top_p"

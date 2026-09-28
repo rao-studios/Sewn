@@ -5,6 +5,7 @@
 //  Created by Ritesh Pakala on 11/1/25.
 //
 
+import Conduit
 import Foundation
 import Metrics
 
@@ -42,11 +43,13 @@ extension Sewn {
             return SearchChatResult(context: [], adjustments: [], references: [])
         }
 
-        let (threadResults, protoTrace) = await fanoutSearch(
+        // One over per node, so a recap ledger dropped below never costs a slot.
+        let (fetched, protoTrace) = await fanoutSearch(
             queryText: query,
             request: request,
-            topK: topK
+            topK: topK + 1
         )
+        let threadResults = Self.droppingRecaps(fetched, topK: topK)
 
         var scoreMap: [String: Float] = [:]
         var peerSources: [String: OracleNodeID] = [:]
@@ -118,5 +121,22 @@ extension Sewn {
             trace: trace,
             retrieved: Sewn.RetrievedPartition.from(partitions, scores: scoreMap)
         )
+    }
+
+    /// The results without recap ledgers, each node's cut back to `topK` in
+    /// the order given. A ledger mirrors the live chat, so it would match
+    /// nearly every turn — the prompt already carries it as the recap.
+    static func droppingRecaps(
+        _ results: [Thread_V1_ThreadPartitionResult],
+        topK: Int
+    ) -> [Thread_V1_ThreadPartitionResult] {
+        var kept: [String: Int] = [:]
+        return results.filter { result in
+            guard !result.documentID.hasPrefix(recapDocumentPrefix) else { return false }
+            let count = kept[result.threadID, default: 0]
+            guard count < topK else { return false }
+            kept[result.threadID] = count + 1
+            return true
+        }
     }
 }

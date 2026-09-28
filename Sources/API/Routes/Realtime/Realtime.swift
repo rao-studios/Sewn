@@ -64,16 +64,19 @@ func registerRealtimeRoute(
 /// from conversation history alone (retrieval hasn't landed yet) and is the
 /// FIRST thing spoken. Client instructions are dropped here. It must not
 /// disclaim the client's parallel Skill lane — and it must not claim that
-/// lane already ran. Extracted for unit testing.
+/// lane already ran. Extracted for unit testing. `recap` is the running
+/// recap from the cache (Sewn+Recap), when the chat asked for one.
 func realtimeOpeningSystemPrompt(
     personality: Personality? = nil,
-    persona inline: ChatPersona? = nil
+    persona inline: ChatPersona? = nil,
+    recap: String? = nil
 ) -> String {
     let persona = resolveChatPersona(inline: inline, stored: personality)
+    let recapBlock = recap.map { "\n\n\($0)" } ?? ""
     return """
     Your name is \(persona.name).
 
-    \(persona.voice)
+    \(persona.voice)\(recapBlock)
 
     You act through your tools — if the user asks you to do something (edit code, write, change \
     a file, run something), name the heading in one beat and keep talking; never claim you are \
@@ -195,7 +198,8 @@ private func handleRealtimeTurn(
     // ── Engine wiring ─────────────────────────────────────────────────────────
     let personality = PersonalityStore.personality(id: chatRequest.personality)
     let openingSystemPrompt = realtimeOpeningSystemPrompt(
-        personality: personality, persona: chatRequest.persona)
+        personality: personality, persona: chatRequest.persona,
+        recap: chatRequest.opensWithRecap ? sewn.cachedRecapSection(for: sewnRequest) : nil)
 
     let historyMessages: [[String: String]] = chatRequest.messages.compactMap { message in
         guard let content = message.content.asString, !content.isEmpty else { return nil }

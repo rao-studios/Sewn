@@ -105,6 +105,17 @@ grants nothing.
 `stream: true` → SSE deltas, then a trailing chunk with empty `choices` plus
 `contribution` and `auto_memory`, then `data: [DONE]`.
 
+`"recap": true` opts the chat into the running recap (`Sewn+Recap.swift`):
+each auto-memory also condenses its summary into a short entry at the head of
+a ledger document (`chat-recap-<app>-<owner>`, group `memory-<owner>`, tag
+`sewnrecap`), and every turn carries the newest entries, up to
+`SEWN_RECAP_MAX_TOKENS` (default 600), under `--- EARLIER IN THIS
+CONVERSATION ---`. The ledger is read by id into a cache (a cold turn waits
+at most 200 ms after its search) and never appears in retrieval. For a client
+that drops its history when `auto_memory` comes back. `"recap_reset": true`
+forgets the caller's recap (cache and ledger) before the turn is built — how
+a client's "forget the conversation" reaches Sewn, on its next request.
+
 ### Providers
 
 | Method | Path | File | Notes |

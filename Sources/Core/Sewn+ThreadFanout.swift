@@ -403,6 +403,51 @@ extension Sewn {
     }
 }
 
+// MARK: - Documents fan-out
+
+extension Sewn {
+    /// Full documents by id from the caller's targeted Thread nodes — no
+    /// embedding, no search. Nil when no node was reached or every node
+    /// failed; an empty array means the nodes answered without them.
+    nonisolated func fanoutDocuments(
+        ownerId: String,
+        documentIds: [String],
+        threadIds: [String]? = nil,
+        app: RaoApp?
+    ) async -> [Thread_V1_ThreadDocumentContent]? {
+        guard let client = _threadQueryClient as? ThreadQueryClient else { return nil }
+        let scopedNodes = await nonisolatedRegistryMutator.activeNodes(in: nodeScope(for: app))
+        var nodes: [ThreadNode]
+        if let ids = threadIds, !ids.isEmpty {
+            nodes = scopedNodes.filter { ids.contains($0.threadId.uuidString) }
+        } else {
+            nodes = []
+        }
+        if nodes.isEmpty {
+            nodes = await nonisolatedRegistryMutator.threadNodesForOwner(ownerId, scopedNodes: scopedNodes)
+        }
+        guard !nodes.isEmpty else { return nil }
+
+        var req = Thread_V1_ThreadDocumentsRequest()
+        req.ownerID = ownerId
+        req.documentIds = documentIds
+
+        return await withTaskGroup(of: [Thread_V1_ThreadDocumentContent]?.self) { group in
+            for node in nodes {
+                group.addTask { try? await client.documents(req, thread: node).documents }
+            }
+            var answered = false
+            var documents: [Thread_V1_ThreadDocumentContent] = []
+            for await result in group {
+                guard let result else { continue }
+                answered = true
+                documents.append(contentsOf: result)
+            }
+            return answered ? documents : nil
+        }
+    }
+}
+
 // MARK: - Graph fan-out
 
 extension Sewn {

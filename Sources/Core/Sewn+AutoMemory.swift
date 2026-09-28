@@ -66,7 +66,8 @@ extension Sewn {
         recentMessage: String,
         request: SewnRequest,
         modelProvider: ModelProvider,
-        provider: LLMProvider = .serverDefault
+        provider: LLMProvider = .serverDefault,
+        recap: Bool = false
     ) async throws {
         logger.info(
             "Auto Memory",
@@ -124,6 +125,12 @@ extension Sewn {
                 request: request
             )
             return
+        }
+
+        // The running recap rides the same summary, whatever becomes of the memory put.
+        if recap {
+            await recordRecap(summary: summary, request: request,
+                              modelProvider: modelProvider, provider: provider)
         }
 
         let values: [String] = summary.components(separatedBy: .newlines).filter { $0.isEmpty == false }

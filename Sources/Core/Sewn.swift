@@ -22,6 +22,8 @@ actor Sewn {
     internal let gita: Gita
     internal let registryMutator: RegistryMutator
     let documentCache: DocumentCache
+    /// The running recap per conversation (Sewn+Recap.swift).
+    let recapStore = RecapStore()
 
     /// Persistent node identity for this Sewn instance.
     let nodeId: UUID
@@ -109,6 +111,13 @@ actor Sewn {
                                       modelProvider: modelProvider,
                                       provider: provider)
         }
+
+        /* Recap — forgotten first when asked; a cold conversation's ledger is read beside the search */
+        if request.recapReset == true {
+            clearRecap(sewnRequest)
+        }
+        let wantsRecap = request.recap == true
+        let recapHydration = wantsRecap ? startRecapHydration(sewnRequest) : nil
 
         /* Search */
         let searchStartNs = DispatchTime.now().uptimeNanoseconds
@@ -209,12 +218,16 @@ actor Sewn {
             context = ""
         }
 
+        let recap = wantsRecap
+            ? await recapSection(for: sewnRequest, awaiting: recapHydration) ?? ""
+            : ""
+
         let memoryInstruction = Self.memoryInstruction(
-            contextEmpty: context.isEmpty, bonnieClient: isBonnieClient)
+            contextEmpty: context.isEmpty, bonnieClient: isBonnieClient, hasRecap: !recap.isEmpty)
 
         let prompts = Self.systemPrompts(
             personaSection: chatPersonaSection(persona, memoryInstruction: memoryInstruction),
-            instructions: instructions, context: context)
+            instructions: instructions, recap: recap, context: context)
         let personalizedContext = prompts.full
         let bareSystem = prompts.bare
 
@@ -309,7 +322,8 @@ actor Sewn {
                         recentMessage: capturedRecent,
                         request: capturedRequest,
                         modelProvider: modelProvider,
-                        provider: provider
+                        provider: provider,
+                        recap: wantsRecap
                     )
                 } catch {
                     self.logger.warning(
@@ -344,22 +358,16 @@ actor Sewn {
     /// nothing else changed (nil when there is no context). The on-device provider scores
     /// its answer against the bare one to measure what the context did (SinatraHarness's
     /// grounding); everything before the context is identical, so that side reuses the
-    /// prompt's KV cache.
-    static func systemPrompts(personaSection: String, instructions: String, context: String) -> (full: String, bare: String?) {
-        let full = """
-        \(personaSection)
-
-        \(instructions)
-
-        \(context)
-        """
+    /// prompt's KV cache. The recap sits before the context, so it is in both.
+    static func systemPrompts(
+        personaSection: String, instructions: String, recap: String = "", context: String
+    ) -> (full: String, bare: String?) {
+        let head = recap.isEmpty
+            ? "\(personaSection)\n\n\(instructions)"
+            : "\(personaSection)\n\n\(instructions)\n\n\(recap)"
+        let full = "\(head)\n\n\(context)"
         guard !context.isEmpty else { return (full, nil) }
-        let bare = """
-        \(personaSection)
-
-        \(instructions)
-        """
-        return (full, bare)
+        return (full, head)
     }
 
     /// The conversation before the current turn: every message except the last user

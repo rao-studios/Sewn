@@ -265,8 +265,12 @@ extension Sewn {
         """
     }
 
-    /// The one-sentence memory posture woven into the persona line.
-    static func memoryInstruction(contextEmpty: Bool, bonnieClient: Bool) -> String {
+    /// The one-sentence memory posture woven into the persona line. With a
+    /// recap (Sewn+Recap) the empty-context posture makes room for it.
+    static func memoryInstruction(contextEmpty: Bool, bonnieClient: Bool, hasRecap: Bool = false) -> String {
+        if contextEmpty && hasRecap {
+            return "You have no retrieved memories or documents for this user. Apart from the notes under EARLIER IN THIS CONVERSATION, do not reference, invent, or imply knowledge of any past conversations, notes, or memories — respond only from those notes and what the user tells you directly."
+        }
         if contextEmpty {
             return "You have no retrieved memories or documents for this user. Do not reference, invent, or imply knowledge of any past conversations, notes, or memories — respond only from what the user tells you directly in this conversation."
         }
