@@ -168,10 +168,11 @@ extension Sinatra {
             return (nil, ledger)
         }
 
-        // Embed the resonant excerpt via the API embedding model.
+        // Embed the resonant excerpt via the API embedding model. On-device the
+        // put is embedded by Thread at index time, so the excerpt never leaves.
         let embeddingData: [EmbeddingData]
         do {
-            embeddingData = try await StandaloneGeneration.runAPIEmbedding(
+            embeddingData = provider.isLocal ? [] : try await StandaloneGeneration.runAPIEmbedding(
                 [result.excerpt],
                 logger: logger.base
             )

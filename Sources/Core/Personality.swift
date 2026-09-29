@@ -142,3 +142,39 @@ func chatPersonaSection(
     \(persona.voice) \(memoryInstruction)
     """
 }
+
+/// THE PERSONALITY SECTION FOR AN ON-DEVICE MODEL. Its chat template has no
+/// system role, so this text is read inside the user's own turn, just ahead
+/// of their words, and a name that is the only one in sight gets used on
+/// them. So: her name once, whose name is whose in plain prose, and the
+/// user's own name when the client knows it. No labels and no fences —
+/// fencing added "Mary:" speaker labels (LocalMessageMapper, 2026-09-24).
+func localChatPersonaSection(
+    _ persona: ResolvedChatPersona,
+    userName: String?,
+    memoryInstruction: String
+) -> String {
+    let name = persona.name
+    let roles: String
+    switch userName?.trimmingCharacters(in: .whitespacesAndNewlines) {
+    case let user? where user.caseInsensitiveCompare(name) == .orderedSame:
+        roles = "The person talking to you shares your name: they are \(user) too."
+    case let user? where !user.isEmpty:
+        roles = "You're talking with \(user); \(name) is your name and \(user) is theirs."
+    default:
+        roles = "\(name) is your name, not the user's. You don't know the user's name, so never address them by a name."
+    }
+    // Said once, with what to do with it: asked "who am I talking to?", a
+    // voice that names her nowhere else answered "you're talking to me!".
+    // Whether the voice introduces her, not whether the word appears:
+    // "the user's Mac" does not name an assistant called Mac.
+    let introduced = ["You are \(name)", "Your name is \(name)", "I'm \(name)", "I am \(name)"]
+        .contains { persona.voice.contains($0) }
+    let identity = introduced
+        ? roles : "Your name is \(name), and you say so whenever you're asked who you are or who they're talking to. \(roles)"
+    return """
+    \(identity)
+
+    \(persona.voice) \(memoryInstruction)
+    """
+}

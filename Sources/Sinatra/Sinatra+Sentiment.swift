@@ -164,15 +164,32 @@ extension Sinatra {
         // contribute its cost before the sentinel early-return paths.
         var ledger = Gita.TokenLedger()
 
+        // ON-DEVICE, NOTHING PAST THIS POINT RUNS: resonance and sentiment are
+        // background one-shots, and the turn's model is the only one the user
+        // chose. Same outcome as "no resonance detected" below, minus the call.
+        if provider.isLocal && !LLMProvider.localUtilityEnabled {
+            if parked != nil {
+                updateRegistry { reg in
+                    let remaining = reg.parked[owner]?.filter { !consumedIds.contains($0.id) }
+                    reg.parked[owner] = remaining?.isEmpty == false ? remaining : nil
+                }
+            }
+            logger.info("Training Gate", "⚜️ SKIP — on-device turn, utility passes off", service: .sinatra, request: request, flow: .chat)
+            return .empty
+        }
+
         // --- Resonance Gate ---
         // Extract the specific passage the user resonated with before running
         // sentiment analysis or training. A non-nil partition is the primary gate:
         // if no clear resonance is detected, skip GBT+IMBHS training entirely.
+        // Hosted turns keep the server default exactly; an opted-in on-device
+        // turn stays on this Mac.
         let (resonancePartition, resonanceLedger) = try await extractResonance(
             userContent: userContentString,
             assistantContent: assistantString,
             request: request,
-            modelProvider: modelProvider
+            modelProvider: modelProvider,
+            provider: provider.isLocal ? provider : .serverDefault
         )
         ledger.merge(resonanceLedger)
 

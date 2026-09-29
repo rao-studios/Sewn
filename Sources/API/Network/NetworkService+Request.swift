@@ -21,7 +21,10 @@ extension NetworkService {
         if options.useMockData {
             return try await makeMockedResponse(for: request)
         }
-        
+
+        // An on-device turn never reaches a vendor, whatever called this.
+        try VendorEgress.check(configuration.base)
+
         // Build the request
         let urlRequest = try buildURLRequest(for: request)
         logger.info("[NetworkService] Sending \(request.method.rawValue.uppercased()) request to: \(urlRequest.url?.absoluteString ?? "unknown")")

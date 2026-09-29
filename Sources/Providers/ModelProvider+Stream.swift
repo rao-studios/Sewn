@@ -262,6 +262,7 @@ extension ModelProvider {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    try VendorEgress.check(urlRequest.url)
                     #if canImport(FoundationNetworking)
                     // Linux: FoundationNetworking does not expose URLSession.bytes.
                     // Fall back to a single-shot request and parse the buffered SSE body.

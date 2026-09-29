@@ -82,6 +82,14 @@ struct ChatPersona: Codable, Equatable, Sendable {
     /// The desired persona — injected where a stored personality's
     /// `systemFragment` would go.
     var voice: String?
+    /// What to call the person she is talking with. Read only for an
+    /// on-device turn (`localChatPersonaSection`); absent means unknown.
+    var userName: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case name, voice
+        case userName = "user_name"
+    }
 }
 
 enum ChatMessageRequestRole: String, Codable {

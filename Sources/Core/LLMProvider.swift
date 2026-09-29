@@ -61,6 +61,8 @@ enum ProviderUnavailable: Error, CustomStringConvertible, Equatable {
     case localNotBuilt
     case localFailed(String)
     case utilityDisabled(LLMProvider)
+    /// A hosted vendor was about to be called from a turn that forbids it (VendorEgress).
+    case egressRefused(host: String, reason: String)
 
     var description: String {
         switch self {
@@ -72,6 +74,8 @@ enum ProviderUnavailable: Error, CustomStringConvertible, Equatable {
             return "On-device model unavailable: \(reason)"
         case .utilityDisabled(let provider):
             return "Utility generations are off for \(provider.rawValue); set SEWN_LOCAL_UTILITY=1 to enable."
+        case .egressRefused(let host, let reason):
+            return "Refused to call \(host) during an \(reason)."
         }
     }
 }

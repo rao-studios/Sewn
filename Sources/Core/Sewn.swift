@@ -79,6 +79,18 @@ actor Sewn {
                     modelProvider: ModelProvider,
                     sewnRequest: SewnRequest? = nil,
                     queryExpansion: Bool = false) async throws -> ChatResult {
+        // An on-device turn, and every pass it spawns here (Sinatra,
+        // auto-memory, recap), runs with hosted vendors refused.
+        try await VendorEgress.refusing(when: (request.provider ?? .serverDefault).isLocal) {
+            try await assembleChat(request: request, modelProvider: modelProvider,
+                                   sewnRequest: sewnRequest, queryExpansion: queryExpansion)
+        }
+    }
+
+    private nonisolated func assembleChat(request: ChatCompletionRequest,
+                    modelProvider: ModelProvider,
+                    sewnRequest: SewnRequest?,
+                    queryExpansion: Bool) async throws -> ChatResult {
         // The turn's backend, for every pass that reads the user's words.
         let provider = request.provider ?? .serverDefault
 
@@ -162,18 +174,7 @@ actor Sewn {
         let isBonnieClient = request.client?.lowercased() == "bonnie"
 
         /* Additional Instructions */
-        let baseRules = "Keep responses under 6-7 sentences. Be specific and grounded. Never announce that you are an AI. Never output XML-like tags (such as <external>) in your response."
-        let instructions: String
-        if let additionalInstructions = request.instructions {
-            instructions = """
-            --- CONVERSATIONAL INSTRUCTIONS ---
-            \(additionalInstructions)
-
-            \(baseRules)
-            """
-        } else {
-            instructions = baseRules
-        }
+        let instructions = Self.chatInstructions(request.instructions)
 
         /* Personalized Context */
         let context: String
@@ -225,8 +226,12 @@ actor Sewn {
         let memoryInstruction = Self.memoryInstruction(
             contextEmpty: context.isEmpty, bonnieClient: isBonnieClient, hasRecap: !recap.isEmpty)
 
+        let personaSection = provider.isLocal
+            ? localChatPersonaSection(
+                persona, userName: request.persona?.userName, memoryInstruction: memoryInstruction)
+            : chatPersonaSection(persona, memoryInstruction: memoryInstruction)
         let prompts = Self.systemPrompts(
-            personaSection: chatPersonaSection(persona, memoryInstruction: memoryInstruction),
+            personaSection: personaSection,
             instructions: instructions, recap: recap, context: context)
         let personalizedContext = prompts.full
         let bareSystem = prompts.bare
@@ -255,12 +260,9 @@ actor Sewn {
             flow: .chat
         )
 
-        // Verbatim context carries no conversation summary (the briefing's
-        // "Conversation History" section), so the history must reach the model
-        // as real message turns — capped to the most recent 10. The briefing
-        // path keeps the original two-message shape: history lives inside the
-        // compacted text.
-        let historyTurns: [[String: Any]] = usedVerbatimContext ? Array(messages.suffix(10)) : []
+        let historyTurns = Self.historyTurns(
+            messages, usedVerbatimContext: usedVerbatimContext,
+            contextEmpty: context.isEmpty, provider: provider)
         let finalMessages: [[String: Any]] = historyTurns + [
             [
                 MessageProcessingKeys.role: ChatMessageRequestRole.user.rawValue,
@@ -374,6 +376,33 @@ actor Sewn {
     /// message (the one being answered), in order. An earlier message with the same words
     /// stays — dropping it made a repeated question open the history on the assistant —
     /// except a copy sent right before it, which is a duplicated submission.
+    static let chatBaseRules = "Keep responses under 6-7 sentences. Be specific and grounded. Never announce that you are an AI. Never output XML-like tags (such as <external>) in your response."
+
+    /// The instructions section: the client's own, fenced, then the base rules.
+    static func chatInstructions(_ additional: String?) -> String {
+        guard let additional else { return chatBaseRules }
+        return """
+        --- CONVERSATIONAL INSTRUCTIONS ---
+        \(additional)
+
+        \(chatBaseRules)
+        """
+    }
+
+    /// The history that reaches the model as real turns, capped to the most
+    /// recent 10. Verbatim context carries no conversation summary (the
+    /// briefing's "Conversation History" section), so the history must go as
+    /// turns; the briefing path keeps the original two-message shape, history
+    /// inside the compacted text. An on-device turn with nothing retrieved has
+    /// no briefing either, and without its turns the model never sees its own
+    /// replies — so it lost track of who is who (it called the user "Mary").
+    static func historyTurns(
+        _ messages: [[String: Any]], usedVerbatimContext: Bool, contextEmpty: Bool, provider: LLMProvider
+    ) -> [[String: Any]] {
+        guard usedVerbatimContext || (provider.isLocal && contextEmpty) else { return [] }
+        return Array(messages.suffix(10))
+    }
+
     static func historyEntries(_ messages: [ChatMessageRequestData]) -> [[String: Any]] {
         guard let current = messages.lastIndex(where: { $0.role == .user }) else { return [] }
         let currentText = messages[current].content.asString
@@ -455,7 +484,11 @@ extension Sewn {
         SewnMetrics.indexQueueDepth.record(Double(pending.count))
         guard !isProcessing else { return }
         isProcessing = true
-        Task { await self.drain() }
+        // The worker outlives whoever queued first — an on-device turn's
+        // auto-memory, say — so it starts without that turn's VendorEgress.
+        VendorEgress.$refusal.withValue(nil) {
+            Task { await self.drain() }
+        }
     }
 
     /// Whether a queued put may ride in the batch of the put ahead of it. A

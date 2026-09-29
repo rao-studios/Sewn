@@ -52,4 +52,34 @@ final class HandleChatHistoryTests: XCTestCase {
     func testNoUserMessageMeansNoHistory() throws {
         XCTAssertTrue(Sewn.historyEntries(try messages([("assistant", "Hello.")])).isEmpty)
     }
+
+    // MARK: - Which history reaches the model
+
+    private var twelveTurns: [[String: Any]] {
+        (0..<12).map { [MessageProcessingKeys.role: $0 % 2 == 0 ? "user" : "assistant",
+                        MessageProcessingKeys.content: "turn \($0)"] }
+    }
+
+    func testAnOnDeviceTurnWithNothingRetrievedKeepsItsHistory() {
+        let turns = Sewn.historyTurns(twelveTurns, usedVerbatimContext: false, contextEmpty: true, provider: .local)
+        XCTAssertEqual(texts(turns), (2..<12).map { "turn \($0)" })
+    }
+
+    /// Hosted is unchanged: with nothing retrieved it still sends no history.
+    func testAHostedTurnWithNothingRetrievedStillSendsNone() {
+        for provider in [LLMProvider.mistral, .tinker] {
+            XCTAssertTrue(Sewn.historyTurns(twelveTurns, usedVerbatimContext: false, contextEmpty: true, provider: provider).isEmpty)
+        }
+    }
+
+    func testVerbatimContextSendsHistoryForEveryProvider() {
+        for provider in [LLMProvider.mistral, .tinker, .local] {
+            XCTAssertEqual(Sewn.historyTurns(twelveTurns, usedVerbatimContext: true, contextEmpty: false, provider: provider).count, 10)
+        }
+    }
+
+    /// A briefing already carries the conversation inside its compacted text.
+    func testABriefingSendsNoTurnsOnDeviceEither() {
+        XCTAssertTrue(Sewn.historyTurns(twelveTurns, usedVerbatimContext: false, contextEmpty: false, provider: .local).isEmpty)
+    }
 }
