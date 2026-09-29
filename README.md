@@ -536,6 +536,8 @@ Powered by [Supabase](https://supabase.com) via [supabase-swift](https://github.
 | `POST` | `/v1/auth/update-password` | Set a new password (requires Bearer) |
 | `GET` | `/v1/account/keys` | Provider keys for an account with Ambient Plus, from `ambient_keys` (requires Bearer) |
 | `GET` | `/v1/account/plan` | Ambient Plus standing for the account, from the `ambient_my_plan` RPC (requires Bearer) |
+| `POST` | `/v1/account/rao-verified/keys` | Register this Mac's Rao Verified signing key to the account, through the `rao_verified_register_key` RPC (requires Bearer) |
+| `GET` | `/v1/account/rao-verified/keys` | The account's registered Rao Verified keys, from `rao_verified_keys` (requires Bearer) |
 
 **`POST /v1/auth/sign-in`**
 ```json

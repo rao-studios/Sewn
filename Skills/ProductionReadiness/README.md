@@ -60,6 +60,11 @@ Every variable Sewn actually reads:
       `ambient_is_plus` says has Ambient Plus (trialing, active, or past_due
       within 7 days of the period start) reads the shared keys. A free
       account reads zero rows
+- [ ] `20260929000000_rao_verified_keys.sql` applied (kept locally and ignored
+      by git, like the Plus one): the `rao_verified_keys`
+      table (row-level security, own rows only, no write grants) and the
+      `rao_verified_register_key` function that is its only way in. Until
+      it runs, key registration answers 404 and the apps keep asking
 - [ ] Auth → "Confirm email" is on — an unconfirmed sign-up must have no
       session to read anything with
 - [ ] The server runs with `--server-mode` (the Dockerfile's `CMD` passes it);

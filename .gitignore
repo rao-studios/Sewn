@@ -113,3 +113,5 @@ dist
 
 # The Ambient Plus Supabase migration is kept on this machine, not in git.
 supabase/migrations/20260926000000_ambient_plus.sql
+# So is the Rao Verified keys migration.
+supabase/migrations/20260929000000_rao_verified_keys.sql

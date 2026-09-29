@@ -10,6 +10,8 @@ extension SignInResponse: ResponseCodable {}
 extension SignUpResponse: ResponseCodable {}
 extension AccountKeysResponse: ResponseCodable {}
 extension AccountPlanResponse: ResponseCodable {}
+extension RaoVerifiedKeyResponse: ResponseCodable {}
+extension RaoVerifiedKeysResponse: ResponseCodable {}
 
 // MARK: - Chat Completions
 extension ChatCompletionResponse: ResponseCodable {}

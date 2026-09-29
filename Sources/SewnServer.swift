@@ -87,6 +87,8 @@ func configureRoutes(
     registerAccountKeysRoute(protected)
     /* Account — Ambient Plus standing */
     registerAccountPlanRoute(protected)
+    /* Account — the Mac's Rao Verified signing key, registered and listed */
+    registerRaoVerifiedKeysRoutes(protected)
     /* Graph — knowledge-graph query proxy (entity match + neighborhood) */
     registerGraphRoute(protected, sewn)
     /* Personalities — chat personas */

@@ -1,5 +1,5 @@
 {
-  "originHash" : "9793d04b0bd7faa0dff3b2c1f72f5df31b1fcbe94c4b71cc76536f0dfcd8b24c",
+  "originHash" : "1df62766747766becba16a476091f2a34bb940de782f49c2c4b8802001880ed7",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -43,7 +43,7 @@
       "location" : "https://github.com/rao-studios/Conduit.git",
       "state" : {
         "branch" : "main",
-        "revision" : "36ba72fa32c349d6b6d55020eb080791ffeca72f"
+        "revision" : "10c8859bb8e99f2e3d25e3ee9596d7ad5f871052"
       }
     },
     {

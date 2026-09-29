@@ -251,6 +251,8 @@ time**. No score is persisted.
 | `POST` | `/v1/auth/update-password` | `{password}` — the last step of a reset, after the recovery code gives a session. 204 |
 | `GET` | `/v1/account/keys` | `AccountKeys.swift`. `{keys:[{name,value}]}` from Supabase `ambient_keys`, read with the caller's JWT (RLS: accounts with Ambient Plus, via `ambient_is_plus`). Missing table or a free account → empty list |
 | `GET` | `/v1/account/plan` | `AccountPlan.swift`. `{known, plan: "plus" or "free", is_plus, status, price_id, interval, current_period_start, current_period_end, cancel_at_period_end, trial_end}` from the Supabase `ambient_my_plan` RPC (`POST /rest/v1/rpc/ambient_my_plan`, 10 s timeout), read with the caller's JWT. RPC not deployed (404) → `known: false`; PostgREST 401/403 → 401 so the app refreshes; transport failure → 502. Not in `LocalOnlyGrant` |
+| `POST` | `/v1/account/rao-verified/keys` | `RaoVerifiedKeys.swift`. `{kid, public_key, protection: "se" or "kc", scope: "mac" or "app", app, app_version}`. Sewn checks the key first: a compressed P-256 point, base64url, whose `kid` is the first 8 bytes of its SHA-256 (else 400, Supabase never dialled). Then the `rao_verified_register_key` RPC with the caller's JWT, which files the key under `auth.uid()` and upserts `last_seen_at`. Returns the row without `user_id`. RPC not deployed (404) → 404, which the app reads as "not yet"; 401/403 → 401; transport failure → 502. Not in `LocalOnlyGrant` |
+| `GET` | `/v1/account/rao-verified/keys` | `RaoVerifiedKeys.swift`. `{keys:[{kid, public_key, protection, scope, first_app, last_app, app_version, created_at, last_seen_at}]}` from `rao_verified_keys`, read with the caller's JWT (RLS: own rows only). Same status mapping as POST |
 
 ---
 
