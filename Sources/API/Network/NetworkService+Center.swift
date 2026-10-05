@@ -23,7 +23,7 @@ extension NetworkService {
     enum BaseEndpoint : String, Codable {
         case mistral = "api.mistral.ai"
         case tinker = "tinker.thinkingmachines.dev"
-        case supabase = "supabase.seer.services"
+        case supabase = "api.rao.nyc"
 
         var host: String { rawValue }
 
