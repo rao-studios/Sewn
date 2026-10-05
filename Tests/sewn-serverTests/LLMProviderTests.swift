@@ -35,6 +35,40 @@ final class LLMProviderTests: XCTestCase {
 
 final class ModelConfigProviderTests: XCTestCase {
 
+    override func tearDown() {
+        ModelConfig.chooseLocalModel(nil)
+        super.tearDown()
+    }
+
+    /// Settings › On-device in Ambient: the chosen model is every local job's model, so the
+    /// harness never swaps between it and the default mid-turn.
+    func testAChosenOnDeviceModelRunsEveryLocalJob() {
+        let small = "mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit"
+        ModelConfig.chooseLocalModel(small)
+        XCTAssertEqual(ModelConfig.chatModel(for: .local), small)
+        XCTAssertEqual(ModelConfig.utilityModel(for: .local), small)
+        XCTAssertEqual(ModelConfig.resolveChatModel(requested: nil, provider: .local), small)
+        // Hosted lanes never see it.
+        XCTAssertEqual(ModelConfig.resolveChatModel(requested: nil, provider: .mistral), ModelConfig.chatModel(for: .mistral))
+        XCTAssertNotEqual(ModelConfig.utilityModel(for: .mistral), small)
+    }
+
+    func testAHostedNameIsNeverChosenAndNilClearsTheChoice() {
+        ModelConfig.chooseLocalModel("mlx-community/Ministral-3-8B-Instruct-2512-4bit")
+        ModelConfig.chooseLocalModel("mistral-medium-latest")
+        XCTAssertEqual(ModelConfig.chatModel(for: .local), "mlx-community/Ministral-3-8B-Instruct-2512-4bit")
+        ModelConfig.chooseLocalModel(nil)
+        XCTAssertEqual(ModelConfig.chatModel(for: .local),
+                       ProcessInfo.processInfo.environment["SEWN_LOCAL_MODEL"] ?? ModelConfig.defaultLocalModel)
+    }
+
+    func testOnlyAPlainHubIDReachesTheDisk() {
+        XCTAssertNoThrow(try LocalModelStoreError.validated("mlx-community/Mistral-Nemo-Instruct-2407-4bit"))
+        for bad in ["../etc", "mlx-community/../../x", "a/b/c", "/abs/path", "noslash", "org/", "org/.hidden"] {
+            XCTAssertThrowsError(try LocalModelStoreError.validated(bad), bad)
+        }
+    }
+
     func testEachProviderHasItsOwnChatModelFamily() {
         XCTAssertTrue(ModelConfig.isMistralModel(ModelConfig.chatModel(for: .mistral)))
         XCTAssertTrue(ModelConfig.chatModel(for: .local).contains("/"))

@@ -3,7 +3,7 @@
 //  sewn-serverTests
 //
 //  A local app with no account may take the on-device lane: the stack secret
-//  names it, and on six routes that is identity enough. Everywhere else a
+//  names it, and on nine routes that is identity enough. Everywhere else a
 //  bearer is still required, an open server grants nothing, a presented
 //  token is never downgraded, and a local-only caller asking for a hosted
 //  provider is refused before anything is dialled.
@@ -50,6 +50,9 @@ final class LocalOnlyGrantTests: XCTestCase {
         protected.post("/v1/complete") { _, c in Self.whoami(c) }
         protected.get("/v1/providers") { _, c in Self.whoami(c) }
         protected.post("/v1/providers/local/warm") { _, c in Self.whoami(c) }
+        protected.get("/v1/providers/local/models") { _, c in Self.whoami(c) }
+        protected.post("/v1/providers/local/download") { _, c in Self.whoami(c) }
+        protected.post("/v1/providers/local/remove") { _, c in Self.whoami(c) }
         protected.get("/v1/providers/local/sinatra/traces/:traceId") { _, c in Self.whoami(c) }
         protected.get("/v1/providers/local/sinatra/analysis") { _, c in Self.whoami(c) }
         // Not granted: the same path under another method, and three account routes.
@@ -65,6 +68,9 @@ final class LocalOnlyGrantTests: XCTestCase {
         (.post, "/v1/complete"),
         (.get, "/v1/providers"),
         (.post, "/v1/providers/local/warm"),
+        (.get, "/v1/providers/local/models"),
+        (.post, "/v1/providers/local/download"),
+        (.post, "/v1/providers/local/remove"),
         (.get, "/v1/providers/local/sinatra/traces/\(UUID().uuidString)"),
         (.get, "/v1/providers/local/sinatra/analysis"),
     ]

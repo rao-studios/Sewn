@@ -11,6 +11,8 @@ final class ModelProvider {
     private let hosted: [NetworkService.BaseEndpoint: NetworkService]
     /// This machine. Never dialled unless a request selects `.local`.
     let local: LocalInference
+    /// The on-device models on this Mac's disk: what a client's model picker reads and fetches.
+    let localModels: LocalModelStore
 
     init(logger: Logger) {
         self.logger = logger
@@ -19,6 +21,7 @@ final class ModelProvider {
             .tinker: NetworkService(logger: logger, base: .tinker),
         ]
         self.local = LocalInference(logger: logger)
+        self.localModels = LocalModelStore(logger: logger)
 
         guard FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first != nil else {
             fatalError("Could not find documents directory")

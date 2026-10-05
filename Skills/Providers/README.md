@@ -113,7 +113,7 @@ overrides.
 |-----|----------|---------|---------|
 | Chat (mistral) | `chatModel(for:)` | `SEWN_CHAT_MODEL` | `mistral-medium-latest` |
 | Chat (tinker) | `chatModel(for:)` | `TINKER_MODEL` | `thinkingmachines/Inkling-Small` |
-| Chat (local) | `chatModel(for:)` | `SEWN_LOCAL_MODEL` | `mlx-community/Mistral-Nemo-Instruct-2407-4bit` |
+| Chat (local) | `chatModel(for:)` | a client's choice (`chooseLocalModel`: a warm, or an on-device request naming one), else `SEWN_LOCAL_MODEL` | `mlx-community/Mistral-Nemo-Instruct-2407-4bit` |
 | Utility one-shots | `utilityModel(for:)` | `UTILITY_MODEL` | `mistral-tiny` |
 | `/v1/code/complete` | `codingModel(for:)` | `SEWN_CODING_MODEL` | `codestral-latest` |
 | `/v1/code/complete` (local) | `codingModel(for:)` | `SEWN_LOCAL_CODING_MODEL` | falls back to `chatModel(for: .local)` |

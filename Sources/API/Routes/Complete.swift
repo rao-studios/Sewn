@@ -49,9 +49,12 @@ struct CompleteRequest: Codable {
     let temperature: Float?
     /// Which backend answers. Absent = the server default.
     let provider: LLMProvider?
+    /// The on-device model to run, when `provider` is local (Ambient's Settings ›
+    /// On-device). Absent = the Mac's chosen on-device model. Ignored for hosted.
+    let model: String?
 
     enum CodingKeys: String, CodingKey {
-        case instructions, messages, tools, temperature, provider
+        case instructions, messages, tools, temperature, provider, model
         case maxTokens = "max_tokens"
     }
 }
@@ -148,6 +151,7 @@ func registerCompleteRoute(
 
         // A local-only caller (no account) runs on-device or not at all.
         let provider = try context.admittedProvider(body.provider)
+        if provider.isLocal, let model = body.model { ModelConfig.chooseLocalModel(model) }
         let output: String
         do {
             let utility = ModelConfig.utilityModel(for: provider)

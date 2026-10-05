@@ -11,7 +11,7 @@ Route trees:
 
 ```
 router                              — open, no auth
-  └── router.add(AuthMiddleware())  — "protected" (six on-device routes also
+  └── router.add(AuthMiddleware())  — "protected" (nine on-device routes also
                                       admit a local stack's app with no bearer)
   └── router.add(AdminMiddleware()) — "admin"
 
@@ -59,10 +59,12 @@ password 401, unconfirmed email 403, expired or wrong code 401, weak password
 
 **Without an account.** On a local stack, a request with no `Authorization`
 header whose stack secret named an app (`context.callerApp`) is admitted on
-exactly six endpoint patterns (`LocalOnlyGrant.routes`): `POST
+exactly nine endpoint patterns (`LocalOnlyGrant.routes`): `POST
 /v1/chat/completions`, `POST /v1/complete`, `GET /v1/providers`, `POST
-/v1/providers/local/warm`, `GET /v1/providers/local/sinatra/traces/{traceId}`
-and `GET /v1/providers/local/sinatra/analysis`. The caller becomes owner
+/v1/providers/local/warm`, `GET /v1/providers/local/models`, `POST
+/v1/providers/local/download`, `POST /v1/providers/local/remove`, `GET
+/v1/providers/local/sinatra/traces/{traceId}` and `GET
+/v1/providers/local/sinatra/analysis`. The caller becomes owner
 `local-<app>` with `context.isLocalOnly = true` and no token. Chat and complete
 call `context.admittedProvider(_:)` before anything else reads the turn: any
 provider but `local` (including an omitted one when the server default is
@@ -122,6 +124,9 @@ a client's "forget the conversation" reaches Sewn, on its next request.
 |--------|------|------|-------|
 | `GET` | `/v1/providers` | `Providers.swift` | Every backend: `available`, `state`, `progress`, `model`, `capabilities`, `reason` |
 | `POST` | `/v1/providers/local/warm` | `Providers.swift` | Load the on-device model now. Idempotent — a warm in flight is joined |
+| `GET` | `/v1/providers/local/models` | `Providers.swift` | `?ids=a,b`: each model's place on this Mac — absent, downloading (progress), installed, failed (`LocalModelStore`) |
+| `POST` | `/v1/providers/local/download` | `Providers.swift` | `{"model"}`: fetch without loading; joins one running |
+| `POST` | `/v1/providers/local/remove` | `Providers.swift` | `{"model"}`: delete from disk; 409 for the model in use or loading, and for the default |
 
 ### Embeddings
 

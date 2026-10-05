@@ -65,6 +65,35 @@ struct ProviderWarmResponse: Codable, ResponseEncodable {
     var model: String
 }
 
+/// One model's place on this Mac (`GET /v1/providers/local/models`).
+struct LocalModelInfo: Codable, ResponseEncodable, Equatable {
+    var id: String
+    /// "absent" | "downloading" | "installed" | "failed"
+    var state: String
+    /// 0…1 while downloading.
+    var progress: Double?
+    var reason: String?
+
+    init(id: String, disk: LocalModelDisk) {
+        self.id = id
+        self.state = disk.name
+        switch disk {
+        case .downloading(let fraction): progress = fraction
+        case .failed(let reason): self.reason = reason
+        case .absent, .installed: break
+        }
+    }
+}
+
+struct LocalModelsResponse: Codable, ResponseEncodable {
+    var models: [LocalModelInfo]
+}
+
+/// Body of `POST /v1/providers/local/download` and `…/local/remove`.
+struct LocalModelRequest: Codable {
+    var model: String
+}
+
 /// One provider's row. Hosted availability is "is the key here"; local is
 /// "was this built with MLX, and is the Metal library beside the binary".
 func providerInfo(
@@ -151,12 +180,64 @@ func registerProvidersRoutes(
                 throw HTTPError(.badRequest, message: "\(requested) is not an on-device model id.")
             }
             model = requested
+            // The client's choice is the Mac's on-device model: every local job follows it.
+            ModelConfig.chooseLocalModel(requested)
         }
         context.logger.info("[Providers] warming on-device \(model)")
         let local = modelProvider.local
         Task { await local.warm(modelID: model) }
         let state = await local.snapshot()
         return ProviderWarmResponse(accepted: true, state: state.name, model: model)
+    }
+
+    /// Which of these on-device models are on this Mac: `?ids=org/a,org/b`.
+    router.get("/v1/providers/local/models") { request, _ async throws -> LocalModelsResponse in
+        let ids = (request.uri.queryParameters.get("ids") ?? "")
+            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var models: [LocalModelInfo] = []
+        for id in ids.prefix(16) {
+            guard (try? LocalModelStoreError.validated(id)) != nil else {
+                throw HTTPError(.badRequest, message: LocalModelStoreError.invalidID(id).description)
+            }
+            models.append(LocalModelInfo(id: id, disk: await modelProvider.localModels.disk(id)))
+        }
+        return LocalModelsResponse(models: models)
+    }
+
+    /// Fetch an on-device model without loading it. Joins a download already running;
+    /// progress reads back from `GET /v1/providers/local/models`.
+    router.post("/v1/providers/local/download") { request, context async throws -> LocalModelInfo in
+        let body = try await request.decode(as: LocalModelRequest.self, context: context)
+        do {
+            try await modelProvider.localModels.download(body.model)
+        } catch let error as LocalModelStoreError {
+            throw HTTPError(error == .unavailable ? .serviceUnavailable : .badRequest, message: error.description)
+        }
+        return LocalModelInfo(id: body.model, disk: await modelProvider.localModels.disk(body.model))
+    }
+
+    /// Delete an on-device model from this Mac. Refused for the model in use or loading,
+    /// and for the default, which other apps expect on disk.
+    router.post("/v1/providers/local/remove") { request, context async throws -> LocalModelInfo in
+        let body = try await request.decode(as: LocalModelRequest.self, context: context)
+        var inUse: Set<String> = [ModelConfig.chatModel(for: .local)]
+        switch await modelProvider.local.snapshot() {
+        case .ready(let loaded): inUse.insert(loaded)
+        case .loading: inUse.insert(body.model)  // which model is loading is not reported: refuse
+        case .cold, .failed: break
+        }
+        do {
+            try await modelProvider.localModels.remove(
+                body.model, inUse: inUse, kept: ModelConfig.defaultLocalModel)
+        } catch let error as LocalModelStoreError {
+            switch error {
+            case .invalidID: throw HTTPError(.badRequest, message: error.description)
+            case .unavailable: throw HTTPError(.serviceUnavailable, message: error.description)
+            case .inUse, .keptModel, .downloading: throw HTTPError(.conflict, message: error.description)
+            }
+        }
+        context.logger.info("[Providers] removed on-device \(body.model)")
+        return LocalModelInfo(id: body.model, disk: await modelProvider.localModels.disk(body.model))
     }
 
     /// One of the caller's SinatraHarness traces: how the injection moved the logits, and what

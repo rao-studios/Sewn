@@ -31,6 +31,9 @@ func handleChatCompletions(
     // Before retrieval, Sinatra or anything else reads the turn: a local-only
     // caller runs on-device or not at all.
     let provider = try context.admittedProvider(chatRequest.provider)
+    // The model an on-device turn names is this Mac's on-device model from here on:
+    // compaction, recap and auto-memory inside the turn run it too, instead of the default.
+    if provider.isLocal, let model = chatRequest.model { ModelConfig.chooseLocalModel(model) }
     if let problem = chatRequest.sinatra?.validationError {
         throw HTTPError(.badRequest, message: problem)
     }

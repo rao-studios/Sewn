@@ -88,8 +88,10 @@ actor LocalInference {
         self.logger = logger
         self.gpuPreflight = gpuPreflight
         let store = storeDirectory ?? LocalStore.directory(root: FilePersistence.getDefaultURL())
+        // Models load from, and download into, ~/.rao's models folder: LocalModels.home.
         self.harness = SinatraHarness.Harness(
             storeDirectory: store, configuration: Self.sinatraConfiguration(),
+            downloader: HubDownloader(home: LocalModels.home()),
             log: SinatraLogBridge(logger: logger))
     }
 

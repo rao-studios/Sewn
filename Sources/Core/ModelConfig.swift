@@ -43,6 +43,21 @@ enum ModelConfig {
     /// Runtime overrides from `PUT /v1/admin/model`. Empty = follow the env.
     private static let overrides = LockedValue<(chat: String, utility: String)>(("", ""))
 
+    /// The on-device model a client chose (Ambient's Settings › On-device): set by a warm or
+    /// an on-device request that names one. One Sewn serves the Mac, so the last choice
+    /// wins. Empty = `SEWN_LOCAL_MODEL`, else the default.
+    private static let localChoice = LockedValue<String>("")
+
+    /// Make `model` the on-device model every local job runs — replies, `/v1/complete`,
+    /// compaction, recap and auto-memory alike — so a client's choice never has the
+    /// harness swapping between it and the default. Nil or empty clears the choice; an id
+    /// that is not an on-device model is ignored.
+    static func chooseLocalModel(_ model: String?) {
+        let model = model ?? ""
+        guard model.isEmpty || accepts(model, provider: .local) else { return }
+        localChoice.withLock { $0 = model }
+    }
+
     /// The chat model for one provider.
     static func chatModel(for provider: LLMProvider) -> String {
         let override = overrides.withLock { $0.chat }
@@ -55,6 +70,8 @@ enum ModelConfig {
         case .tinker:
             return environment("TINKER_MODEL") ?? defaultTinkerModel
         case .local:
+            let chosen = localChoice.withLock { $0 }
+            if !chosen.isEmpty { return chosen }
             return environment("SEWN_LOCAL_MODEL") ?? defaultLocalModel
         }
     }

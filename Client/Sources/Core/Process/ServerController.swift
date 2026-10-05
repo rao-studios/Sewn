@@ -39,7 +39,8 @@ struct ThreadNodeConfig: Codable, Equatable, Identifiable {
     var graphExtraction: Bool = true
     /// Extraction backend passed as `--graph-backend`: "mlx" (on-device) or "mistral" (API).
     var graphBackend: String = "mlx"
-    var graphModel: String = "mlx-community/Qwen3-1.7B-4bit"
+    /// Thread's own default: Mistral Nemo, the standard on-device model in ~/.rao.
+    var graphModel: String = "mlx-community/Mistral-Nemo-Instruct-2407-4bit"
 
     var label: String { "thread-\(String(nodeId.uuidString.prefix(8)).lowercased())" }
 

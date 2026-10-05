@@ -550,7 +550,7 @@ Powered by [Supabase](https://supabase.com) via [supabase-swift](https://github.
 
 ### Without an account (local stack)
 
-A Sewn launched on a shared `~/.rao` stack knows which app is calling from the stack secret the request carries (`StackSecretMiddleware`). On six routes, a request from such an app with **no** `Authorization` header at all is let through without an account, so an app can run the on-device lane before anyone signs in:
+A Sewn launched on a shared `~/.rao` stack knows which app is calling from the stack secret the request carries (`StackSecretMiddleware`). On nine routes, a request from such an app with **no** `Authorization` header at all is let through without an account, so an app can run the on-device lane before anyone signs in:
 
 | Method | Path |
 |--------|------|
@@ -558,6 +558,9 @@ A Sewn launched on a shared `~/.rao` stack knows which app is calling from the s
 | `POST` | `/v1/complete` |
 | `GET` | `/v1/providers` |
 | `POST` | `/v1/providers/local/warm` |
+| `GET` | `/v1/providers/local/models` |
+| `POST` | `/v1/providers/local/download` |
+| `POST` | `/v1/providers/local/remove` |
 | `GET` | `/v1/providers/local/sinatra/traces/{traceId}` |
 | `GET` | `/v1/providers/local/sinatra/analysis` |
 
@@ -569,7 +572,7 @@ Route-level detail for every endpoint lives in [`Skills/SystemReference/RouteRef
 
 ## API Reference
 
-All endpoints below require `Authorization: Bearer <access_token>` unless noted. On a local stack, the six routes above also answer an app with no account.
+All endpoints below require `Authorization: Bearer <access_token>` unless noted. On a local stack, the nine routes above also answer an app with no account.
 
 ### System
 
@@ -706,8 +709,15 @@ flowchart TB
 |--------|------|-------------|
 | `GET` | `/v1/providers` | Every backend: `available`, `state`, `model`, `capabilities`, and `reason` when it cannot serve |
 | `POST` | `/v1/providers/local/warm` | Load the on-device model now, so the first turn does not pay for it. Idempotent |
+| `GET` | `/v1/providers/local/models?ids=org/a,org/b` | Whether each on-device model is on this Mac: `absent`, `downloading` (with `progress`), `installed` or `failed` (with `reason`) |
+| `POST` | `/v1/providers/local/download` | `{"model": "<hub id>"}`: fetch it without loading it. Joins a download already running |
+| `POST` | `/v1/providers/local/remove` | `{"model": "<hub id>"}`: delete it from this Mac. 409 for the model in use or loading, and for the default |
 
-Both answer a local stack's app with no account (see Authentication), as does the SinatraHarness trace and analysis pair.
+All of these answer a local stack's app with no account (see Authentication), as does the SinatraHarness trace and analysis pair.
+
+**The on-device model.** The model a client warms, or names on an on-device chat or `/v1/complete` request, becomes this Mac's on-device model until another is chosen: compaction, recap, auto-memory and `/v1/complete` run it too, so the harness never swaps between it and the default mid-turn. One Sewn serves the Mac, so the last choice wins; with none, `SEWN_LOCAL_MODEL`, else Nemo. "On disk" and the download use the same lookup and fetch as a load (FrigateBridge's `HubDownloader(home:)`).
+
+**Where models live: `~/.rao/models/huggingface`, always.** Sewn loads, downloads and removes on-device models only in RaoStack's models folder (`RaoHome.resolved().huggingFaceHome`: `$RAO_HOME/models/huggingface`, else `~/.rao`'s). `HF_HOME` and the `hfHome` field of `~/.rao/sewn/config.json` do not move it, and nothing goes to Frigate's own default (`~/.cache/huggingface`). Each download also keeps the Hub's cache copy beside it, in `hub/`; removing a model deletes both. Point a dev run at a scratch home with `RAO_HOME`.
 
 **Which routes honor it**
 
@@ -734,7 +744,7 @@ What it learns from is the answer itself, not the user's reply. After each turn 
 * **Request.** An optional `sinatra` object on `/v1/chat/completions` (and the realtime `turn.start`): `{"mode": "off|lexical|dense", "trace": "automatic|off|summary|full", "seed": 1, "record": true}`. `record: false` plans, traces and measures without recording the turn.
 * **Response.** On-device turns end the SSE stream with a metadata chunk carrying `sinatra`. The non-stream response carries the same object. It holds the turn id, mode, cold start, the partitions weighed, the bias size, the gate and the owner's counts. When the injection ran it also carries a trace summary: entropy before and after, KL, gain, divergence rate, and mass moved into the impact mask. `grounding` is the measurement: the grounded share of content tokens, drift, context dependence, hallucination risk, parroting, and per-partition citations (nats, uptake, coverage).
 * **`GET /v1/providers`.** The local row gains `sinatra` for the signed-in owner: observations, labelled, `turns_measured`, `grounding_mean`, `drift_mean`, `hallucination_risk_mean`, `trained_at`, reliability, `last_bias_magnitude` and store.
-* **`POST /v1/providers/local/warm`.** Accepts an optional `{"model": "<hub id>"}` so a client can warm the model it will actually use.
+* **`POST /v1/providers/local/warm`.** Accepts an optional `{"model": "<hub id>"}` so a client can warm the model it will actually use; that model becomes the Mac's on-device model.
 * **`GET /v1/providers/local/sinatra/traces/{id}`.** One of your turns, step by step, in two layers. The injection layer shows the sampled and counterfactual token, entropy, KL, gain, ranks, and Δp over the impact mask. The grounding layer shows each token's influence, the step's KL, where the context pushed, and drift.
 * **`GET /v1/providers/local/sinatra/analysis`.** Grounding over your band: whether steering reduced drift, the first half of the band against the second, and which documents your answers cite.
 * **Environment.** `SEWN_SINATRA_MODE`, `SEWN_SINATRA_TRACE` and `SEWN_SINATRA_ALPHA` set the defaults. The store lives under the data root in `sinatra-harness/`; one left in `sinatra-mlx/` by the SinatraMLX-era build moves there on first start. Sampling from the request (temperature, top_p, repetition) is honoured on-device.
@@ -744,7 +754,7 @@ Try it from the terminal with `sewn-probe`, which signs in with `SEWN_DEV_EMAIL`
 
 ```sh
 ./scripts/build-metallib.sh debug && swift build
-env -u HF_HOME SEWN_GLOBAL_LLM=local \
+SEWN_GLOBAL_LLM=local \
   SEWN_LOCAL_MODEL=mlx-community/Mistral-Small-3.2-24B-Instruct-2506-4bit \
   .build/debug/sewn-server --port 8080 --grpc-port 9091
 swift run sewn-probe providers

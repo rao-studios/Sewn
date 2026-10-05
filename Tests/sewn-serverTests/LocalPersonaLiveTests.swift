@@ -12,7 +12,7 @@
 //    SEWN_LOCAL_PERSONA_TESTS=1 \
 //    SEWN_PERSONA_BEFORE=before.json [SEWN_PERSONA_AFTER=after.json] \
 //    [SEWN_PERSONA_RUNS=5] [SEWN_PERSONA_VARIANTS=today,history,local,local+name] \
-//    [SEWN_PERSONA_REPORT=report.md] HF_HOME=~/.rao/models/huggingface \
+//    [SEWN_PERSONA_REPORT=report.md] \
 //    swift test --filter LocalPersonaLiveTests
 //
 

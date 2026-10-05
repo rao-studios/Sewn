@@ -35,6 +35,9 @@ enum LocalOnlyGrant {
         Route(method: .post, endpointPath: "/v1/complete"),
         Route(method: .get, endpointPath: "/v1/providers"),
         Route(method: .post, endpointPath: "/v1/providers/local/warm"),
+        Route(method: .get, endpointPath: "/v1/providers/local/models"),
+        Route(method: .post, endpointPath: "/v1/providers/local/download"),
+        Route(method: .post, endpointPath: "/v1/providers/local/remove"),
         Route(method: .get, endpointPath: "/v1/providers/local/sinatra/traces/{traceId}"),
         Route(method: .get, endpointPath: "/v1/providers/local/sinatra/analysis"),
     ]
