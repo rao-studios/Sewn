@@ -20,8 +20,10 @@ final class ModelProvider {
             .mistral: NetworkService(logger: logger, base: .mistral),
             .tinker: NetworkService(logger: logger, base: .tinker),
         ]
-        self.local = LocalInference(logger: logger)
-        self.localModels = LocalModelStore(logger: logger)
+        let models = LocalModelStore(logger: logger)
+        self.localModels = models
+        // The harness downloads through the same store Settings' Download uses: one fetch per model.
+        self.local = LocalInference(logger: logger, models: models)
 
         guard FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first != nil else {
             fatalError("Could not find documents directory")

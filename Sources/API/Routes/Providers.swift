@@ -55,8 +55,11 @@ struct ProvidersResponse: Codable, ResponseEncodable {
 }
 
 /// Optional body of `POST /v1/providers/local/warm`: the model the client will ask for.
+/// `load: false` only makes it the Mac's on-device model, without loading it (a client
+/// whose replies are hosted still chose the model its on-device jobs run).
 struct ProviderWarmRequest: Codable {
     var model: String?
+    var load: Bool?
 }
 
 struct ProviderWarmResponse: Codable, ResponseEncodable {
@@ -173,9 +176,8 @@ func registerProvidersRoutes(
                 .serviceUnavailable, message: ProviderUnavailable.localNotBuilt.description)
         }
         var model = ModelConfig.chatModel(for: .local)
-        if let body = try? await request.decode(as: ProviderWarmRequest.self, context: context),
-            let requested = body.model, !requested.isEmpty
-        {
+        let body = try? await request.decode(as: ProviderWarmRequest.self, context: context)
+        if let requested = body?.model, !requested.isEmpty {
             guard ModelConfig.accepts(requested, provider: .local) else {
                 throw HTTPError(.badRequest, message: "\(requested) is not an on-device model id.")
             }
@@ -183,9 +185,13 @@ func registerProvidersRoutes(
             // The client's choice is the Mac's on-device model: every local job follows it.
             ModelConfig.chooseLocalModel(requested)
         }
-        context.logger.info("[Providers] warming on-device \(model)")
         let local = modelProvider.local
-        Task { await local.warm(modelID: model) }
+        if body?.load == false {
+            context.logger.info("[Providers] on-device model is now \(model) (not loaded)")
+        } else {
+            context.logger.info("[Providers] warming on-device \(model)")
+            Task { await local.warm(modelID: model) }
+        }
         let state = await local.snapshot()
         return ProviderWarmResponse(accepted: true, state: state.name, model: model)
     }

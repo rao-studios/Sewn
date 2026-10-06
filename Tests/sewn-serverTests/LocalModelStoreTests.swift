@@ -95,30 +95,47 @@ final class LocalModelStoreLiveTests: XCTestCase {
 
         let before = await store.disk(id)
         XCTAssertEqual(before, .absent)
+        // Settings starts the download; a load of the same model (the harness's downloader is
+        // this store) joins it rather than fetching again, and hears its progress.
         try await store.download(id)
-        var sawDownloading = false
-        for _ in 0..<600 {
-            let disk = await store.disk(id)
-            if case .downloading = disk { sawDownloading = true }
-            if disk == .installed { break }
-            if case .failed(let reason) = disk { XCTFail(reason); return }
-            try await Task.sleep(for: .milliseconds(500))
-        }
-        XCTAssertTrue(sawDownloading)
+        let joined = await store.disk(id)
+        guard case .downloading = joined else { return XCTFail("expected a download running, got \(joined)") }
+        let heard = LockedValue(0)
+        let loaded = try await store.download(
+            id: id, revision: nil, matching: LocalModelStore.patterns, useLatest: false,
+            progressHandler: { _ in heard.withLock { $0 += 1 } })
+        XCTAssertEqual(loaded.path, home.appending(path: "snapshots/models/\(id)").path)
+        XCTAssertGreaterThan(heard.withLock { $0 }, 0, "a joined load hears the download's progress")
         let fetched = await store.disk(id)
         XCTAssertEqual(fetched, .installed)
-        // Both copies a download makes are inside the home: the snapshot and the Hub's cache.
+        // One copy, inside the home: the snapshot, and no Hub blob cache beside it.
         let snapshot = await store.directory(of: id)
         XCTAssertEqual(snapshot?.path, home.appending(path: "snapshots/models/\(id)").path)
         let cached = home.appending(path: "hub").appending(path: "models--" + id.replacingOccurrences(of: "/", with: "--"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: cached.path(percentEncoded: false)))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cached.path(percentEncoded: false)))
+
+        // A failure on record never hides a copy now on disk.
+        let missing = "rao-tests/no-such-model-\(UUID().uuidString.prefix(8).lowercased())"
+        try await store.download(missing)
+        for _ in 0..<120 {
+            if case .failed = await store.disk(missing) { break }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        guard case .failed = await store.disk(missing) else { return XCTFail("a missing repo should fail") }
+        let fake = home.appending(path: "snapshots/models/\(missing)")
+        try FileManager.default.createDirectory(at: fake, withIntermediateDirectories: true)
+        for name in ["config.json", "tokenizer.json", "model.safetensors"] {
+            try Data("{}".utf8).write(to: fake.appending(path: name))
+        }
+        let healed = await store.disk(missing)
+        XCTAssertEqual(healed, .installed)
+        try FileManager.default.removeItem(at: home.appending(path: "snapshots/models/rao-tests"))
 
         try await store.remove(id, inUse: [], kept: ModelConfig.defaultLocalModel)
         let after = await store.disk(id)
         XCTAssertEqual(after, .absent)
         let gone = await store.directory(of: id)
         XCTAssertNil(gone)
-        // The Hub cache keeps a second copy of every file; removal frees it too.
         XCTAssertFalse(FileManager.default.fileExists(atPath: cached.path(percentEncoded: false)))
     }
 }

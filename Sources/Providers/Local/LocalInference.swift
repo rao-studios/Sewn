@@ -84,14 +84,17 @@ actor LocalInference {
     private let gpuPreflight: Bool
 
     /// SinatraHarness keeps its ledgers, weight models and traces under the data root.
-    init(logger: Logger, storeDirectory: URL? = nil, gpuPreflight: Bool = true) {
+    /// `models`: the store every download of a model goes through (ModelProvider's), so a load
+    /// and Settings' Download of one model never fetch it twice at once.
+    init(logger: Logger, storeDirectory: URL? = nil, gpuPreflight: Bool = true, models: LocalModelStore? = nil) {
         self.logger = logger
         self.gpuPreflight = gpuPreflight
         let store = storeDirectory ?? LocalStore.directory(root: FilePersistence.getDefaultURL())
-        // Models load from, and download into, ~/.rao's models folder: LocalModels.home.
+        // Models load from, and download into, ~/.rao's models folder (LocalModels.home),
+        // through the model store when there is one.
         self.harness = SinatraHarness.Harness(
             storeDirectory: store, configuration: Self.sinatraConfiguration(),
-            downloader: HubDownloader(home: LocalModels.home()),
+            downloader: models ?? LocalModelStore(logger: logger),
             log: SinatraLogBridge(logger: logger))
     }
 
@@ -443,7 +446,7 @@ struct SinatraLogBridge: SinatraHarness.SinatraLog {
 /// Linux Sewn answers 503 rather than failing to compile.
 actor LocalInference {
 
-    init(logger: Logger, storeDirectory: URL? = nil, gpuPreflight: Bool = true) {}
+    init(logger: Logger, storeDirectory: URL? = nil, gpuPreflight: Bool = true, models: LocalModelStore? = nil) {}
 
     var isBuilt: Bool { false }
 
