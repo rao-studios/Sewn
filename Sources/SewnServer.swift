@@ -46,8 +46,8 @@ func configureRoutes(
         modelProvider: modelProvider,
         isVLM: isVLM
     )
-    registerVisionLookRoute(protected)
-    registerVisionOntologyRoute(protected)
+    registerVisionLookRoute(protected, vision: modelProvider.vision)
+    registerVisionOntologyRoute(protected, vision: modelProvider.vision)
     registerProvidersRoutes(protected, modelProvider: modelProvider)
     registerCompleteRoute(protected, modelProvider: modelProvider)
     registerSkillsCompleteRoute(protected, modelProvider: modelProvider)

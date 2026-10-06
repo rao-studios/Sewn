@@ -26,6 +26,12 @@ struct VisionLookRequest: Codable {
     let pageText: String?
     let direction: String?
     let authoringContract: String?
+    /// Hosted or on-device, as for chat; absent, the server default. A caller with no
+    /// account gets `local` or a 401 (`LocalOnlyGrant`).
+    var provider: LLMProvider? = nil
+    /// On-device only: `org/repo[@revision]` or an absolute snapshot directory. Absent,
+    /// `ModelConfig.localVisionModel`. Ignored by the hosted lane.
+    var model: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case image
@@ -35,6 +41,8 @@ struct VisionLookRequest: Codable {
         case pageText = "page_text"
         case direction
         case authoringContract = "authoring_contract"
+        case provider
+        case model
     }
 }
 
@@ -89,13 +97,21 @@ func visionLookUserText(pageTitle: String?, pageText: String?, direction: String
         : contextLines.joined(separator: "\n")
 }
 
+/// The answer's budget per mode, the same on either lane.
+func visionLookMaxTokens(mode: String) -> Int {
+    mode == "design_plan" ? 4096 : 800
+}
+
 // MARK: - Route registration
 
 func registerVisionLookRoute(
-    _ router: some RouterMethods<SewnRequestContext>
+    _ router: some RouterMethods<SewnRequestContext>,
+    vision: LocalVision
 ) {
     router.post("/v1/vision/look") { request, context async throws -> VisionLookResponse in
         let look = try await request.decode(as: VisionLookRequest.self, context: context)
+        // Before anything is dialled: a local-only caller runs on-device or not at all.
+        let provider = try context.admittedProvider(look.provider)
 
         guard !look.image.isEmpty else {
             throw HTTPError(.badRequest, message: "image is required")
@@ -120,12 +136,20 @@ func registerVisionLookRoute(
             }
         }
 
-        context.logger.info("[VisionLook] mode: \(look.mode), media: \(look.mediaType), image b64 bytes: \(look.image.utf8.count)")
+        context.logger.info("[VisionLook] provider: \(provider.rawValue), mode: \(look.mode), media: \(look.mediaType), image b64 bytes: \(look.image.utf8.count)")
 
         let system = visionLookSystemPrompt(
             mode: look.mode, authoringContract: look.authoringContract)
         let userText = visionLookUserText(
             pageTitle: look.pageTitle, pageText: look.pageText, direction: look.direction)
+
+        if provider.isLocal {
+            let (text, _) = try await localVisionAnswer(
+                image: look.image, model: look.model, vision: vision, logger: context.logger,
+                instructions: system, prompt: userText,
+                maxTokens: visionLookMaxTokens(mode: look.mode), temperature: 0.2)
+            return VisionLookResponse(text: text)
+        }
 
         let network = NetworkService(logger: context.logger, base: .mistral)
         let response: Requests.VisionChat.Get.Result
@@ -136,7 +160,7 @@ func registerVisionLookRoute(
                     system: system,
                     userText: userText,
                     imageDataURL: "data:\(look.mediaType);base64,\(look.image)",
-                    maxTokens: look.mode == "design_plan" ? 4096 : 800))
+                    maxTokens: visionLookMaxTokens(mode: look.mode)))
         } catch {
             context.logger.error("[VisionLook] upstream failure: \(error)")
             throw HTTPError(.badGateway, message: "vision model unavailable")

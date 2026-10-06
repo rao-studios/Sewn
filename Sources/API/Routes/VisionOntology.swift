@@ -27,11 +27,19 @@ struct VisionOntologyRequest: Codable {
     let image: String
     let mediaType: String
     let hint: String?
+    /// Hosted or on-device, as for chat; absent, the server default. A caller with no
+    /// account gets `local` or a 401 (`LocalOnlyGrant`).
+    var provider: LLMProvider? = nil
+    /// On-device only: `org/repo[@revision]` or an absolute snapshot directory. Absent,
+    /// `ModelConfig.localVisionModel`. Ignored by the hosted lane.
+    var model: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case image
         case mediaType = "media_type"
         case hint
+        case provider
+        case model
     }
 }
 
@@ -267,10 +275,13 @@ enum VisionOntologyParser {
 // MARK: - Route registration
 
 func registerVisionOntologyRoute(
-    _ router: some RouterMethods<SewnRequestContext>
+    _ router: some RouterMethods<SewnRequestContext>,
+    vision: LocalVision
 ) {
     router.post("/v1/vision/ontology") { request, context async throws -> VisionOntologyResponse in
         let body = try await request.decode(as: VisionOntologyRequest.self, context: context)
+        // Before anything is dialled: a local-only caller runs on-device or not at all.
+        let provider = try context.admittedProvider(body.provider)
 
         guard !body.image.isEmpty else {
             throw HTTPError(.badRequest, message: "image is required")
@@ -289,8 +300,12 @@ func registerVisionOntologyRoute(
         let hasHint = !(body.hint ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         context.logger.info(
-            "[VisionOntology] media: \(body.mediaType), image b64 bytes: \(body.image.utf8.count), hint: \(hasHint ? "yes" : "no")"
+            "[VisionOntology] provider: \(provider.rawValue), media: \(body.mediaType), image b64 bytes: \(body.image.utf8.count), hint: \(hasHint ? "yes" : "no")"
         )
+
+        if provider.isLocal {
+            return try await localVisionOntology(body, vision: vision, logger: context.logger)
+        }
 
         let model = ModelConfig.visionModel
         let system = visionOntologySystemPrompt()

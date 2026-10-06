@@ -13,6 +13,9 @@ final class ModelProvider {
     let local: LocalInference
     /// The on-device models on this Mac's disk: what a client's model picker reads and fetches.
     let localModels: LocalModelStore
+    /// This machine's vision model, in its own slot beside the chat harness. Never dialled
+    /// unless a vision request selects `.local`.
+    let vision: LocalVision
 
     init(logger: Logger) {
         self.logger = logger
@@ -24,6 +27,7 @@ final class ModelProvider {
         self.localModels = models
         // The harness downloads through the same store Settings' Download uses: one fetch per model.
         self.local = LocalInference(logger: logger, models: models)
+        self.vision = LocalVision(logger: logger, models: models)
 
         guard FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first != nil else {
             fatalError("Could not find documents directory")

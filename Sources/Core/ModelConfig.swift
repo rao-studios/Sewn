@@ -143,6 +143,27 @@ enum ModelConfig {
         ProcessInfo.processInfo.environment["VISION_MODEL"] ?? "mistral-medium-latest"
     }
 
+    // MARK: - On-device vision
+
+    /// Rao's MLX conversion of Ministral 3 8B Instruct (Veil's scripts/vision), the vision
+    /// model every Rao app reads pictures with on this Mac, through `LocalVision`. Bumping
+    /// the revision is how a new conversion ships.
+    static let defaultLocalVisionModel = "rao-studios/Ministral-3-8B-Instruct-2512-mlx-8bit"
+    static let defaultLocalVisionRevision = "3d71052d4c126d816a5a73df75222ecee8de3036"
+
+    /// The on-device vision model a request gets when it names none: `SEWN_LOCAL_VISION_MODEL`
+    /// (`org/repo[@revision]`, or an absolute snapshot directory), else the pinned conversion.
+    static var localVisionModel: String {
+        environment("SEWN_LOCAL_VISION_MODEL")
+            ?? "\(defaultLocalVisionModel)@\(defaultLocalVisionRevision)"
+    }
+
+    /// Seconds with no picture before the vision model is let go (`SEWN_LOCAL_VISION_IDLE_SECONDS`,
+    /// at least 10). It is about ten gigabytes beside the chat model.
+    static var localVisionIdleSeconds: TimeInterval {
+        environment("SEWN_LOCAL_VISION_IDLE_SECONDS").flatMap(TimeInterval.init).map { max(10, $0) } ?? 300
+    }
+
     // MARK: - Realtime opening pass
 
     /// Model that speaks the realtime route's instant opening while retrieval

@@ -728,7 +728,8 @@ All of these answer a local stack's app with no account (see Authentication), as
 | `/v1/complete` | ✅ | ✅ | ✅ |
 | realtime **opening** pass | mistral-small | mistral-small | **skipped** — the grounded stream carries the turn rather than sending it off-machine |
 | Sinatra sentiment / resonance, auto-memory, compaction | mistral-tiny | mistral-tiny | follows the turn; **off** unless `SEWN_LOCAL_UTILITY=1` (on one GPU these serialize behind every turn) |
-| `/v1/vision/look`, `/v1/embed`, `/v1/embeddings`, `/v1/speak` | Mistral | Mistral | Mistral — no on-device equivalent yet |
+| `/v1/vision/look`, `/v1/vision/ontology` | Mistral | Mistral | **on this Mac**: Rao's Ministral 3 8B conversion (`rao-studios/Ministral-3-8B-Instruct-2512-mlx-8bit`, pinned in `ModelConfig`) in its own slot beside the chat model, loaded on the first picture and let go after `SEWN_LOCAL_VISION_IDLE_SECONDS` (300) with none. `POST /v1/providers/local/download` fetches it at the pinned commit (Ambient's Settings › On-device asks for it this way, and sends no picture on-device until it is there); `…/local/remove` deletes it unless the slot holds it; the local row of `GET /v1/providers` names it (`vision_model`) and says whether it is loaded (`vision_state`). A request may name another `model` (`org/repo[@rev]` or an absolute snapshot directory). Never falls back to a vendor. |
+| `/v1/embed`, `/v1/embeddings`, `/v1/speak` | Mistral | Mistral | Mistral — no on-device equivalent yet |
 
 A turn on `local` therefore makes **no outbound request at all**: sentiment,
 compaction and auto-memory follow the turn's backend rather than quietly
@@ -1008,11 +1009,14 @@ METRICS_TOKEN=<random-secret>   # guards GET /metrics; Alloy sends it automatica
 
 # Which backend answers when a request names none. mistral | tinker | local
 SEWN_GLOBAL_LLM=mistral
-MISTRAL_API_KEY=<key>           # needed for vision, embeddings and speech whatever else is chosen
+MISTRAL_API_KEY=<key>           # needed for embeddings and speech whatever else is chosen, and for hosted vision
 TINKER_API_KEY=<key>            # only for the tinker provider
 TINKER_MODEL=thinkingmachines/Inkling-Small
 # On-device (macOS). Needs ./scripts/build-metallib.sh — see Providers above.
 SEWN_LOCAL_MODEL=mlx-community/Mistral-Nemo-Instruct-2407-4bit
+# On-device vision (provider: local on /v1/vision/*). org/repo[@revision] or a snapshot directory.
+SEWN_LOCAL_VISION_MODEL=rao-studios/Ministral-3-8B-Instruct-2512-mlx-8bit@3d71052d4c126d816a5a73df75222ecee8de3036
+SEWN_LOCAL_VISION_IDLE_SECONDS=300
 SEWN_LOCAL_UTILITY=0            # 1 lets Sinatra/auto-memory/compaction run on-device too
 ```
 
@@ -1091,8 +1095,8 @@ Four pre-built dashboards in [`Dashboards/`](Dashboards/). Import via **Grafana 
 - macOS 15+ — `Package.swift` declares `.macOS(.v15)`; the on-device MLX
   provider is macOS-only and its call sites are behind `#if canImport(MLXLLM)`
 - A running Supabase project (self-hosted or cloud)
-- A Mistral API key — vision, embeddings, and speech have no on-device
-  equivalent yet, whichever chat provider is selected
+- A Mistral API key — embeddings and speech have no on-device equivalent yet,
+  whichever chat provider is selected; vision has one (`provider: local`)
 - One or more running [Thread](https://github.com/riteshpakala/Totem) nodes
 - [`Frigate`](https://github.com/rao-studios/Frigate) (the vendored MLX stack)
   checked out beside this repository — it is still a path dependency.

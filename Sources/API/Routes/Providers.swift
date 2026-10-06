@@ -23,7 +23,9 @@ struct ProviderCapabilities: Codable, ResponseEncodable {
     var skills: Bool
     var code: Bool
     var complete: Bool
-    /// Vision, embeddings and speech are Mistral-served for every provider.
+    /// Embeddings and speech are Mistral-served for every provider. Vision is reported for
+    /// the local row only: this Mac's vision model (LocalVision) answers `/v1/vision/*`
+    /// when a request asks for `provider: local`.
     var vision: Bool
     var embeddings: Bool
     var speech: Bool
@@ -41,11 +43,18 @@ struct ProviderInfo: Codable, ResponseEncodable {
     var reason: String?
     /// SinatraHarness for the signed-in owner — the local row only.
     var sinatra: SinatraStatusInfo?
+    /// The vision model a `provider: local` picture runs on, as a catalogue entry names it —
+    /// the local row only, when this build has the vision slot.
+    var visionModel: String? = nil
+    /// Whether that slot holds the model now: "cold" | "loading" | "ready". Local row only.
+    var visionState: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, available, state, progress, model, capabilities, reason, sinatra
         case displayName = "display_name"
         case isDefault = "default"
+        case visionModel = "vision_model"
+        case visionState = "vision_state"
     }
 }
 
@@ -103,11 +112,13 @@ func providerInfo(
     _ provider: LLMProvider,
     localState: LocalState,
     localBuilt: Bool,
+    visionBuilt: Bool = false,
+    visionState: String? = nil,
     sinatra: SinatraStatusInfo? = nil
 ) -> ProviderInfo {
     let hostedCapabilities = ProviderCapabilities(
         chat: true, skills: true, code: true, complete: true,
-        vision: false, embeddings: false, speech: false)
+        vision: provider == .local && visionBuilt, embeddings: false, speech: false)
     var available = true
     var reason: String?
     var state = "ready"
@@ -144,7 +155,9 @@ func providerInfo(
         model: ModelConfig.chatModel(for: provider),
         capabilities: hostedCapabilities,
         reason: reason,
-        sinatra: provider == .local ? sinatra : nil)
+        sinatra: provider == .local ? sinatra : nil,
+        visionModel: provider == .local && visionBuilt ? (try? LocalVisionModel.parse(nil))?.name : nil,
+        visionState: provider == .local && visionBuilt ? visionState : nil)
 }
 
 func registerProvidersRoutes(
@@ -154,13 +167,16 @@ func registerProvidersRoutes(
     router.get("/v1/providers") { _, context async throws -> ProvidersResponse in
         let state = await modelProvider.local.snapshot()
         let built = await modelProvider.local.isBuilt
+        let visionBuilt = await modelProvider.vision.isBuilt
+        let visionState = await modelProvider.vision.stateName
         var sinatra: SinatraStatusInfo?
         if built, let owner = context.authUserId?.lowercased() {
             sinatra = await modelProvider.local.sinatraStatus(owner: owner)
         }
         return ProvidersResponse(
             providers: LLMProvider.allCases.map {
-                providerInfo($0, localState: state, localBuilt: built, sinatra: sinatra)
+                providerInfo($0, localState: state, localBuilt: built, visionBuilt: visionBuilt,
+                             visionState: visionState, sinatra: sinatra)
             },
             default: LLMProvider.serverDefault.rawValue)
     }
@@ -215,17 +231,27 @@ func registerProvidersRoutes(
     router.post("/v1/providers/local/download") { request, context async throws -> LocalModelInfo in
         let body = try await request.decode(as: LocalModelRequest.self, context: context)
         do {
-            try await modelProvider.localModels.download(body.model)
+            // The vision model at the commit Sewn pins, never the repo's latest.
+            let revision = body.model == ModelConfig.defaultLocalVisionModel ? ModelConfig.defaultLocalVisionRevision : nil
+            try await modelProvider.localModels.download(body.model, revision: revision)
         } catch let error as LocalModelStoreError {
             throw HTTPError(error == .unavailable ? .serviceUnavailable : .badRequest, message: error.description)
         }
         return LocalModelInfo(id: body.model, disk: await modelProvider.localModels.disk(body.model))
     }
 
-    /// Delete an on-device model from this Mac. Refused for the model in use or loading,
-    /// and for the default, which other apps expect on disk.
+    /// Delete an on-device model from this Mac. Refused for the model in use or loading —
+    /// the vision model while its slot holds it, too — and for the chat default, which other
+    /// apps expect on disk. The vision model may otherwise go: a client downloads it again
+    /// on request (Ambient's Settings › On-device).
     router.post("/v1/providers/local/remove") { request, context async throws -> LocalModelInfo in
         let body = try await request.decode(as: LocalModelRequest.self, context: context)
+        // The vision slot holding it is a wait, not a choice to change: it is let go on its own.
+        if await modelProvider.vision.activeHubIDs.contains(body.model) {
+            throw HTTPError(
+                .conflict,
+                message: "\(body.model) is reading pictures right now; it can be removed once it is let go, after \(Int(ModelConfig.localVisionIdleSeconds / 60)) idle minutes.")
+        }
         var inUse: Set<String> = [ModelConfig.chatModel(for: .local)]
         switch await modelProvider.local.snapshot() {
         case .ready(let loaded): inUse.insert(loaded)

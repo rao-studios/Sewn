@@ -40,6 +40,9 @@ enum LocalOnlyGrant {
         Route(method: .post, endpointPath: "/v1/providers/local/remove"),
         Route(method: .get, endpointPath: "/v1/providers/local/sinatra/traces/{traceId}"),
         Route(method: .get, endpointPath: "/v1/providers/local/sinatra/analysis"),
+        // Pictures on this Mac (LocalVision): the same hosted-or-local choice as chat.
+        Route(method: .post, endpointPath: "/v1/vision/look"),
+        Route(method: .post, endpointPath: "/v1/vision/ontology"),
     ]
 
     static func admits(method: HTTPRequest.Method, endpointPath: String?) -> Bool {

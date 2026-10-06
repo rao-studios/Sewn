@@ -70,6 +70,10 @@ let package = Package(
         .product(name: "MLX", package: "Frigate", condition: .when(platforms: [.macOS])),
         .product(name: "MLXLMCommon", package: "Frigate", condition: .when(platforms: [.macOS])),
         .product(name: "MLXLLM", package: "Frigate", condition: .when(platforms: [.macOS])),
+        // The on-device vision slot (LocalVision). Once this is linked, MLXLMCommon's
+        // registry would try the VLM factory first, so SinatraHarness loads chat models
+        // through LLMModelFactory by name.
+        .product(name: "MLXVLM", package: "Frigate", condition: .when(platforms: [.macOS])),
         .product(name: "FrigateBridge", package: "Frigate", condition: .when(platforms: [.macOS])),
         .product(name: "SinatraHarness", package: "SinatraHarness", condition: .when(platforms: [.macOS])),
       ],

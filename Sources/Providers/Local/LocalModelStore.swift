@@ -109,12 +109,13 @@ actor LocalModelStore: Downloader {
         return .absent
     }
 
-    /// Fetch without loading (Settings › On-device). Joins a fetch already running.
-    func download(_ id: String) throws {
+    /// Fetch without loading (Settings › On-device), at `revision` when one is pinned.
+    /// Joins a fetch already running.
+    func download(_ id: String, revision: String? = nil) throws {
         let id = try LocalModelStoreError.validated(id)
         failures[id] = nil
         guard fetches[id] == nil, directory(of: id) == nil else { return }
-        _ = fetch(id, revision: nil, patterns: Self.patterns, useLatest: false)
+        _ = fetch(id, revision: revision, patterns: Self.patterns, useLatest: false)
     }
 
     // MARK: Downloader — the harness's loads come through here too
@@ -207,7 +208,7 @@ actor LocalModelStore: Downloader {
 actor LocalModelStore {
     init(logger: Logger, home: URL = LocalModels.home()) {}
     func disk(_ id: String) -> LocalModelDisk { .failed(ProviderUnavailable.localNotBuilt.description) }
-    func download(_ id: String) throws { throw LocalModelStoreError.unavailable }
+    func download(_ id: String, revision: String? = nil) throws { throw LocalModelStoreError.unavailable }
     func remove(_ id: String, inUse: Set<String>, kept: String) throws { throw LocalModelStoreError.unavailable }
 }
 

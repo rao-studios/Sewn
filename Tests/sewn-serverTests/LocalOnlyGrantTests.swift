@@ -3,7 +3,7 @@
 //  sewn-serverTests
 //
 //  A local app with no account may take the on-device lane: the stack secret
-//  names it, and on nine routes that is identity enough. Everywhere else a
+//  names it, and on eleven routes that is identity enough. Everywhere else a
 //  bearer is still required, an open server grants nothing, a presented
 //  token is never downgraded, and a local-only caller asking for a hosted
 //  provider is refused before anything is dialled.
@@ -55,6 +55,8 @@ final class LocalOnlyGrantTests: XCTestCase {
         protected.post("/v1/providers/local/remove") { _, c in Self.whoami(c) }
         protected.get("/v1/providers/local/sinatra/traces/:traceId") { _, c in Self.whoami(c) }
         protected.get("/v1/providers/local/sinatra/analysis") { _, c in Self.whoami(c) }
+        protected.post("/v1/vision/look") { _, c in Self.whoami(c) }
+        protected.post("/v1/vision/ontology") { _, c in Self.whoami(c) }
         // Not granted: the same path under another method, and three account routes.
         protected.delete("/v1/providers/local/sinatra/traces/:traceId") { _, c in Self.whoami(c) }
         protected.post("/v1/search") { _, c in Self.whoami(c) }
@@ -73,6 +75,8 @@ final class LocalOnlyGrantTests: XCTestCase {
         (.post, "/v1/providers/local/remove"),
         (.get, "/v1/providers/local/sinatra/traces/\(UUID().uuidString)"),
         (.get, "/v1/providers/local/sinatra/analysis"),
+        (.post, "/v1/vision/look"),
+        (.post, "/v1/vision/ontology"),
     ]
 
     // MARK: - The grant
@@ -183,6 +187,8 @@ final class LocalOnlyGrantTests: XCTestCase {
         let modelProvider = ModelProvider(logger: Logger(label: "local-only-grant-tests"))
         try registerChatCompletionsRoute(protected, Sewn(stack: shared), modelProvider: modelProvider)
         registerCompleteRoute(protected, modelProvider: modelProvider)
+        registerVisionLookRoute(protected, vision: modelProvider.vision)
+        registerVisionOntologyRoute(protected, vision: modelProvider.vision)
         let headers: HTTPFields = [.ambientSecret: "s3cret", .contentType: "application/json"]
 
         try await Application(router: router).test(.router) { client in
@@ -201,6 +207,33 @@ final class LocalOnlyGrantTests: XCTestCase {
                 uri: "/v1/complete", method: .post, headers: headers,
                 body: ByteBuffer(string: complete)) { response in
                 XCTAssertEqual(response.status, .unauthorized)
+            }
+            // Pictures: hosted, or named nothing (the server default is hosted), is refused.
+            let image = Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString()
+            for provider in [#","provider":"mistral""#, ""] {
+                let look = #"{"image":"\#(image)","media_type":"image/png","mode":"describe"\#(provider)}"#
+                try await client.execute(
+                    uri: "/v1/vision/look", method: .post, headers: headers,
+                    body: ByteBuffer(string: look)) { response in
+                    XCTAssertEqual(response.status, .unauthorized, "look \(provider)")
+                }
+                let ontology = #"{"image":"\#(image)","media_type":"image/png"\#(provider)}"#
+                try await client.execute(
+                    uri: "/v1/vision/ontology", method: .post, headers: headers,
+                    body: ByteBuffer(string: ontology)) { response in
+                    XCTAssertEqual(response.status, .unauthorized, "ontology \(provider)")
+                }
+            }
+            // On-device is admitted without a bearer: a model it cannot name is the
+            // lane's own 400, reached before anything loads.
+            for uri in ["/v1/vision/look", "/v1/vision/ontology"] {
+                let local = #"{"image":"\#(image)","media_type":"image/png","mode":"describe","provider":"local","model":"not a model"}"#
+                try await client.execute(
+                    uri: uri, method: .post, headers: headers, body: ByteBuffer(string: local)) { response in
+                    XCTAssertEqual(response.status, .badRequest, uri)
+                    XCTAssertTrue(String(buffer: response.body).contains("not an on-device vision model"),
+                                  String(buffer: response.body))
+                }
             }
         }
     }
